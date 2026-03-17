@@ -68,7 +68,6 @@
   const clientFilterEl = document.getElementById('wp-pq-client-filter');
   const bucketFilterWrap = document.getElementById('wp-pq-bucket-filter-wrap');
   const bucketFilterEl = document.getElementById('wp-pq-bucket-filter');
-  const clearFiltersBtn = document.getElementById('wp-pq-clear-filters');
   const batchStatementBtn = document.getElementById('wp-pq-batch-statement');
   const createForm = document.getElementById('wp-pq-create-form');
   const createPanel = document.getElementById('wp-pq-create-panel');
@@ -97,7 +96,7 @@
   const currentTaskDescriptionEl = document.getElementById('wp-pq-current-task-description');
   const currentTaskActionsEl = document.getElementById('wp-pq-current-task-actions');
   const assignmentPanelEl = document.getElementById('wp-pq-assignment-panel');
-  const assignmentSummaryEl = document.getElementById('wp-pq-assignment-summary');
+  const assignmentFactsEl = document.getElementById('wp-pq-assignment-summary');
   const assignmentSelectEl = document.getElementById('wp-pq-assignment-select');
   const assignmentSaveBtn = document.getElementById('wp-pq-save-assignment');
   const meetingPanel = document.getElementById('wp-pq-meeting-panel');
@@ -419,10 +418,6 @@
       bucketFilterEl.value = String(filterState.billingBucketId || 0);
     }
 
-    if (clearFiltersBtn) {
-      clearFiltersBtn.hidden = !(filterState.clientUserId || filterState.billingBucketId);
-    }
-
     syncCreateFormContext();
   }
 
@@ -584,67 +579,62 @@
     return humanizeToken(status);
   }
 
-  function taskMetaChips(task) {
-    const chips = [
-      '<span class="wp-pq-detail-pill">Task #' + escapeHtml(task.id) + '</span>',
-      '<span class="wp-pq-detail-pill">Priority: ' + escapeHtml(humanizeToken(task.priority)) + '</span>',
-      '<span class="wp-pq-detail-pill">Status: ' + escapeHtml(humanizeToken(task.status)) + '</span>',
+  function renderFactList(facts, className) {
+    if (!Array.isArray(facts) || !facts.length) return '';
+    return '<dl class="' + escapeHtml(className) + '">' + facts.map((fact) => (
+      '<div class="wp-pq-fact-row">' +
+        '<dt>' + escapeHtml(fact.label) + '</dt>' +
+        '<dd>' + escapeHtml(fact.value) + '</dd>' +
+      '</div>'
+    )).join('') + '</dl>';
+  }
+
+  function taskContextMarkup(task) {
+    const facts = [
+      { label: 'Task', value: '#' + task.id },
+      { label: 'Job', value: task.bucket_name || 'No job set' },
+      { label: 'Priority', value: humanizeToken(task.priority || 'normal') },
     ];
 
     if (task.requested_deadline) {
-      chips.push('<span class="wp-pq-detail-pill">Requested: ' + escapeHtml(formatDateTime(task.requested_deadline)) + '</span>');
+      facts.push({ label: 'Requested', value: formatDateTime(task.requested_deadline) });
     }
     if (task.due_at) {
-      chips.push('<span class="wp-pq-detail-pill">Due: ' + escapeHtml(formatDateTime(task.due_at)) + '</span>');
+      facts.push({ label: 'Due', value: formatDateTime(task.due_at) });
     }
     if (task.delivered_at) {
-      chips.push('<span class="wp-pq-detail-pill">Delivered: ' + escapeHtml(formatDateTime(task.delivered_at)) + '</span>');
+      facts.push({ label: 'Delivered', value: formatDateTime(task.delivered_at) });
     }
     if (task.billing_status) {
-      chips.push('<span class="wp-pq-detail-pill">Billing: ' + escapeHtml(humanizeToken(task.billing_status)) + '</span>');
+      facts.push({ label: 'Billing', value: humanizeToken(task.billing_status) });
     }
     if (task.statement_code) {
-      chips.push('<span class="wp-pq-detail-pill">Statement: ' + escapeHtml(task.statement_code) + '</span>');
-    }
-    if (task.statement_batched_at) {
-      chips.push('<span class="wp-pq-detail-pill">Batched: ' + escapeHtml(formatDateTime(task.statement_batched_at)) + '</span>');
-    }
-    if (task.bucket_name) {
-      chips.push('<span class="wp-pq-detail-pill">Job: ' + escapeHtml(task.bucket_name) + '</span>');
-    }
-    if (task.client_name) {
-      chips.push('<span class="wp-pq-detail-pill">Client: ' + escapeHtml(task.client_name) + '</span>');
-    }
-    if (task.submitter_name) {
-      chips.push('<span class="wp-pq-detail-pill">Requester: ' + escapeHtml(task.submitter_name) + '</span>');
-    }
-    if (task.action_owner_name) {
-      chips.push('<span class="wp-pq-detail-pill">Action owner: ' + escapeHtml(task.action_owner_name) + '</span>');
-    } else if (Array.isArray(task.owner_names) && task.owner_names.length) {
-      chips.push('<span class="wp-pq-detail-pill">Owners: ' + escapeHtml(task.owner_names.join(', ')) + '</span>');
+      facts.push({ label: 'Statement', value: task.statement_code });
     }
     if (task.needs_meeting) {
-      chips.push('<span class="wp-pq-detail-pill meeting">Meeting requested</span>');
+      facts.push({ label: 'Meeting', value: 'Requested' });
     }
 
-    return chips.join('');
+    return renderFactList(facts, 'wp-pq-drawer-facts');
   }
 
   function taskGuidance(task) {
     const status = String(task.status || '');
     if (status === 'pending_approval') {
       return window.wpPqConfig.canApprove
-        ? 'This request is waiting on your approval. Approve it or send it back for clarification.'
-        : 'Your request is pending approval. We will either approve it or ask for clarification.';
+        ? 'Awaiting your approval. Approve this request to move it into active workflow, or send it back for clarification.'
+        : 'Awaiting approval. We will either approve this request or send it back for clarification.';
     }
-    if (status === 'not_approved') return 'This request needs clarification before work can continue.';
-    if (status === 'approved') return 'The request is approved. The next step is to start work or assign an owner.';
-    if (status === 'in_progress') return 'Work is underway. When execution is complete, send the task to review.';
-    if (status === 'pending_review') return 'Execution is finished. Review the work here before delivery or sending it back for revisions.';
+    if (status === 'not_approved') return 'Awaiting clarification from the requester before this can move forward.';
+    if (status === 'approved') return task.action_owner_name
+      ? 'Approved and ready to start. Confirm the action owner, then move it into active work.'
+      : 'Approved, but no action owner is set yet. Assign responsibility before starting work.';
+    if (status === 'in_progress') return 'Work is underway. When execution is complete, send it to review or request revisions.';
+    if (status === 'pending_review') return 'Review the work here, then deliver it or send it back for revisions.';
     if (status === 'delivered') return task.billing_status === 'batched'
       ? 'This delivered task has already been added to a statement batch.'
-      : 'A deliverable is ready. Keep it here until you batch it into a statement or request revisions.';
-    if (status === 'revision_requested') return 'Revisions were requested. Update the files and return the task to active work.';
+      : 'Delivered work stays here until you batch it into a statement or request revisions.';
+    if (status === 'revision_requested') return 'Changes were requested. Update the work, then return it to active progress.';
     return '';
   }
 
@@ -654,13 +644,15 @@
     return 'Awaiting assignment';
   }
 
-  function assignmentSummary(task) {
-    const requester = task.submitter_name || 'Requester';
+  function assignmentFacts(task) {
+    const requester = task.submitter_name || 'Unspecified';
     const client = task.client_name || requester;
-    if (task.action_owner_name) {
-      return 'Requester: ' + requester + ' · Client: ' + client + ' · Current owner: ' + task.action_owner_name;
-    }
-    return 'Requester: ' + requester + ' · Client: ' + client + ' · No action owner assigned yet.';
+    const owner = task.action_owner_name || 'Unassigned';
+    return renderFactList([
+      { label: 'Requester', value: requester },
+      { label: 'Client', value: client },
+      { label: 'Action owner', value: owner },
+    ], 'wp-pq-responsibility-facts');
   }
 
   async function loadWorkers() {
@@ -672,14 +664,14 @@
   }
 
   function syncAssignmentPanel(task) {
-    if (!assignmentPanelEl || !assignmentSummaryEl || !assignmentSelectEl || !assignmentSaveBtn) return;
+    if (!assignmentPanelEl || !assignmentFactsEl || !assignmentSelectEl || !assignmentSaveBtn) return;
     if (!window.wpPqConfig.canAssign || !task) {
       assignmentPanelEl.hidden = true;
       return;
     }
 
     assignmentPanelEl.hidden = false;
-    assignmentSummaryEl.textContent = assignmentSummary(task);
+    assignmentFactsEl.innerHTML = assignmentFacts(task);
 
     const options = ['<option value="0">Unassigned</option>'].concat(
       workersCache.map((worker) => '<option value="' + escapeHtml(worker.id) + '">' + escapeHtml(worker.name + ' (' + worker.email + ')') + '</option>')
@@ -1217,7 +1209,7 @@
   function resetTaskSummary() {
     if (currentTaskStatusEl) currentTaskStatusEl.textContent = 'Select a task';
     if (currentTaskEl) currentTaskEl.textContent = currentTaskStatusEl ? 'Task Details' : 'Select a task from the queue.';
-    if (currentTaskMetaEl) currentTaskMetaEl.innerHTML = 'Choose a board card or calendar item to open its workspace.';
+    if (currentTaskMetaEl) currentTaskMetaEl.textContent = 'Choose a board card or calendar item to open its workspace.';
     if (currentTaskGuidanceEl) {
       currentTaskGuidanceEl.hidden = true;
       currentTaskGuidanceEl.textContent = '';
@@ -1230,7 +1222,7 @@
   async function updateTaskSummary(task) {
     if (currentTaskStatusEl) currentTaskStatusEl.textContent = humanizeToken(task.status);
     if (currentTaskEl) currentTaskEl.textContent = currentTaskStatusEl ? task.title : 'Selected task: #' + task.id + ' - ' + task.title;
-    if (currentTaskMetaEl) currentTaskMetaEl.innerHTML = taskMetaChips(task);
+    if (currentTaskMetaEl) currentTaskMetaEl.innerHTML = taskContextMarkup(task);
     if (currentTaskGuidanceEl) {
       const guidance = taskGuidance(task);
       currentTaskGuidanceEl.textContent = guidance;
@@ -1330,14 +1322,6 @@
       });
     }
 
-    if (clearFiltersBtn) {
-      clearFiltersBtn.addEventListener('click', async () => {
-        setFilterState({ clientUserId: 0, billingBucketId: 0 });
-        syncFilterControls();
-        selectedTaskId = null;
-        await loadTasks();
-      });
-    }
   }
 
   function wireCreateForm() {
