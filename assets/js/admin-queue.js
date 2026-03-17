@@ -187,6 +187,28 @@
     return resp.json();
   }
 
+  function toastStack() {
+    let stack = document.getElementById('wp-pq-toast-stack');
+    if (stack) return stack;
+    stack = document.createElement('div');
+    stack.id = 'wp-pq-toast-stack';
+    stack.className = 'wp-pq-toast-stack';
+    document.body.appendChild(stack);
+    return stack;
+  }
+
+  function alert(message, type) {
+    const stack = toastStack();
+    const toast = document.createElement('div');
+    toast.className = 'wp-pq-toast ' + (type || 'error');
+    toast.textContent = String(message || 'Something went wrong.');
+    stack.appendChild(toast);
+    window.setTimeout(() => {
+      toast.classList.add('is-leaving');
+      window.setTimeout(() => toast.remove(), 220);
+    }, 3200);
+  }
+
   function parseOwnerIds(raw) {
     if (!raw) return [];
     return String(raw).split(',').map((v) => parseInt(v.trim(), 10)).filter((v) => Number.isInteger(v) && v > 0);
@@ -1828,7 +1850,7 @@
         });
         selectedBatchTaskIds.clear();
         updateBatchButton();
-        alert('Statement ' + data.statement.code + ' created with ' + data.statement.task_count + ' delivered task' + (data.statement.task_count === 1 ? '' : 's') + '.');
+        alert('Statement ' + data.statement.code + ' created with ' + data.statement.task_count + ' delivered task' + (data.statement.task_count === 1 ? '' : 's') + '.', 'success');
         await loadTasks();
       } catch (err) {
         alert(err.message);
@@ -2100,7 +2122,7 @@
       try {
         await api('notification-prefs', { method: 'POST', body: JSON.stringify({ prefs: prefs }) });
         prefState = prefs;
-        alert('Preferences saved.');
+        alert('Preferences saved.', 'success');
       } catch (err) {
         alert(err.message);
       }
