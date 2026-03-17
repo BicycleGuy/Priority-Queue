@@ -1070,6 +1070,12 @@
         group: 'wp-pq-board',
         animation: 160,
         handle: '.wp-pq-card-grip',
+        forceFallback: true,
+        fallbackOnBody: true,
+        emptyInsertThreshold: 20,
+        scroll: true,
+        scrollSensitivity: 120,
+        scrollSpeed: 18,
         onEnd: async (evt) => {
           const sourceStatus = evt.from && evt.from.dataset ? evt.from.dataset.status : '';
           const targetStatus = evt.to && evt.to.dataset ? evt.to.dataset.status : sourceStatus;
