@@ -162,6 +162,7 @@
   let filterOptions = { canViewAll: !!window.wpPqConfig.canViewAll, clients: [], buckets: [] };
   let createFormState = { clientUserId: 0, billingBucketId: 0 };
   let workersCache = [];
+  let boardSortInstances = [];
 
   async function api(path, options) {
     let resp;
@@ -279,6 +280,60 @@
     }
   }
 
+  function reorderTasksCache(taskIds) {
+    if (!Array.isArray(taskIds) || !taskIds.length) return;
+    const order = new Map(taskIds.map((taskId, index) => [parseInt(taskId, 10), index]));
+    tasksCache.sort((left, right) => {
+      const leftIndex = order.has(left.id) ? order.get(left.id) : Number.MAX_SAFE_INTEGER;
+      const rightIndex = order.has(right.id) ? order.get(right.id) : Number.MAX_SAFE_INTEGER;
+      if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+      return (left.queue_position || 0) - (right.queue_position || 0);
+    });
+    tasksCache = tasksCache.map((task, index) => ({
+      ...task,
+      queue_position: index + 1,
+    }));
+  }
+
+  function syncOrderFromBoardDom() {
+    if (!boardEl) return;
+    const orderedIds = Array.from(boardEl.querySelectorAll('.wp-pq-task-card'))
+      .map((card) => parseInt(card.dataset.id || '0', 10))
+      .filter((taskId) => taskId > 0);
+    reorderTasksCache(orderedIds);
+  }
+
+  function messageItemHtml(msg) {
+    return '<div class="msg-author">' + escapeHtml(msg.author_name || 'Collaborator') + ' · ' + escapeHtml(formatDateTime(msg.created_at)) + '</div>' +
+      '<div>' + escapeHtml(msg.body || '') + '</div>';
+  }
+
+  function noteItemHtml(note) {
+    return '<div class="msg-author">' + escapeHtml(note.author_name || 'Collaborator') + ' · ' + escapeHtml(formatDateTime(note.created_at)) + '</div>' +
+      '<div>' + escapeHtml(note.body || '') + '</div>';
+  }
+
+  function meetingItemHtml(meeting, invitee) {
+    const start = formatDateTime(meeting.starts_at);
+    const end = formatDateTime(meeting.ends_at);
+    return '<div><strong>Google Meet</strong></div>' +
+      (start ? '<div>Starts: ' + escapeHtml(start) + '</div>' : '') +
+      (end ? '<div>Ends: ' + escapeHtml(end) + '</div>' : '') +
+      (meeting.meeting_url ? '<div><a href="' + encodeURI(meeting.meeting_url) + '" target="_blank" rel="noopener">Open meeting link</a></div>' : '') +
+      '<div class="msg-author">Invitee: ' + escapeHtml(invitee) + '</div>';
+  }
+
+  function fileItemHtml(file) {
+    const fileName = file.filename || ('media #' + file.media_id);
+    const fileUrl = file.media_url || '';
+    const createdAt = formatDateTime(file.created_at);
+    return '<div><strong>' + escapeHtml(file.file_role) + '</strong> v' + escapeHtml(file.version_num) + '</div>' +
+      (fileUrl
+        ? '<div><a href="' + encodeURI(fileUrl) + '" target="_blank" rel="noopener">' + escapeHtml(fileName) + '</a></div>'
+        : '<div>' + escapeHtml(fileName) + '</div>') +
+      (createdAt ? '<div class="msg-author">Uploaded: ' + escapeHtml(createdAt) + '</div>' : '');
+  }
+
   function currentTaskQuery() {
     const params = new URLSearchParams();
     if (filterState.clientUserId > 0) {
@@ -378,23 +433,39 @@
       createClientId > 0 ? parseInt(bucket.client_user_id, 10) === createClientId : !canViewAll
     ));
 
-    createBucketEl.innerHTML = '<option value="0">' + (bucketOptions.length ? 'Use default job bucket' : 'Choose or create a first job') + '</option>' + bucketOptions.map((bucket) => (
-      '<option value="' + escapeHtml(bucket.id) + '">' + escapeHtml(bucket.label || bucket.bucket_name || 'Job Bucket') + '</option>'
-    )).join('');
-    const bucketIsValid = bucketOptions.some((bucket) => parseInt(bucket.id, 10) === createFormState.billingBucketId);
-    if (!bucketIsValid) {
+    if (window.wpPqConfig.canViewAll && createClientId <= 0) {
+      createBucketEl.disabled = true;
+      createBucketEl.innerHTML = '<option value="0">Choose a client first</option>';
       createFormState.billingBucketId = 0;
+      if (createNewBucketWrap) createNewBucketWrap.hidden = true;
+      if (createNewBucketEl) createNewBucketEl.value = '';
+      return;
+    }
+
+    createBucketEl.disabled = false;
+    const allowInlineCreate = !!window.wpPqConfig.canApprove && createClientId > 0;
+    const createOptionValue = -1;
+    createBucketEl.innerHTML = '<option value="0">' + (bucketOptions.length ? 'Select job' : 'Choose a job') + '</option>' +
+      bucketOptions.map((bucket) => (
+        '<option value="' + escapeHtml(bucket.id) + '">' + escapeHtml(bucket.label || bucket.bucket_name || 'Job Bucket') + '</option>'
+      )).join('') +
+      (allowInlineCreate ? '<option value="' + createOptionValue + '">' + (bucketOptions.length ? '+ Create new job' : 'Create the first job') + '</option>' : '');
+
+    const bucketIsValid = bucketOptions.some((bucket) => parseInt(bucket.id, 10) === createFormState.billingBucketId);
+    const wantsNewBucket = createFormState.billingBucketId === createOptionValue;
+    if (!bucketIsValid && !wantsNewBucket) {
+      createFormState.billingBucketId = bucketOptions.length === 1 ? parseInt(bucketOptions[0].id, 10) : 0;
     }
     createBucketEl.value = String(createFormState.billingBucketId || 0);
 
     if (createNewBucketWrap) {
-      createNewBucketWrap.hidden = !window.wpPqConfig.canApprove || !(createClientId > 0);
+      createNewBucketWrap.hidden = !allowInlineCreate || !(createFormState.billingBucketId === createOptionValue || bucketOptions.length === 0);
     }
     if (createNewBucketEl) {
       const clientLabel = selectedClient ? String(selectedClient.label || selectedClient.name || '').trim() : '';
       const suggestedName = clientLabel ? (clientLabel + ' - Main') : 'Client Name - Main';
       createNewBucketEl.placeholder = suggestedName;
-      if (window.wpPqConfig.canApprove && createClientId > 0 && bucketOptions.length === 0 && !String(createNewBucketEl.value || '').trim()) {
+      if (allowInlineCreate && (createFormState.billingBucketId === createOptionValue || bucketOptions.length === 0) && !String(createNewBucketEl.value || '').trim()) {
         createNewBucketEl.value = suggestedName;
       }
     }
@@ -473,7 +544,9 @@
   }
 
   async function refreshFromCache(options) {
-    renderTaskCollections();
+    if (!options || options.renderCollections !== false) {
+      renderTaskCollections();
+    }
     await syncTaskWorkspace(options || {});
   }
 
@@ -607,28 +680,29 @@
     }
   }
 
-  async function loadActiveWorkspacePane() {
+  async function loadActiveWorkspacePane(options) {
     if (!selectedTaskId) return;
+    const config = options || {};
 
     if (panelMeetings && !panelMeetings.hidden) {
-      await loadMeetings();
+      await loadMeetings(config);
       return;
     }
 
     if (panelNotes && !panelNotes.hidden) {
-      await loadNotes();
+      await loadNotes(config);
       return;
     }
 
     if (panelFiles && !panelFiles.hidden) {
-      await loadFiles();
+      await loadFiles(config);
       return;
     }
 
-    await loadMessages();
+    await loadMessages(config);
   }
 
-  async function loadMeetings() {
+  async function loadMeetings(options) {
     if (!meetingList || !meetingSummaryEl) return;
     if (!selectedTaskId) {
       renderEmptyStream(meetingList, 'Open a task to see meeting details.');
@@ -637,6 +711,11 @@
     }
 
     const task = getTaskById(selectedTaskId);
+    if (taskPanelState.meetings && !(options && options.force)) {
+      const invitee = task && task.submitter_email ? task.submitter_email : 'the task requester';
+      meetingSummaryEl.textContent = 'Google Meet will invite ' + invitee + '.';
+      return;
+    }
     const data = await api('tasks/' + selectedTaskId + '/meetings', { method: 'GET' });
     const meetings = data.meetings || [];
     meetingList.innerHTML = '';
@@ -647,14 +726,7 @@
       meetingSummaryEl.textContent = 'Google Meet will invite ' + invitee + '.';
       meetings.forEach((meeting) => {
         const li = document.createElement('li');
-        const start = formatDateTime(meeting.starts_at);
-        const end = formatDateTime(meeting.ends_at);
-        li.innerHTML =
-          '<div><strong>Google Meet</strong></div>' +
-          (start ? '<div>Starts: ' + escapeHtml(start) + '</div>' : '') +
-          (end ? '<div>Ends: ' + escapeHtml(end) + '</div>' : '') +
-          (meeting.meeting_url ? '<div><a href="' + encodeURI(meeting.meeting_url) + '" target="_blank" rel="noopener">Open meeting link</a></div>' : '') +
-          '<div class="msg-author">Invitee: ' + escapeHtml(invitee) + '</div>';
+        li.innerHTML = meetingItemHtml(meeting, invitee);
         meetingList.appendChild(li);
       });
       return;
@@ -935,8 +1007,15 @@
   function initBoardSort() {
     if (!boardEl || typeof Sortable === 'undefined') return;
 
+    boardSortInstances.forEach((instance) => {
+      if (instance && typeof instance.destroy === 'function') {
+        instance.destroy();
+      }
+    });
+    boardSortInstances = [];
+
     boardEl.querySelectorAll('.wp-pq-board-column-list').forEach((columnEl) => {
-      Sortable.create(columnEl, {
+      const sortable = Sortable.create(columnEl, {
         group: 'wp-pq-board',
         animation: 160,
         handle: '.wp-pq-card-grip',
@@ -987,7 +1066,7 @@
           if (!shouldPromptForMoveDecision(sourceStatus, targetStatus)) {
             try {
               selectedTaskId = movedTaskId;
-              await api('tasks/move', {
+              const result = await api('tasks/move', {
                 method: 'POST',
                 body: JSON.stringify({
                   task_id: movedTaskId,
@@ -998,7 +1077,16 @@
                   swap_due_dates: false,
                 }),
               });
-              await loadTasks();
+              if (result.task) {
+                upsertTask(result.task);
+                if (result.target_task) {
+                  upsertTask(result.target_task);
+                }
+                syncOrderFromBoardDom();
+                await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar' });
+              } else {
+                await loadTasks();
+              }
             } catch (err) {
               alert(err.message);
               await loadTasks();
@@ -1009,6 +1097,7 @@
           openMoveModal();
         },
       });
+      boardSortInstances.push(sortable);
     });
   }
 
@@ -1172,17 +1261,26 @@
     await refreshFromCache({ reloadActivePane: !boardEl || drawerIsOpen(), refreshCalendar: currentView === 'calendar' });
   }
 
-  async function selectTask(taskId, shouldOpenDrawer) {
+  async function selectTask(taskId, shouldOpenDrawer, options) {
+    const config = options || {};
+    const sameTask = selectedTaskId === taskId;
     selectedTaskId = taskId;
     const task = getTaskById(taskId);
     if (!task) return;
 
     await updateTaskSummary(task);
-    resetTaskPanelState(task.id);
+    if (!(config.preservePanelState && sameTask)) {
+      resetTaskPanelState(task.id);
+    }
     highlightSelected();
     if (shouldOpenDrawer) openDrawer();
-    seedMeetingForm(true);
-    await Promise.all([loadParticipants(), loadActiveWorkspacePane()]);
+    seedMeetingForm(config.forceMeetingSeed === true);
+    const jobs = [];
+    if (config.loadParticipants !== false) jobs.push(loadParticipants({ force: !!config.forceParticipants }));
+    if (config.loadWorkspace !== false) jobs.push(loadActiveWorkspacePane({ force: !!config.forceWorkspace }));
+    if (jobs.length) {
+      await Promise.all(jobs);
+    }
   }
 
   function wireBoardFilters() {
@@ -1237,6 +1335,7 @@
     if (createBucketEl) {
       createBucketEl.addEventListener('change', () => {
         createFormState.billingBucketId = parseInt(createBucketEl.value || '0', 10) || 0;
+        syncCreateFormContext();
       });
     }
 
@@ -1253,8 +1352,8 @@
       const visibleCreateBuckets = (Array.isArray(filterOptions.buckets) ? filterOptions.buckets : []).filter((bucket) => (
         createClientId > 0 ? parseInt(bucket.client_user_id, 10) === createClientId : true
       ));
-      if (window.wpPqConfig.canApprove && createClientId > 0 && visibleCreateBuckets.length === 0 && selectedBucketId <= 0 && !newBucketName) {
-        alert('Create the first job bucket for this client before submitting the task.');
+      if (window.wpPqConfig.canApprove && createClientId > 0 && (selectedBucketId === -1 || visibleCreateBuckets.length === 0) && !newBucketName) {
+        alert('Name the first job bucket for this client before submitting the task.');
         return;
       }
       const body = {
@@ -1266,7 +1365,7 @@
         needs_meeting: formData.get('needs_meeting') === 'on',
         owner_ids: parseOwnerIds(formData.get('owner_ids')),
         client_user_id: createClientId || 0,
-        billing_bucket_id: selectedBucketId,
+        billing_bucket_id: selectedBucketId > 0 ? selectedBucketId : 0,
         new_bucket_name: newBucketName,
       };
 
@@ -1299,10 +1398,12 @@
     Sortable.create(taskList, {
       animation: 150,
       onEnd: async () => {
-        const items = Array.from(taskList.querySelectorAll('.wp-pq-task')).map((el) => ({ id: parseInt(el.dataset.id, 10) }));
+        const orderedIds = Array.from(taskList.querySelectorAll('.wp-pq-task')).map((el) => parseInt(el.dataset.id, 10)).filter((id) => id > 0);
+        const items = orderedIds.map((id) => ({ id: id }));
         try {
           await api('tasks/reorder', { method: 'POST', body: JSON.stringify({ items: items }) });
-          await loadTasks();
+          reorderTasksCache(orderedIds);
+          await refreshFromCache({ reloadActivePane: false, refreshCalendar: false });
         } catch (err) {
           alert(err.message);
         }
@@ -1319,7 +1420,7 @@
     target.appendChild(li);
   }
 
-  async function loadParticipants() {
+  async function loadParticipants(options) {
     if (!selectedTaskId) {
       participantCache = [];
       renderMentionChips();
@@ -1327,7 +1428,7 @@
     }
 
     ensureTaskPanelState(selectedTaskId);
-    if (taskPanelState.participants) {
+    if (taskPanelState.participants && !(options && options.force)) {
       renderMentionChips();
       return;
     }
@@ -1399,7 +1500,7 @@
     textarea.focus();
   }
 
-  async function loadMessages() {
+  async function loadMessages(options) {
     if (!messageList) return;
     if (!selectedTaskId) {
       renderEmptyStream(messageList, 'Open a task to see its messages.');
@@ -1407,6 +1508,9 @@
     }
 
     ensureTaskPanelState(selectedTaskId);
+    if (taskPanelState.messages && !(options && options.force)) {
+      return;
+    }
     const data = await api('tasks/' + selectedTaskId + '/messages', { method: 'GET' });
     messageList.innerHTML = '';
     taskPanelState.messages = true;
@@ -1419,14 +1523,12 @@
     (data.messages || []).forEach((msg) => {
       const li = document.createElement('li');
       li.className = msg.author_id === window.wpPqConfig.currentUserId ? 'mine' : 'theirs';
-      li.innerHTML =
-        '<div class="msg-author">' + escapeHtml(msg.author_name || 'Collaborator') + ' · ' + escapeHtml(formatDateTime(msg.created_at)) + '</div>' +
-        '<div>' + escapeHtml(msg.body) + '</div>';
+      li.innerHTML = messageItemHtml(msg);
       messageList.appendChild(li);
     });
   }
 
-  async function loadNotes() {
+  async function loadNotes(options) {
     if (!noteList) return;
     if (!selectedTaskId) {
       renderEmptyStream(noteList, 'Open a task to see its sticky notes.');
@@ -1434,6 +1536,9 @@
     }
 
     ensureTaskPanelState(selectedTaskId);
+    if (taskPanelState.notes && !(options && options.force)) {
+      return;
+    }
     const data = await api('tasks/' + selectedTaskId + '/notes', { method: 'GET' });
     noteList.innerHTML = '';
     taskPanelState.notes = true;
@@ -1446,9 +1551,7 @@
     (data.notes || []).forEach((note) => {
       const li = document.createElement('li');
       li.className = note.author_id === window.wpPqConfig.currentUserId ? 'mine' : 'theirs';
-      li.innerHTML =
-        '<div class="msg-author">' + escapeHtml(note.author_name || 'Collaborator') + ' · ' + escapeHtml(formatDateTime(note.created_at)) + '</div>' +
-        '<div>' + escapeHtml(note.body) + '</div>';
+      li.innerHTML = noteItemHtml(note);
       noteList.appendChild(li);
     });
   }
@@ -1468,17 +1571,20 @@
         messageForm.reset();
         if (result.task) {
           upsertTask(result.task);
-          await refreshFromCache({ reloadActivePane: false, refreshCalendar: false });
+          await refreshFromCache({ reloadActivePane: false, refreshCalendar: false, renderCollections: false });
         }
-        if (result.message) {
-          messageList.innerHTML = '';
-          taskPanelState.messages = false;
-        }
-        try {
-          await loadMessages();
-        } catch (err) {
-          await loadTasks().catch(() => {});
-          alert('Message sent, but the thread did not refresh. Reopen the task if needed.');
+        if (result.message && messageList) {
+          const emptyState = messageList.querySelector('.wp-pq-stream-empty');
+          if (emptyState) {
+            messageList.innerHTML = '';
+          }
+          const li = document.createElement('li');
+          li.className = result.message.author_id === window.wpPqConfig.currentUserId ? 'mine' : 'theirs';
+          li.innerHTML = messageItemHtml(result.message);
+          messageList.appendChild(li);
+          taskPanelState.messages = true;
+        } else {
+          await loadMessages({ force: true });
         }
       } catch (err) {
         alert(err.message);
@@ -1503,7 +1609,19 @@
           upsertTask(result.task);
         }
         await refreshFromCache({ reloadActivePane: false, refreshCalendar: false });
-        await loadNotes();
+        if (result.note && noteList) {
+          const emptyState = noteList.querySelector('.wp-pq-stream-empty');
+          if (emptyState) {
+            noteList.innerHTML = '';
+          }
+          const li = document.createElement('li');
+          li.className = result.note.author_id === window.wpPqConfig.currentUserId ? 'mine' : 'theirs';
+          li.innerHTML = noteItemHtml(result.note);
+          noteList.prepend(li);
+          taskPanelState.notes = true;
+        } else {
+          await loadNotes({ force: true });
+        }
       } catch (err) {
         alert(err.message);
       }
@@ -1530,7 +1648,7 @@
     return resp.json();
   }
 
-  async function loadFiles() {
+  async function loadFiles(options) {
     if (!fileList) return;
     if (!selectedTaskId) {
       renderEmptyStream(fileList, 'Open a task to see its files.');
@@ -1538,6 +1656,9 @@
     }
 
     ensureTaskPanelState(selectedTaskId);
+    if (taskPanelState.files && !(options && options.force)) {
+      return;
+    }
     const data = await api('tasks/' + selectedTaskId + '/files', { method: 'GET' });
     fileList.innerHTML = '';
     taskPanelState.files = true;
@@ -1549,16 +1670,7 @@
 
     (data.files || []).forEach((file) => {
       const li = document.createElement('li');
-      const fileName = file.filename || ('media #' + file.media_id);
-      const fileUrl = file.media_url || '';
-      const createdAt = formatDateTime(file.created_at);
-
-      li.innerHTML =
-        '<div><strong>' + escapeHtml(file.file_role) + '</strong> v' + escapeHtml(file.version_num) + '</div>' +
-        (fileUrl
-          ? '<div><a href="' + encodeURI(fileUrl) + '" target="_blank" rel="noopener">' + escapeHtml(fileName) + '</a></div>'
-          : '<div>' + escapeHtml(fileName) + '</div>') +
-        (createdAt ? '<div class="msg-author">Uploaded: ' + escapeHtml(createdAt) + '</div>' : '');
+      li.innerHTML = fileItemHtml(file);
       fileList.appendChild(li);
     });
   }
@@ -1578,12 +1690,26 @@
 
       try {
         const media = await uploadToMedia(file);
-        await api('tasks/' + selectedTaskId + '/files', {
+        const result = await api('tasks/' + selectedTaskId + '/files', {
           method: 'POST',
           body: JSON.stringify({ media_id: media.id, file_role: fileRole }),
         });
         fileForm.reset();
-        await loadFiles();
+        if (result.task) {
+          upsertTask(result.task);
+        }
+        if (result.file && fileList) {
+          const emptyState = fileList.querySelector('.wp-pq-stream-empty');
+          if (emptyState) {
+            fileList.innerHTML = '';
+          }
+          const li = document.createElement('li');
+          li.innerHTML = fileItemHtml(result.file);
+          fileList.prepend(li);
+          taskPanelState.files = true;
+        } else {
+          await loadFiles({ force: true });
+        }
       } catch (err) {
         alert(err.message);
       }
@@ -1635,9 +1761,24 @@
         seedMeetingForm(true);
         if (result.task) {
           upsertTask(result.task);
-          await refreshFromCache({ reloadActivePane: false, refreshCalendar: false });
+          await refreshFromCache({ reloadActivePane: false, refreshCalendar: false, renderCollections: false });
         }
-        await Promise.all([loadMeetings(), loadCalendarEvents()]);
+        if (result.meeting && meetingList) {
+          const task = getTaskById(selectedTaskId);
+          const invitee = task && task.submitter_email ? task.submitter_email : 'the task requester';
+          const emptyState = meetingList.querySelector('.wp-pq-stream-empty');
+          if (emptyState) {
+            meetingList.innerHTML = '';
+          }
+          const li = document.createElement('li');
+          li.innerHTML = meetingItemHtml(result.meeting, invitee);
+          meetingList.prepend(li);
+          meetingSummaryEl.textContent = 'Google Meet will invite ' + invitee + '.';
+          taskPanelState.meetings = true;
+        } else {
+          await loadMeetings({ force: true });
+        }
+        await loadCalendarEvents();
       } catch (err) {
         alert(err.message);
       }
@@ -1823,7 +1964,11 @@
             await loadTasks();
           }
           if (selectedTaskId === props.taskId) {
-            await selectTask(props.taskId, !!drawerEl && drawerIsOpen());
+            await selectTask(props.taskId, !!drawerEl && drawerIsOpen(), {
+              preservePanelState: true,
+              loadParticipants: false,
+              loadWorkspace: false,
+            });
           }
         } catch (err) {
           info.revert();
@@ -2084,6 +2229,7 @@
 
       try {
         selectedTaskId = pendingMove ? pendingMove.taskId : pendingStatusAction.taskId;
+        const preserveBoardOrder = !!pendingMove;
         let result;
         if (pendingMove) {
           result = await api('tasks/move', {
@@ -2113,12 +2259,15 @@
           if (result.target_task) {
             upsertTask(result.target_task);
           }
+          if (preserveBoardOrder) {
+            syncOrderFromBoardDom();
+          }
           await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar' });
         } else {
           await loadTasks();
         }
         if (requestMeeting && selectedTaskId) {
-          await selectTask(selectedTaskId, true);
+          await selectTask(selectedTaskId, true, { preservePanelState: true, loadParticipants: false, loadWorkspace: false });
           await activateWorkspaceTab('meetings');
           openDrawer();
           if (meetingStartInput) {
@@ -2164,6 +2313,7 @@
 
       try {
         selectedTaskId = pendingRevisionAction.taskId;
+        const preserveBoardOrder = pendingRevisionAction.type === 'move';
         let result;
         if (pendingRevisionAction.type === 'move') {
           result = await api('tasks/move', {
@@ -2195,11 +2345,18 @@
           if (result.target_task) {
             upsertTask(result.target_task);
           }
+          if (preserveBoardOrder) {
+            syncOrderFromBoardDom();
+          }
           await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar' });
         } else {
           await loadTasks();
         }
-        await selectTask(selectedTaskId, true);
+        await selectTask(selectedTaskId, true, {
+          preservePanelState: !postMessage,
+          loadParticipants: false,
+          loadWorkspace: false,
+        });
         await activateWorkspaceTab(postMessage ? 'messages' : 'meetings');
       } catch (err) {
         alert(err.message);

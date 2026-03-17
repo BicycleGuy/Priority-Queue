@@ -794,9 +794,7 @@ class WP_PQ_API
         );
 
         foreach ($rows as &$row) {
-            $media_id = (int) ($row['media_id'] ?? 0);
-            $row['media_url'] = $media_id > 0 ? wp_get_attachment_url($media_id) : '';
-            $row['filename'] = $media_id > 0 ? wp_basename((string) get_attached_file($media_id)) : '';
+            $row = self::hydrate_file_row($row);
         }
 
         return new WP_REST_Response(['files' => $rows], 200);
@@ -858,7 +856,16 @@ class WP_PQ_API
             $wpdb->delete($table, ['id' => (int) $row['id']]);
         }
 
-        return new WP_REST_Response(['ok' => true], 201);
+        $file = $wpdb->get_row(
+            $wpdb->prepare("SELECT * FROM {$table} WHERE task_id = %d AND media_id = %d ORDER BY id DESC LIMIT 1", $task_id, $media_id),
+            ARRAY_A
+        );
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'file' => $file ? self::hydrate_file_row($file) : null,
+            'task' => self::get_enriched_task($task_id),
+        ], 201);
     }
 
     public static function get_meetings(WP_REST_Request $request): WP_REST_Response
@@ -914,10 +921,16 @@ class WP_PQ_API
             'updated_at' => current_time('mysql', true),
         ]);
 
+        $meeting = $wpdb->get_row(
+            $wpdb->prepare("SELECT * FROM {$table} WHERE task_id = %d ORDER BY id DESC LIMIT 1", $task_id),
+            ARRAY_A
+        );
+
         return new WP_REST_Response([
             'ok' => true,
             'event_id' => $event_id,
             'meeting_url' => $meeting_url,
+            'meeting' => $meeting,
             'task' => self::get_enriched_task($task_id),
         ], 201);
     }
@@ -2347,6 +2360,14 @@ class WP_PQ_API
         }
 
         return 3;
+    }
+
+    private static function hydrate_file_row(array $row): array
+    {
+        $media_id = (int) ($row['media_id'] ?? 0);
+        $row['media_url'] = $media_id > 0 ? wp_get_attachment_url($media_id) : '';
+        $row['filename'] = $media_id > 0 ? wp_basename((string) get_attached_file($media_id)) : '';
+        return $row;
     }
 
     private static function task_deadline_timestamp(array $task): int
