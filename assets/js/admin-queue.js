@@ -68,6 +68,7 @@
   const clientFilterEl = document.getElementById('wp-pq-client-filter');
   const bucketFilterWrap = document.getElementById('wp-pq-bucket-filter-wrap');
   const bucketFilterEl = document.getElementById('wp-pq-bucket-filter');
+  const batchApproveBtn = document.getElementById('wp-pq-batch-approve');
   const batchStatementBtn = document.getElementById('wp-pq-batch-statement');
   const createForm = document.getElementById('wp-pq-create-form');
   const createPanel = document.getElementById('wp-pq-create-panel');
@@ -156,6 +157,7 @@
   let prefsLoaded = false;
   let prefState = {};
   let taskPanelState = { taskId: null, messages: false, meetings: false, notes: false, files: false, participants: false };
+  let selectedApprovalTaskIds = new Set();
   let selectedBatchTaskIds = new Set();
   let filterState = { clientUserId: 0, billingBucketId: 0 };
   let filterOptions = { canViewAll: !!window.wpPqConfig.canViewAll, clients: [], buckets: [] };
@@ -503,6 +505,12 @@
   }
 
   function pruneBatchSelection() {
+    selectedApprovalTaskIds = new Set(
+      Array.from(selectedApprovalTaskIds).filter((taskId) => {
+        const task = tasksCache.find((item) => item.id === taskId);
+        return !!task && task.status === 'pending_approval';
+      })
+    );
     selectedBatchTaskIds = new Set(
       Array.from(selectedBatchTaskIds).filter((taskId) => {
         const task = tasksCache.find((item) => item.id === taskId);
@@ -517,6 +525,7 @@
     if (boardEl) {
       renderBoard(tasksCache);
       updateBoardSummary(tasksCache);
+      updateBatchApproveButton();
       updateBatchButton();
       initBoardSort();
     } else {
@@ -790,6 +799,9 @@
       '<div class="wp-pq-task-card-top">' +
       '<span class="wp-pq-card-grip" title="Drag to reprioritize">::</span>' +
       '<span class="wp-pq-task-id">Task #' + escapeHtml(task.id) + '</span>' +
+      (window.wpPqConfig.canApprove && task.status === 'pending_approval'
+        ? '<label class="wp-pq-batch-pick"><input type="checkbox" data-approve-task-id="' + escapeHtml(task.id) + '"' + (selectedApprovalTaskIds.has(task.id) ? ' checked' : '') + '><span>Approve</span></label>'
+        : '') +
       (window.wpPqConfig.canBatch && task.status === 'delivered' && task.is_billable && task.billing_status === 'unbilled'
         ? '<label class="wp-pq-batch-pick"><input type="checkbox" data-batch-task-id="' + escapeHtml(task.id) + '"' + (selectedBatchTaskIds.has(task.id) ? ' checked' : '') + '><span>Batch</span></label>'
         : '') +
@@ -812,6 +824,20 @@
     const grip = card.querySelector('.wp-pq-card-grip');
     if (grip) {
       grip.addEventListener('click', (e) => e.stopPropagation());
+    }
+    const approvePick = card.querySelector('[data-approve-task-id]');
+    if (approvePick) {
+      approvePick.addEventListener('click', (e) => e.stopPropagation());
+      approvePick.addEventListener('change', (e) => {
+        const taskId = parseInt(e.target.getAttribute('data-approve-task-id'), 10);
+        if (!taskId) return;
+        if (e.target.checked) {
+          selectedApprovalTaskIds.add(taskId);
+        } else {
+          selectedApprovalTaskIds.delete(taskId);
+        }
+        updateBatchApproveButton();
+      });
     }
     const batchPick = card.querySelector('[data-batch-task-id]');
     if (batchPick) {
@@ -972,7 +998,7 @@
 
   function shouldPromptForMoveDecision(sourceStatus, targetStatus) {
     const effectiveStatus = targetStatus || sourceStatus;
-    return ['pending_approval', 'not_approved', 'approved', 'in_progress', 'pending_review', 'revision_requested'].includes(effectiveStatus);
+    return ['pending_approval', 'not_approved', 'approved', 'in_progress', 'pending_review', 'revision_requested', 'delivered'].includes(effectiveStatus);
   }
 
   function moveDecisionConfig(move) {
@@ -1211,6 +1237,15 @@
     batchStatementBtn.textContent = count > 0
       ? 'Create Statement from Selected (' + count + ')'
       : 'Create Statement from Selected';
+  }
+
+  function updateBatchApproveButton() {
+    if (!batchApproveBtn || !window.wpPqConfig.canApprove) return;
+    const count = selectedApprovalTaskIds.size;
+    batchApproveBtn.hidden = count === 0;
+    batchApproveBtn.textContent = count > 0
+      ? 'Approve Selected (' + count + ')'
+      : 'Approve Selected';
   }
 
   function getTaskById(taskId) {
@@ -1833,6 +1868,31 @@
   }
 
   function wireBatching() {
+    if (batchApproveBtn) {
+      batchApproveBtn.addEventListener('click', async () => {
+        const taskIds = Array.from(selectedApprovalTaskIds);
+        if (!taskIds.length) return;
+
+        try {
+          const data = await api('tasks/approve-batch', {
+            method: 'POST',
+            body: JSON.stringify({ task_ids: taskIds }),
+          });
+          selectedApprovalTaskIds.clear();
+          updateBatchApproveButton();
+          if (Array.isArray(data.tasks)) {
+            data.tasks.forEach((task) => upsertTask(task));
+            await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar' });
+          } else {
+            await loadTasks();
+          }
+          alert('Approved ' + (data.task_count || taskIds.length) + ' task' + ((data.task_count || taskIds.length) === 1 ? '' : 's') + '.', 'success');
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    }
+
     if (!batchStatementBtn) return;
 
     batchStatementBtn.addEventListener('click', async () => {

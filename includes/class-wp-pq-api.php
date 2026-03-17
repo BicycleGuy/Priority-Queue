@@ -38,6 +38,12 @@ class WP_PQ_API
             'permission_callback' => static fn() => is_user_logged_in(),
         ]);
 
+        register_rest_route('pq/v1', '/tasks/approve-batch', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'approve_batch'],
+            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
+        ]);
+
         register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/status', [
             'methods' => WP_REST_Server::CREATABLE,
             'callback' => [self::class, 'update_status'],
@@ -656,6 +662,68 @@ class WP_PQ_API
         return new WP_REST_Response([
             'ok' => true,
             'task' => self::get_enriched_task($task_id),
+        ], 200);
+    }
+
+    public static function approve_batch(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $tasks = $wpdb->prefix . 'pq_tasks';
+        $history = $wpdb->prefix . 'pq_task_status_history';
+
+        $task_ids = array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('task_ids')))));
+        if (empty($task_ids)) {
+            return new WP_REST_Response(['message' => 'Select at least one task to approve.'], 422);
+        }
+
+        $user_id = get_current_user_id();
+        $updated = [];
+
+        foreach ($task_ids as $task_id) {
+            $task = self::get_task_row($task_id);
+            if (! $task) {
+                return new WP_REST_Response(['message' => 'One or more selected tasks could not be loaded.'], 404);
+            }
+
+            if (! self::can_access_task($task, $user_id)) {
+                return new WP_REST_Response(['message' => 'You cannot approve one or more selected tasks.'], 403);
+            }
+
+            $current_status = (string) ($task['status'] ?? '');
+            if (! in_array($current_status, ['pending_approval', 'not_approved'], true)) {
+                return new WP_REST_Response(['message' => 'Only pending or clarification tasks can be batch approved.'], 422);
+            }
+
+            if (! WP_PQ_Workflow::can_transition($current_status, 'approved', $user_id)) {
+                return new WP_REST_Response(['message' => 'One or more selected tasks cannot be approved.'], 422);
+            }
+
+            $wpdb->update($tasks, [
+                'status' => 'approved',
+                'updated_at' => current_time('mysql', true),
+            ], ['id' => $task_id]);
+
+            $wpdb->insert($history, [
+                'task_id' => $task_id,
+                'old_status' => $current_status,
+                'new_status' => 'approved',
+                'changed_by' => $user_id,
+                'note' => 'batch_approved',
+                'created_at' => current_time('mysql', true),
+            ]);
+
+            self::emit_status_event($task_id, 'approved');
+            self::sync_task_calendar_event((array) self::get_task_row($task_id));
+            $enriched = self::get_enriched_task($task_id);
+            if ($enriched) {
+                $updated[] = $enriched;
+            }
+        }
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'tasks' => $updated,
+            'task_count' => count($updated),
         ], 200);
     }
 

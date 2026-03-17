@@ -128,6 +128,7 @@ class WP_PQ_Portal
         echo '        </div>';
         echo '        <div class="wp-pq-board-head-actions">';
         echo '        <div id="wp-pq-board-summary" class="wp-pq-board-summary"></div>';
+        echo '        <button class="button" type="button" id="wp-pq-batch-approve" hidden>Approve Selected</button>';
         echo '        <button class="button" type="button" id="wp-pq-batch-statement" hidden>Create Statement from Selected</button>';
         echo '        </div>';
         echo '      </div>';
