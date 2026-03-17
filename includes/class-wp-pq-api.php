@@ -1,0 +1,2852 @@
+<?php
+
+if (! defined('ABSPATH')) {
+    exit;
+}
+
+class WP_PQ_API
+{
+    public static function init(): void
+    {
+        add_action('rest_api_init', [self::class, 'register_routes']);
+    }
+
+    public static function register_routes(): void
+    {
+        register_rest_route('pq/v1', '/tasks', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [self::class, 'get_tasks'],
+                'permission_callback' => [self::class, 'can_read_tasks'],
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'create_task'],
+                'permission_callback' => static fn() => is_user_logged_in(),
+            ],
+        ]);
+
+        register_rest_route('pq/v1', '/tasks/reorder', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'reorder_tasks'],
+            'permission_callback' => static fn() => is_user_logged_in(),
+        ]);
+
+        register_rest_route('pq/v1', '/tasks/move', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'move_task'],
+            'permission_callback' => static fn() => is_user_logged_in(),
+        ]);
+
+        register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/status', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'update_status'],
+            'permission_callback' => static fn() => is_user_logged_in(),
+        ]);
+
+        register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/assignment', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'update_assignment'],
+            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_ASSIGN),
+        ]);
+
+        register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/schedule', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'update_schedule'],
+            'permission_callback' => static fn() => is_user_logged_in(),
+        ]);
+
+        register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/messages', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [self::class, 'get_messages'],
+                'permission_callback' => static fn() => is_user_logged_in(),
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'create_message'],
+                'permission_callback' => static fn() => is_user_logged_in(),
+            ],
+        ]);
+
+        register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/notes', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [self::class, 'get_notes'],
+                'permission_callback' => static fn() => is_user_logged_in(),
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'create_note'],
+                'permission_callback' => static fn() => is_user_logged_in(),
+            ],
+        ]);
+
+        register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/participants', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [self::class, 'get_task_participants'],
+            'permission_callback' => static fn() => is_user_logged_in(),
+        ]);
+
+        register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/files', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [self::class, 'get_files'],
+                'permission_callback' => static fn() => is_user_logged_in(),
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'attach_file'],
+                'permission_callback' => static fn() => is_user_logged_in(),
+            ],
+        ]);
+
+        register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/meetings', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [self::class, 'get_meetings'],
+                'permission_callback' => static fn() => is_user_logged_in(),
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'create_meeting'],
+                'permission_callback' => static fn() => is_user_logged_in(),
+            ],
+        ]);
+
+        register_rest_route('pq/v1', '/calendar/webhook', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'calendar_webhook'],
+            'permission_callback' => '__return_true',
+        ]);
+
+        register_rest_route('pq/v1', '/calendar/events', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [self::class, 'get_calendar_events'],
+            'permission_callback' => static fn() => is_user_logged_in(),
+        ]);
+
+        register_rest_route('pq/v1', '/google/oauth/callback', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [self::class, 'google_oauth_callback'],
+                'permission_callback' => '__return_true',
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'google_oauth_callback'],
+                'permission_callback' => '__return_true',
+            ],
+        ]);
+
+        register_rest_route('pq/v1', '/google/oauth/url', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [self::class, 'google_oauth_url'],
+            'permission_callback' => '__return_true',
+        ]);
+
+        register_rest_route('pq/v1', '/google/oauth/status', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [self::class, 'google_oauth_status'],
+            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
+        ]);
+
+        register_rest_route('pq/v1', '/notification-prefs', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [self::class, 'get_notification_prefs'],
+                'permission_callback' => static fn() => is_user_logged_in(),
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'update_notification_prefs'],
+                'permission_callback' => static fn() => is_user_logged_in(),
+            ],
+        ]);
+
+        register_rest_route('pq/v1', '/notifications', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [self::class, 'get_notifications'],
+            'permission_callback' => static fn() => is_user_logged_in(),
+        ]);
+
+        register_rest_route('pq/v1', '/notifications/mark-read', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'mark_notifications_read'],
+            'permission_callback' => static fn() => is_user_logged_in(),
+        ]);
+
+        register_rest_route('pq/v1', '/workers', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [self::class, 'get_workers'],
+            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_ASSIGN),
+        ]);
+
+        register_rest_route('pq/v1', '/statements/batch', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'batch_statement'],
+            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
+        ]);
+    }
+
+    public static function can_read_tasks(): bool
+    {
+        return is_user_logged_in();
+    }
+
+    public static function get_tasks(WP_REST_Request $request): WP_REST_Response
+    {
+        $user_id = get_current_user_id();
+        $rows = self::get_visible_tasks_for_request($request, $user_id);
+
+        $rows = self::sort_task_rows($rows);
+        $rows = self::enrich_task_rows($rows);
+
+        return new WP_REST_Response([
+            'tasks' => $rows,
+            'filters' => self::build_task_filters_payload($user_id),
+        ], 200);
+    }
+
+    public static function create_task(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'pq_tasks';
+
+        $user_id = get_current_user_id();
+        $title = sanitize_text_field((string) $request->get_param('title'));
+
+        if ($title === '') {
+            return new WP_REST_Response(['message' => 'Task title is required.'], 422);
+        }
+
+        $allowed_assign = current_user_can(WP_PQ_Roles::CAP_ASSIGN);
+        $owner_ids = array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('owner_ids')))));
+        $client_user_id = self::resolve_client_user_id($request, $user_id);
+        $billing_bucket_id = self::resolve_billing_bucket_id($request, $client_user_id);
+        $new_bucket_name = sanitize_text_field((string) $request->get_param('new_bucket_name'));
+        if ($new_bucket_name !== '' && current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            $billing_bucket_id = self::create_bucket_for_client($client_user_id, $new_bucket_name);
+        }
+        $action_owner_id = self::resolve_action_owner_id($request, $allowed_assign ? $owner_ids : []);
+
+        $max_position = (int) $wpdb->get_var("SELECT COALESCE(MAX(queue_position), 0) FROM {$table}");
+
+        $inserted = $wpdb->insert($table, [
+            'title' => $title,
+            'description' => sanitize_textarea_field((string) $request->get_param('description')),
+            'status' => 'pending_approval',
+            'priority' => self::sanitize_priority((string) $request->get_param('priority')),
+            'queue_position' => $max_position + 1,
+            'due_at' => self::sanitize_datetime($request->get_param('due_at')),
+            'requested_deadline' => self::sanitize_datetime($request->get_param('requested_deadline')),
+            'submitter_id' => $user_id,
+            'client_user_id' => $client_user_id > 0 ? $client_user_id : $user_id,
+            'action_owner_id' => $action_owner_id > 0 ? $action_owner_id : null,
+            'billing_bucket_id' => $billing_bucket_id > 0 ? $billing_bucket_id : null,
+            'owner_ids' => wp_json_encode($allowed_assign ? $owner_ids : []),
+            'needs_meeting' => $request->get_param('needs_meeting') ? 1 : 0,
+            'created_at' => current_time('mysql', true),
+            'updated_at' => current_time('mysql', true),
+        ]);
+
+        if (! $inserted) {
+            return new WP_REST_Response(['message' => 'Failed to create task.'], 500);
+        }
+
+        $task_id = (int) $wpdb->insert_id;
+        self::sync_task_calendar_event((array) self::get_task_row($task_id));
+        self::emit_event($task_id, 'task_created', 'Task created', 'A new task was submitted and is pending approval.');
+        self::emit_assignment_event($task_id, 0, $action_owner_id);
+
+        return new WP_REST_Response([
+            'task_id' => $task_id,
+            'task' => self::get_enriched_task($task_id),
+        ], 201);
+    }
+
+    public static function reorder_tasks(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'pq_tasks';
+        $user_id = get_current_user_id();
+        $items = (array) $request->get_param('items');
+
+        foreach ($items as $index => $item) {
+            $task_id = (int) ($item['id'] ?? 0);
+            if ($task_id <= 0) {
+                continue;
+            }
+
+            if (! current_user_can(WP_PQ_Roles::CAP_REORDER_ALL)) {
+                $owner = (int) $wpdb->get_var($wpdb->prepare("SELECT submitter_id FROM {$table} WHERE id = %d", $task_id));
+                if ($owner !== $user_id) {
+                    continue;
+                }
+            }
+
+            $wpdb->update($table, [
+                'queue_position' => $index + 1,
+                'updated_at' => current_time('mysql', true),
+            ], ['id' => $task_id]);
+        }
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'task' => self::get_enriched_task($task_id),
+        ], 200);
+    }
+
+    public static function update_assignment(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+
+        $task_id = (int) $request->get_param('id');
+        $task = self::get_task_row($task_id);
+        if (! $task) {
+            return new WP_REST_Response(['message' => 'Task not found.'], 404);
+        }
+
+        $action_owner_id = max(0, (int) $request->get_param('action_owner_id'));
+        if ($action_owner_id > 0 && ! get_user_by('ID', $action_owner_id)) {
+            return new WP_REST_Response(['message' => 'Assigned user not found.'], 422);
+        }
+        $previous_action_owner_id = (int) ($task['action_owner_id'] ?? 0);
+
+        $owner_ids = array_values(array_unique(array_filter(array_map('intval', (array) json_decode((string) ($task['owner_ids'] ?? ''), true)))));
+        if ($action_owner_id > 0 && ! in_array($action_owner_id, $owner_ids, true)) {
+            array_unshift($owner_ids, $action_owner_id);
+        }
+
+        $wpdb->update($wpdb->prefix . 'pq_tasks', [
+            'action_owner_id' => $action_owner_id > 0 ? $action_owner_id : null,
+            'owner_ids' => wp_json_encode($owner_ids),
+            'updated_at' => current_time('mysql', true),
+        ], ['id' => $task_id]);
+
+        self::insert_history_note(
+            $wpdb->prefix . 'pq_task_status_history',
+            $task_id,
+            (string) $task['status'],
+            get_current_user_id(),
+            'action_owner:' . ($action_owner_id > 0 ? $action_owner_id : 'none')
+        );
+
+        self::emit_assignment_event($task_id, $previous_action_owner_id, $action_owner_id);
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'task' => self::get_enriched_task($task_id),
+        ], 200);
+    }
+
+    public static function move_task(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $history_table = $wpdb->prefix . 'pq_task_status_history';
+
+        $user_id = get_current_user_id();
+        $task_id = (int) $request->get_param('task_id');
+        $target_task_id = (int) $request->get_param('target_task_id');
+        $position = sanitize_key((string) $request->get_param('position'));
+        $target_status = sanitize_key((string) $request->get_param('target_status'));
+        $action = sanitize_key((string) $request->get_param('action'));
+        $priority_direction = self::sanitize_priority_direction((string) $request->get_param('priority_direction'));
+        $raise_priority = rest_sanitize_boolean($request->get_param('raise_priority'));
+        $swap_due_dates = rest_sanitize_boolean($request->get_param('swap_due_dates'));
+
+        if ($action !== '') {
+            $priority_direction = in_array($action, ['raise_priority', 'raise_and_swap'], true) ? 'up' : 'keep';
+            $swap_due_dates = in_array($action, ['swap_due_dates', 'raise_and_swap'], true);
+        } elseif ($priority_direction === 'keep' && $raise_priority) {
+            $priority_direction = 'up';
+        }
+
+        if ($task_id <= 0 || ($target_task_id > 0 && $task_id === $target_task_id)) {
+            return new WP_REST_Response(['message' => 'A valid task move target is required.'], 422);
+        }
+
+        if (! in_array($position, ['before', 'after'], true)) {
+            return new WP_REST_Response(['message' => 'Invalid move position.'], 422);
+        }
+
+        $task = self::get_task_row($task_id);
+        $target_task = $target_task_id > 0 ? self::get_task_row($target_task_id) : null;
+
+        if (! $task) {
+            return new WP_REST_Response(['message' => 'Task not found.'], 404);
+        }
+
+        if ($target_task_id > 0 && ! $target_task) {
+            return new WP_REST_Response(['message' => 'Move target not found.'], 404);
+        }
+
+        if (! current_user_can(WP_PQ_Roles::CAP_REORDER_ALL)) {
+            if ((int) $task['submitter_id'] !== $user_id || ($target_task && (int) $target_task['submitter_id'] !== $user_id)) {
+                return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+            }
+        }
+
+        $current_status = (string) $task['status'];
+        $resolved_target_status = $target_status !== ''
+            ? $target_status
+            : ($target_task ? (string) $target_task['status'] : $current_status);
+
+        if (! in_array($resolved_target_status, WP_PQ_Workflow::allowed_statuses(), true)) {
+            return new WP_REST_Response(['message' => 'Invalid move target status.'], 422);
+        }
+
+        if ($resolved_target_status !== $current_status && ! WP_PQ_Workflow::can_transition($current_status, $resolved_target_status, $user_id)) {
+            return new WP_REST_Response(['message' => 'That status move is not allowed.'], 422);
+        }
+
+        $visible_rows = current_user_can(WP_PQ_Roles::CAP_VIEW_ALL)
+            ? $wpdb->get_results("SELECT * FROM {$tasks_table} ORDER BY queue_position ASC, id DESC", ARRAY_A)
+            : $wpdb->get_results(
+                $wpdb->prepare("SELECT * FROM {$tasks_table} WHERE submitter_id = %d ORDER BY queue_position ASC, id DESC", $user_id),
+                ARRAY_A
+            );
+        $visible_rows = self::sort_task_rows($visible_rows);
+
+        $ordered_ids = array_map(static fn($row) => (int) $row['id'], $visible_rows);
+        if (! in_array($task_id, $ordered_ids, true) || ($target_task_id > 0 && ! in_array($target_task_id, $ordered_ids, true))) {
+            return new WP_REST_Response(['message' => 'Task move is outside your visible queue.'], 403);
+        }
+
+        $ordered_ids = array_values(array_filter($ordered_ids, static fn($id) => $id !== $task_id));
+        if ($target_task_id > 0) {
+            $target_index = array_search($target_task_id, $ordered_ids, true);
+            if ($target_index === false) {
+                return new WP_REST_Response(['message' => 'Task move target could not be resolved.'], 422);
+            }
+
+            $insert_at = $position === 'before' ? $target_index : $target_index + 1;
+        } else {
+            $insert_at = count($ordered_ids);
+        }
+        array_splice($ordered_ids, $insert_at, 0, [$task_id]);
+
+        foreach ($ordered_ids as $index => $ordered_id) {
+            $wpdb->update($tasks_table, [
+                'queue_position' => $index + 1,
+                'updated_at' => current_time('mysql', true),
+            ], ['id' => $ordered_id]);
+        }
+
+        $priority_changed = false;
+        $schedule_changed = false;
+        $status_changed = false;
+        $meeting_requested = (bool) $request->get_param('needs_meeting');
+        $change_note = trim((string) $request->get_param('note'));
+        $message_body = trim((string) $request->get_param('message_body'));
+        $notes = ['board_move'];
+
+        if ($resolved_target_status !== $current_status) {
+            $status_update = array_merge([
+                'status' => $resolved_target_status,
+                'updated_at' => current_time('mysql', true),
+            ], self::status_timestamp_updates($resolved_target_status));
+            if ($meeting_requested) {
+                $status_update['needs_meeting'] = 1;
+            }
+            $wpdb->update($tasks_table, $status_update, ['id' => $task_id]);
+            $status_changed = true;
+            $notes[] = 'status:' . $current_status . '->' . $resolved_target_status;
+            $task['status'] = $resolved_target_status;
+            if ($meeting_requested) {
+                $task['needs_meeting'] = 1;
+                $notes[] = 'meeting_requested';
+            }
+            foreach (self::status_timestamp_updates($resolved_target_status) as $field => $value) {
+                $task[$field] = $value;
+            }
+        }
+
+        if ($priority_direction !== 'keep') {
+            $new_priority = self::shift_priority((string) $task['priority'], $priority_direction);
+            if ($new_priority !== (string) $task['priority']) {
+                $wpdb->update($tasks_table, [
+                    'priority' => $new_priority,
+                    'updated_at' => current_time('mysql', true),
+                ], ['id' => $task_id]);
+                $notes[] = 'priority:' . $task['priority'] . '->' . $new_priority;
+                $priority_changed = true;
+                $task['priority'] = $new_priority;
+            }
+        }
+
+        if ($swap_due_dates && $target_task) {
+            $task_dates = [
+                'requested_deadline' => $task['requested_deadline'],
+                'due_at' => $task['due_at'],
+            ];
+            $target_dates = [
+                'requested_deadline' => $target_task['requested_deadline'],
+                'due_at' => $target_task['due_at'],
+            ];
+
+            if ($task_dates !== $target_dates) {
+                $wpdb->update($tasks_table, [
+                    'requested_deadline' => $target_dates['requested_deadline'],
+                    'due_at' => $target_dates['due_at'],
+                    'updated_at' => current_time('mysql', true),
+                ], ['id' => $task_id]);
+
+                $wpdb->update($tasks_table, [
+                    'requested_deadline' => $task_dates['requested_deadline'],
+                    'due_at' => $task_dates['due_at'],
+                    'updated_at' => current_time('mysql', true),
+                ], ['id' => $target_task_id]);
+
+                $notes[] = 'date_swap:' . $target_task_id;
+                $schedule_changed = true;
+            }
+        }
+
+        if ($status_changed) {
+            if ($change_note !== '') {
+                $notes[] = 'note:' . $change_note;
+            }
+            $wpdb->insert($history_table, [
+                'task_id' => $task_id,
+                'old_status' => $current_status,
+                'new_status' => $resolved_target_status,
+                'changed_by' => $user_id,
+                'note' => sanitize_textarea_field(implode(';', $notes)),
+                'created_at' => current_time('mysql', true),
+            ]);
+            self::emit_status_event($task_id, $resolved_target_status);
+        } else {
+            if ($change_note !== '') {
+                $notes[] = 'note:' . $change_note;
+            }
+            self::insert_history_note($history_table, $task_id, (string) $task['status'], $user_id, implode(';', $notes));
+        }
+
+        if ($message_body !== '') {
+            self::store_task_message($task_id, $user_id, $message_body, $task);
+        }
+
+        if ($schedule_changed && $target_task_id > 0) {
+            self::insert_history_note($history_table, $target_task_id, (string) $target_task['status'], $user_id, 'date_swap_with:' . $task_id);
+        }
+
+        if ($priority_changed) {
+            self::emit_event($task_id, 'task_reprioritized', 'Task reprioritized', 'A task was moved and its priority changed.');
+        }
+
+        if ($schedule_changed) {
+            self::emit_event($task_id, 'task_schedule_changed', 'Task schedule changed', 'A task move changed one or more due dates.');
+            if ($target_task_id > 0) {
+                self::emit_event($target_task_id, 'task_schedule_changed', 'Task schedule changed', 'A task move changed one or more due dates.');
+            }
+        }
+
+        self::sync_task_calendar_event((array) self::get_task_row($task_id));
+        if ($schedule_changed && $target_task_id > 0) {
+            self::sync_task_calendar_event((array) self::get_task_row($target_task_id));
+        }
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'task' => self::get_enriched_task($task_id),
+            'target_task' => $target_task_id > 0 ? self::get_enriched_task($target_task_id) : null,
+        ], 200);
+    }
+
+    public static function update_schedule(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $tasks = $wpdb->prefix . 'pq_tasks';
+        $history = $wpdb->prefix . 'pq_task_status_history';
+
+        $task_id = (int) $request->get_param('id');
+        $when = self::sanitize_datetime($request->get_param('when'));
+        $task = self::get_task_row($task_id);
+
+        if (! $task) {
+            return new WP_REST_Response(['message' => 'Task not found.'], 404);
+        }
+
+        if (! $when) {
+            return new WP_REST_Response(['message' => 'A valid date is required.'], 422);
+        }
+
+        if (! self::can_access_task($task, get_current_user_id())) {
+            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        }
+
+        [$requested_deadline, $due_at] = self::shift_task_schedule($task, $when);
+
+        $wpdb->update($tasks, [
+            'requested_deadline' => $requested_deadline,
+            'due_at' => $due_at,
+            'updated_at' => current_time('mysql', true),
+        ], ['id' => $task_id]);
+
+        self::insert_history_note($history, $task_id, (string) $task['status'], get_current_user_id(), 'calendar_drag:' . $when);
+        self::emit_event($task_id, 'task_schedule_changed', 'Task schedule changed', 'A task move changed one or more due dates.');
+        self::sync_task_calendar_event((array) self::get_task_row($task_id));
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'task' => self::get_enriched_task($task_id),
+        ], 200);
+    }
+
+    public static function update_status(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $tasks = $wpdb->prefix . 'pq_tasks';
+        $history = $wpdb->prefix . 'pq_task_status_history';
+
+        $task_id = (int) $request->get_param('id');
+        $new_status = sanitize_key((string) $request->get_param('status'));
+        $task = self::get_task_row($task_id);
+
+        if (! $task) {
+            return new WP_REST_Response(['message' => 'Task not found.'], 404);
+        }
+
+        if (! in_array($new_status, WP_PQ_Workflow::allowed_statuses(), true)) {
+            return new WP_REST_Response(['message' => 'Invalid status.'], 422);
+        }
+
+        $user_id = get_current_user_id();
+        if (! self::can_access_task($task, $user_id)) {
+            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        }
+
+        if (! WP_PQ_Workflow::can_transition((string) $task['status'], $new_status, $user_id)) {
+            return new WP_REST_Response(['message' => 'Status transition not allowed.'], 422);
+        }
+
+        $update_data = array_merge([
+            'status' => $new_status,
+            'updated_at' => current_time('mysql', true),
+        ], self::status_timestamp_updates($new_status));
+
+        if ((bool) $request->get_param('needs_meeting')) {
+            $update_data['needs_meeting'] = 1;
+        }
+
+        $wpdb->update($tasks, $update_data, ['id' => $task_id]);
+
+        $wpdb->insert($history, [
+            'task_id' => $task_id,
+            'old_status' => $task['status'],
+            'new_status' => $new_status,
+            'changed_by' => $user_id,
+            'note' => sanitize_textarea_field((string) $request->get_param('note')),
+            'created_at' => current_time('mysql', true),
+        ]);
+
+        $message_body = trim((string) $request->get_param('message_body'));
+        if ($message_body !== '') {
+            self::store_task_message($task_id, $user_id, $message_body, $task);
+        }
+
+        self::emit_status_event($task_id, $new_status);
+        self::sync_task_calendar_event((array) self::get_task_row($task_id));
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'task' => self::get_enriched_task($task_id),
+        ], 200);
+    }
+
+    public static function get_messages(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $task_id = (int) $request->get_param('id');
+        $task = self::get_task_row($task_id);
+
+        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
+            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        }
+
+        $table = $wpdb->prefix . 'pq_task_messages';
+        $rows = $wpdb->get_results(
+            $wpdb->prepare("SELECT * FROM {$table} WHERE task_id = %d ORDER BY id ASC", $task_id),
+            ARRAY_A
+        );
+
+        $rows = self::attach_author_names($rows);
+
+        return new WP_REST_Response(['messages' => $rows], 200);
+    }
+
+    public static function create_message(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $task_id = (int) $request->get_param('id');
+        $task = self::get_task_row($task_id);
+
+        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
+            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        }
+
+        $body = trim((string) $request->get_param('body'));
+        if ($body === '') {
+            return new WP_REST_Response(['message' => 'Message body is required.'], 422);
+        }
+
+        self::store_task_message($task_id, get_current_user_id(), $body, $task);
+
+        global $wpdb;
+        $table = $wpdb->prefix . 'pq_task_messages';
+        $message = $wpdb->get_row(
+            $wpdb->prepare("SELECT * FROM {$table} WHERE task_id = %d ORDER BY id DESC LIMIT 1", $task_id),
+            ARRAY_A
+        );
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => $message ? self::attach_author_names([$message])[0] : null,
+            'task' => self::get_enriched_task($task_id),
+        ], 201);
+    }
+
+    public static function get_notes(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $task_id = (int) $request->get_param('id');
+        $task = self::get_task_row($task_id);
+
+        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
+            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        }
+
+        $table = $wpdb->prefix . 'pq_task_comments';
+        $rows = $wpdb->get_results(
+            $wpdb->prepare("SELECT * FROM {$table} WHERE task_id = %d ORDER BY id DESC", $task_id),
+            ARRAY_A
+        );
+
+        $rows = self::attach_author_names($rows);
+
+        return new WP_REST_Response(['notes' => $rows], 200);
+    }
+
+    public static function create_note(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $task_id = (int) $request->get_param('id');
+        $task = self::get_task_row($task_id);
+
+        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
+            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        }
+
+        $body = trim((string) $request->get_param('body'));
+        if ($body === '') {
+            return new WP_REST_Response(['message' => 'Sticky note text is required.'], 422);
+        }
+
+        $table = $wpdb->prefix . 'pq_task_comments';
+        $wpdb->insert($table, [
+            'task_id' => $task_id,
+            'author_id' => get_current_user_id(),
+            'body' => sanitize_textarea_field($body),
+            'created_at' => current_time('mysql', true),
+        ]);
+        $note = $wpdb->get_row(
+            $wpdb->prepare("SELECT * FROM {$table} WHERE task_id = %d ORDER BY id DESC LIMIT 1", $task_id),
+            ARRAY_A
+        );
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'note' => $note ? self::attach_author_names([$note])[0] : null,
+            'task' => self::get_enriched_task($task_id),
+        ], 201);
+    }
+
+    public static function get_task_participants(WP_REST_Request $request): WP_REST_Response
+    {
+        $task_id = (int) $request->get_param('id');
+        $task = self::get_task_row($task_id);
+
+        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
+            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        }
+
+        return new WP_REST_Response([
+            'participants' => self::task_participants($task),
+        ], 200);
+    }
+
+    public static function get_files(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $task_id = (int) $request->get_param('id');
+        $task = self::get_task_row($task_id);
+
+        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
+            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        }
+
+        $table = $wpdb->prefix . 'pq_task_files';
+        $rows = $wpdb->get_results(
+            $wpdb->prepare("SELECT * FROM {$table} WHERE task_id = %d ORDER BY file_role ASC, version_num DESC", $task_id),
+            ARRAY_A
+        );
+
+        foreach ($rows as &$row) {
+            $media_id = (int) ($row['media_id'] ?? 0);
+            $row['media_url'] = $media_id > 0 ? wp_get_attachment_url($media_id) : '';
+            $row['filename'] = $media_id > 0 ? wp_basename((string) get_attached_file($media_id)) : '';
+        }
+
+        return new WP_REST_Response(['files' => $rows], 200);
+    }
+
+    public static function attach_file(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $task_id = (int) $request->get_param('id');
+        $task = self::get_task_row($task_id);
+
+        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
+            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        }
+
+        $media_id = (int) $request->get_param('media_id');
+        $file_role = sanitize_key((string) $request->get_param('file_role'));
+        if (! in_array($file_role, ['input', 'deliverable'], true)) {
+            $file_role = 'input';
+        }
+
+        if ($media_id <= 0 || get_post_type($media_id) !== 'attachment') {
+            return new WP_REST_Response(['message' => 'Valid media_id is required.'], 422);
+        }
+
+        $table = $wpdb->prefix . 'pq_task_files';
+        $retention_days = (int) get_option('wp_pq_retention_days', 365);
+        $version_limit = (int) get_option('wp_pq_file_version_limit', 3);
+
+        $max_version = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COALESCE(MAX(version_num), 0) FROM {$table} WHERE task_id = %d AND file_role = %s",
+            $task_id,
+            $file_role
+        ));
+
+        $wpdb->insert($table, [
+            'task_id' => $task_id,
+            'uploader_id' => get_current_user_id(),
+            'media_id' => $media_id,
+            'file_role' => $file_role,
+            'version_num' => $max_version + 1,
+            'storage_expires_at' => gmdate('Y-m-d H:i:s', strtotime('+' . $retention_days . ' days')),
+            'created_at' => current_time('mysql', true),
+        ]);
+
+        $overflow = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, media_id
+             FROM {$table}
+             WHERE task_id = %d AND file_role = %s
+             ORDER BY version_num DESC
+             LIMIT 100 OFFSET %d",
+            $task_id,
+            $file_role,
+            $version_limit
+        ), ARRAY_A);
+
+        foreach ($overflow as $row) {
+            wp_delete_attachment((int) $row['media_id'], true);
+            $wpdb->delete($table, ['id' => (int) $row['id']]);
+        }
+
+        return new WP_REST_Response(['ok' => true], 201);
+    }
+
+    public static function get_meetings(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $task_id = (int) $request->get_param('id');
+        $task = self::get_task_row($task_id);
+
+        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
+            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        }
+
+        $table = $wpdb->prefix . 'pq_task_meetings';
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM {$table} WHERE task_id = %d ORDER BY id DESC", $task_id), ARRAY_A);
+
+        return new WP_REST_Response(['meetings' => $rows], 200);
+    }
+
+    public static function create_meeting(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $task_id = (int) $request->get_param('id');
+        $task = self::get_task_row($task_id);
+
+        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
+            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        }
+
+        $starts_at = self::sanitize_datetime($request->get_param('starts_at'));
+        $ends_at = self::sanitize_datetime($request->get_param('ends_at'));
+        $event_id = sanitize_text_field((string) $request->get_param('event_id'));
+        $meeting_url = esc_url_raw((string) $request->get_param('meeting_url'));
+
+        if ($event_id === '' && $starts_at && $ends_at) {
+            $google_event = self::create_google_calendar_event($task, $starts_at, $ends_at);
+            if (is_wp_error($google_event)) {
+                return new WP_REST_Response(['message' => $google_event->get_error_message()], 500);
+            }
+            $event_id = sanitize_text_field((string) ($google_event['id'] ?? ''));
+            $meeting_url = esc_url_raw((string) ($google_event['hangoutLink'] ?? ''));
+        }
+
+        $table = $wpdb->prefix . 'pq_task_meetings';
+        $wpdb->insert($table, [
+            'task_id' => $task_id,
+            'provider' => 'google',
+            'event_id' => $event_id,
+            'meeting_url' => $meeting_url,
+            'starts_at' => $starts_at,
+            'ends_at' => $ends_at,
+            'sync_direction' => 'two_way',
+            'created_at' => current_time('mysql', true),
+            'updated_at' => current_time('mysql', true),
+        ]);
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'event_id' => $event_id,
+            'meeting_url' => $meeting_url,
+            'task' => self::get_enriched_task($task_id),
+        ], 201);
+    }
+
+    public static function calendar_webhook(WP_REST_Request $request): WP_REST_Response
+    {
+        $payload = $request->get_json_params();
+        do_action('wp_pq_calendar_webhook_received', $payload);
+
+        return new WP_REST_Response(['ok' => true], 200);
+    }
+
+    public static function get_calendar_events(): WP_REST_Response
+    {
+        global $wpdb;
+
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $meetings_table = $wpdb->prefix . 'pq_task_meetings';
+        $user_id = get_current_user_id();
+
+        $tasks = self::get_visible_tasks_for_request($request ?? null, $user_id, true);
+
+        self::backfill_task_calendar_events($tasks);
+
+        $events = [];
+        $visible_task_ids = [];
+
+        foreach ($tasks as $task) {
+            $visible_task_ids[] = (int) $task['id'];
+            $dt = $task['requested_deadline'] ?: $task['due_at'];
+            if (! $dt) {
+                continue;
+            }
+
+            $events[] = [
+                'id' => 'task_' . (int) $task['id'],
+                'title' => '[Task] ' . (string) $task['title'],
+                'start' => gmdate('c', strtotime((string) $dt . ' UTC')),
+                'allDay' => false,
+                'backgroundColor' => '#be123c',
+                'borderColor' => '#be123c',
+                'extendedProps' => [
+                    'source' => 'task',
+                    'taskId' => (int) $task['id'],
+                    'status' => (string) $task['status'],
+                    'priority' => (string) $task['priority'],
+                    'description' => (string) $task['description'],
+                    'needsMeeting' => ! empty($task['needs_meeting']),
+                    'requestedDeadline' => (string) $task['requested_deadline'],
+                    'dueAt' => (string) $task['due_at'],
+                ],
+            ];
+        }
+
+        if (! empty($visible_task_ids)) {
+            $ids_in = implode(',', array_map('intval', $visible_task_ids));
+            $meetings = $wpdb->get_results("SELECT * FROM {$meetings_table} WHERE task_id IN ({$ids_in}) ORDER BY id DESC", ARRAY_A);
+
+            foreach ($meetings as $meeting) {
+                if (! empty($meeting['starts_at'])) {
+                    $events[] = [
+                        'id' => 'meeting_' . (int) $meeting['id'],
+                        'title' => '[Meet] Task #' . (int) $meeting['task_id'],
+                        'start' => gmdate('c', strtotime((string) $meeting['starts_at'] . ' UTC')),
+                        'end' => ! empty($meeting['ends_at']) ? gmdate('c', strtotime((string) $meeting['ends_at'] . ' UTC')) : null,
+                        'allDay' => false,
+                        'backgroundColor' => '#1d4ed8',
+                        'borderColor' => '#1d4ed8',
+                        'url' => ! empty($meeting['meeting_url']) ? $meeting['meeting_url'] : null,
+                        'extendedProps' => [
+                            'source' => 'meeting',
+                            'taskId' => (int) $meeting['task_id'],
+                            'eventId' => (string) $meeting['event_id'],
+                            'meetingUrl' => (string) $meeting['meeting_url'],
+                        ],
+                    ];
+                }
+            }
+        }
+
+        $google_events = self::fetch_google_calendar_events();
+        if (is_array($google_events)) {
+            foreach ($google_events as $google_event) {
+                $events[] = $google_event;
+            }
+        }
+
+        return new WP_REST_Response(['events' => $events], 200);
+    }
+
+    private static function get_visible_tasks_for_request(?WP_REST_Request $request, int $user_id, bool $calendar_order = false): array
+    {
+        global $wpdb;
+
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $can_view_all = current_user_can(WP_PQ_Roles::CAP_VIEW_ALL);
+        $selected_client_id = $can_view_all ? max(0, (int) ($request ? $request->get_param('client_user_id') : 0)) : $user_id;
+        $selected_bucket_id = max(0, (int) ($request ? $request->get_param('billing_bucket_id') : 0));
+
+        $where = [];
+        $params = [];
+
+        if ($can_view_all) {
+            if ($selected_client_id > 0) {
+                $where[] = 'client_user_id = %d';
+                $params[] = $selected_client_id;
+            }
+        } else {
+            $where[] = '(client_user_id = %d OR submitter_id = %d OR action_owner_id = %d)';
+            $params[] = $user_id;
+            $params[] = $user_id;
+            $params[] = $user_id;
+        }
+
+        if ($selected_bucket_id > 0) {
+            $where[] = 'billing_bucket_id = %d';
+            $params[] = $selected_bucket_id;
+        }
+
+        $sql = "SELECT * FROM {$tasks_table}";
+        if (! empty($where)) {
+            $sql .= ' WHERE ' . implode(' AND ', $where);
+        }
+        $sql .= $calendar_order ? ' ORDER BY id DESC' : ' ORDER BY queue_position ASC, id DESC';
+
+        return empty($params)
+            ? $wpdb->get_results($sql, ARRAY_A)
+            : $wpdb->get_results($wpdb->prepare($sql, ...$params), ARRAY_A);
+    }
+
+    private static function build_task_filters_payload(int $user_id): array
+    {
+        $can_view_all = current_user_can(WP_PQ_Roles::CAP_VIEW_ALL);
+
+        return [
+            'can_view_all' => $can_view_all,
+            'clients' => $can_view_all ? self::task_filter_clients() : [],
+            'buckets' => self::task_filter_buckets($can_view_all ? 0 : $user_id),
+        ];
+    }
+
+    private static function task_filter_clients(): array
+    {
+        global $wpdb;
+
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
+
+        $client_ids = array_map('intval', array_unique(array_filter(array_merge(
+            get_users([
+                'role' => 'pq_client',
+                'fields' => 'ID',
+            ]),
+            $wpdb->get_col("SELECT DISTINCT client_user_id FROM {$tasks_table} WHERE client_user_id > 0"),
+            $wpdb->get_col("SELECT DISTINCT client_user_id FROM {$buckets_table} WHERE client_user_id > 0")
+        ))));
+
+        if (empty($client_ids)) {
+            return [];
+        }
+
+        $users = get_users([
+            'include' => $client_ids,
+            'orderby' => 'display_name',
+            'order' => 'ASC',
+        ]);
+
+        return array_map(static function ($user): array {
+            return [
+                'id' => (int) $user->ID,
+                'label' => $user->display_name . ' (' . $user->user_email . ')',
+                'name' => (string) $user->display_name,
+                'email' => (string) $user->user_email,
+            ];
+        }, $users);
+    }
+
+    private static function task_filter_buckets(int $client_user_id = 0): array
+    {
+        global $wpdb;
+
+        $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
+        $users_table = $wpdb->users;
+        $where = $client_user_id > 0 ? $wpdb->prepare('WHERE b.client_user_id = %d', $client_user_id) : '';
+        $rows = $wpdb->get_results(
+            "SELECT b.id, b.client_user_id, b.bucket_name, b.is_default, u.display_name AS client_name
+             FROM {$buckets_table} b
+             LEFT JOIN {$users_table} u ON u.ID = b.client_user_id
+             {$where}
+             ORDER BY u.display_name ASC, b.is_default DESC, b.bucket_name ASC",
+            ARRAY_A
+        );
+
+        return array_map(static function (array $row): array {
+            $bucket_name = trim((string) ($row['bucket_name'] ?? ''));
+            if ($bucket_name === '') {
+                $bucket_name = ((int) ($row['is_default'] ?? 0) === 1) ? 'Main' : 'Job Bucket';
+            }
+            return [
+                'id' => (int) ($row['id'] ?? 0),
+                'client_user_id' => (int) ($row['client_user_id'] ?? 0),
+                'label' => $bucket_name,
+                'bucket_name' => $bucket_name,
+                'is_default' => ((int) ($row['is_default'] ?? 0) === 1),
+                'client_name' => (string) ($row['client_name'] ?? ''),
+            ];
+        }, $rows);
+    }
+
+    private static function resolve_client_user_id(WP_REST_Request $request, int $current_user_id): int
+    {
+        if (! current_user_can(WP_PQ_Roles::CAP_VIEW_ALL)) {
+            return $current_user_id;
+        }
+
+        $client_user_id = max(0, (int) $request->get_param('client_user_id'));
+        if ($client_user_id > 0 && get_user_by('ID', $client_user_id)) {
+            return $client_user_id;
+        }
+
+        return $current_user_id;
+    }
+
+    private static function resolve_billing_bucket_id(WP_REST_Request $request, int $client_user_id): int
+    {
+        global $wpdb;
+
+        $bucket_id = max(0, (int) $request->get_param('billing_bucket_id'));
+        if ($bucket_id > 0) {
+            $owner_client_id = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT client_user_id FROM {$wpdb->prefix}pq_billing_buckets WHERE id = %d LIMIT 1",
+                $bucket_id
+            ));
+            if ($owner_client_id === $client_user_id) {
+                return $bucket_id;
+            }
+        }
+
+        return WP_PQ_DB::get_or_create_default_billing_bucket_id($client_user_id);
+    }
+
+    private static function create_bucket_for_client(int $client_user_id, string $bucket_name): int
+    {
+        global $wpdb;
+
+        $bucket_name = trim($bucket_name);
+        if ($client_user_id <= 0 || $bucket_name === '') {
+            return WP_PQ_DB::get_or_create_default_billing_bucket_id($client_user_id);
+        }
+
+        $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
+        $slug = sanitize_title($bucket_name);
+        $existing_id = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$buckets_table} WHERE client_user_id = %d AND bucket_slug = %s LIMIT 1",
+            $client_user_id,
+            $slug
+        ));
+
+        if ($existing_id > 0) {
+            return $existing_id;
+        }
+
+        $wpdb->insert($buckets_table, [
+            'client_user_id' => $client_user_id,
+            'bucket_name' => $bucket_name,
+            'bucket_slug' => $slug,
+            'description' => '',
+            'is_default' => 0,
+            'created_by' => get_current_user_id(),
+            'created_at' => current_time('mysql', true),
+        ]);
+
+        $created_id = (int) $wpdb->insert_id;
+        return $created_id > 0 ? $created_id : WP_PQ_DB::get_or_create_default_billing_bucket_id($client_user_id);
+    }
+
+    private static function resolve_action_owner_id(WP_REST_Request $request, array $owner_ids): int
+    {
+        $action_owner_id = max(0, (int) $request->get_param('action_owner_id'));
+        if ($action_owner_id > 0 && get_user_by('ID', $action_owner_id)) {
+            return $action_owner_id;
+        }
+
+        if (! empty($owner_ids)) {
+            return (int) reset($owner_ids);
+        }
+
+        return 0;
+    }
+
+    public static function google_oauth_callback(WP_REST_Request $request): WP_REST_Response
+    {
+        $code = sanitize_text_field((string) $request->get_param('code'));
+        $state = sanitize_text_field((string) $request->get_param('state'));
+        $error = sanitize_text_field((string) $request->get_param('error'));
+        $as_json = sanitize_text_field((string) $request->get_param('format')) === 'json';
+
+        if ($error !== '') {
+            if ($as_json) {
+                return new WP_REST_Response([
+                    'ok' => false,
+                    'message' => 'Google OAuth failed: ' . $error,
+                ], 400);
+            }
+
+            self::render_oauth_result_page(false, 'Google authorization was not completed (' . $error . ').');
+        }
+
+        if ($code === '') {
+            if ($as_json) {
+                return new WP_REST_Response([
+                    'ok' => false,
+                    'message' => 'Missing OAuth code.',
+                ], 400);
+            }
+
+            self::render_oauth_result_page(false, 'Google authorization code is missing.');
+        }
+
+        $client_id = (string) get_option('wp_pq_google_client_id', '');
+        $client_secret = (string) get_option('wp_pq_google_client_secret', '');
+        $redirect_uri = self::google_redirect_uri();
+        if ($client_id === '' || $client_secret === '') {
+            if ($as_json) {
+                return new WP_REST_Response([
+                    'ok' => false,
+                    'message' => 'Google client credentials are not configured.',
+                ], 500);
+            }
+
+            self::render_oauth_result_page(false, 'Google client credentials are not configured in WordPress.');
+        }
+
+        $resp = wp_remote_post('https://oauth2.googleapis.com/token', [
+            'timeout' => 20,
+            'body' => [
+                'code' => $code,
+                'client_id' => $client_id,
+                'client_secret' => $client_secret,
+                'redirect_uri' => $redirect_uri,
+                'grant_type' => 'authorization_code',
+            ],
+        ]);
+
+        if (is_wp_error($resp)) {
+            if ($as_json) {
+                return new WP_REST_Response([
+                    'ok' => false,
+                    'message' => 'OAuth token exchange failed: ' . $resp->get_error_message(),
+                ], 500);
+            }
+
+            self::render_oauth_result_page(false, 'OAuth token exchange failed: ' . $resp->get_error_message());
+        }
+
+        $status = (int) wp_remote_retrieve_response_code($resp);
+        $body = json_decode((string) wp_remote_retrieve_body($resp), true);
+        if ($status >= 300 || ! is_array($body) || empty($body['access_token'])) {
+            if ($as_json) {
+                return new WP_REST_Response([
+                    'ok' => false,
+                    'message' => 'OAuth token exchange failed.',
+                    'details' => $body,
+                ], 500);
+            }
+
+            self::render_oauth_result_page(false, 'OAuth token exchange failed. Please retry connection.');
+        }
+
+        self::store_google_tokens($body);
+
+        if (! $as_json) {
+            self::render_oauth_result_page(true, 'Google Calendar connected successfully.');
+        }
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => 'Google Calendar connected successfully.',
+            'state' => $state,
+        ], 200);
+    }
+
+    public static function google_oauth_url(): WP_REST_Response
+    {
+        $client_id = (string) get_option('wp_pq_google_client_id', '');
+        if ($client_id === '') {
+            return new WP_REST_Response(['message' => 'Google client ID is not configured.'], 422);
+        }
+
+        $state = wp_generate_password(20, false, false);
+        update_option('wp_pq_google_oauth_state', $state, false);
+
+        $params = [
+            'client_id' => $client_id,
+            'redirect_uri' => self::google_redirect_uri(),
+            'response_type' => 'code',
+            'access_type' => 'offline',
+            'prompt' => 'consent',
+            'scope' => self::google_scopes(),
+            'state' => $state,
+            'include_granted_scopes' => 'true',
+        ];
+
+        return new WP_REST_Response([
+            'url' => 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query($params, '', '&', PHP_QUERY_RFC3986),
+        ], 200);
+    }
+
+    public static function google_oauth_status(): WP_REST_Response
+    {
+        $tokens = (array) get_option('wp_pq_google_tokens', []);
+        $connected = ! empty($tokens['access_token']) || ! empty($tokens['refresh_token']);
+
+        return new WP_REST_Response([
+            'connected' => $connected,
+            'has_refresh_token' => ! empty($tokens['refresh_token']),
+            'expires_at' => isset($tokens['expires_at']) ? (int) $tokens['expires_at'] : null,
+            'redirect_uri' => self::google_redirect_uri(),
+        ], 200);
+    }
+
+    public static function get_notification_prefs(): WP_REST_Response
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'pq_notification_prefs';
+        $user_id = get_current_user_id();
+        $events = WP_PQ_Workflow::notification_events();
+
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT event_key, is_enabled FROM {$table} WHERE user_id = %d", $user_id), ARRAY_A);
+        $map = [];
+
+        foreach ($events as $event) {
+            $map[$event] = true;
+        }
+
+        foreach ($rows as $row) {
+            $map[$row['event_key']] = ((int) $row['is_enabled'] === 1);
+        }
+
+        return new WP_REST_Response(['prefs' => $map], 200);
+    }
+
+    public static function update_notification_prefs(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'pq_notification_prefs';
+        $user_id = get_current_user_id();
+        $prefs = (array) $request->get_param('prefs');
+        $allowed = WP_PQ_Workflow::notification_events();
+
+        foreach ($prefs as $event => $enabled) {
+            $event = sanitize_key((string) $event);
+            if (! in_array($event, $allowed, true)) {
+                continue;
+            }
+
+            $wpdb->replace($table, [
+                'user_id' => $user_id,
+                'event_key' => $event,
+                'is_enabled' => $enabled ? 1 : 0,
+                'updated_at' => current_time('mysql', true),
+            ]);
+        }
+
+        return new WP_REST_Response(['ok' => true], 200);
+    }
+
+    public static function get_notifications(): WP_REST_Response
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'pq_notifications';
+        $user_id = get_current_user_id();
+
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$table} WHERE user_id = %d ORDER BY is_read ASC, created_at DESC LIMIT 50",
+            $user_id
+        ), ARRAY_A);
+
+        $unread = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(1) FROM {$table} WHERE user_id = %d AND is_read = 0",
+            $user_id
+        ));
+
+        foreach ($rows as &$row) {
+            $row['payload'] = $row['payload'] ? json_decode((string) $row['payload'], true) : null;
+            $row['is_read'] = ((int) $row['is_read'] === 1);
+        }
+
+        return new WP_REST_Response([
+            'notifications' => $rows,
+            'unread_count' => $unread,
+        ], 200);
+    }
+
+    public static function mark_notifications_read(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'pq_notifications';
+        $user_id = get_current_user_id();
+        $ids = array_map('intval', (array) $request->get_param('ids'));
+
+        if (empty($ids)) {
+            $wpdb->query($wpdb->prepare(
+                "UPDATE {$table} SET is_read = 1, read_at = %s WHERE user_id = %d AND is_read = 0",
+                current_time('mysql', true),
+                $user_id
+            ));
+        } else {
+            $ids = array_values(array_filter($ids));
+            if (! empty($ids)) {
+                $ids_in = implode(',', $ids);
+                $wpdb->query(
+                    $wpdb->prepare(
+                        "UPDATE {$table} SET is_read = 1, read_at = %s WHERE user_id = %d AND id IN ({$ids_in})",
+                        current_time('mysql', true),
+                        $user_id
+                    )
+                );
+            }
+        }
+
+        return new WP_REST_Response(['ok' => true], 200);
+    }
+
+    public static function get_workers(): WP_REST_Response
+    {
+        $users = get_users([
+            'fields' => 'all',
+            'orderby' => 'display_name',
+            'order' => 'ASC',
+        ]);
+
+        $items = [];
+        foreach ($users as $user) {
+            $roles = (array) $user->roles;
+            if (! array_intersect($roles, ['pq_worker', 'pq_manager', 'pq_client', 'administrator'])) {
+                continue;
+            }
+
+            $items[] = [
+                'id' => (int) $user->ID,
+                'name' => (string) $user->display_name,
+                'email' => (string) $user->user_email,
+                'roles' => array_values($roles),
+            ];
+        }
+
+        return new WP_REST_Response(['workers' => $items], 200);
+    }
+
+    public static function batch_statement(WP_REST_Request $request): WP_REST_Response
+    {
+        $task_ids = array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('task_ids')))));
+        $result = self::create_statement_batch(
+            $task_ids,
+            sanitize_textarea_field((string) $request->get_param('notes')),
+            sanitize_text_field((string) $request->get_param('statement_month')),
+            get_current_user_id()
+        );
+
+        if (is_wp_error($result)) {
+            $status = (int) ($result->get_error_data('status') ?: 400);
+            return new WP_REST_Response(['message' => $result->get_error_message()], $status);
+        }
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'statement' => $result,
+        ], 201);
+    }
+
+    public static function create_statement_batch(array $task_ids, string $notes = '', string $statement_month = '', int $user_id = 0)
+    {
+        global $wpdb;
+
+        $task_ids = array_values(array_unique(array_filter(array_map('intval', $task_ids))));
+        if (empty($task_ids)) {
+            return new WP_Error('pq_no_tasks', 'Select at least one delivered task to batch.', ['status' => 422]);
+        }
+
+        if ($user_id <= 0) {
+            $user_id = get_current_user_id();
+        }
+
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $statements_table = $wpdb->prefix . 'pq_statements';
+        $items_table = $wpdb->prefix . 'pq_statement_items';
+        $history_table = $wpdb->prefix . 'pq_task_status_history';
+        $ids_in = implode(',', $task_ids);
+        $rows = $wpdb->get_results("SELECT * FROM {$tasks_table} WHERE id IN ({$ids_in})", ARRAY_A);
+
+        if (count($rows) !== count($task_ids)) {
+            return new WP_Error('pq_missing_task', 'One or more tasks could not be loaded for batching.', ['status' => 404]);
+        }
+
+        $client_user_id = 0;
+        $billing_bucket_id = 0;
+        $range_start = '';
+        $range_end = '';
+
+        foreach ($rows as $row) {
+            if (! self::can_access_task($row, $user_id)) {
+                return new WP_Error('pq_forbidden_batch', 'You cannot batch one or more selected tasks.', ['status' => 403]);
+            }
+            if ((string) $row['status'] !== 'delivered') {
+                return new WP_Error('pq_invalid_batch_status', 'Only delivered tasks can be batched into a statement.', ['status' => 422]);
+            }
+            if ((string) ($row['billing_status'] ?? 'unbilled') !== 'unbilled') {
+                return new WP_Error('pq_invalid_billing_status', 'Only unbilled delivered tasks can be batched.', ['status' => 422]);
+            }
+
+            $row_client_id = (int) ($row['submitter_id'] ?? 0);
+            $row_bucket_id = (int) ($row['billing_bucket_id'] ?? 0);
+            if ($row_bucket_id <= 0) {
+                $row_bucket_id = WP_PQ_DB::get_or_create_default_billing_bucket_id($row_client_id);
+            }
+
+            if ($client_user_id === 0) {
+                $client_user_id = $row_client_id;
+                $billing_bucket_id = $row_bucket_id;
+            } elseif ($client_user_id !== $row_client_id || $billing_bucket_id !== $row_bucket_id) {
+                return new WP_Error('pq_mixed_client_bucket', 'Statements must be created from tasks in one client and one billing bucket.', ['status' => 422]);
+            }
+
+            $row_rollup_date = self::task_rollup_date($row);
+            if ($row_rollup_date !== '') {
+                $range_start = $range_start === '' || $row_rollup_date < $range_start ? $row_rollup_date : $range_start;
+                $range_end = $range_end === '' || $row_rollup_date > $range_end ? $row_rollup_date : $range_end;
+            }
+        }
+
+        $statement_month = self::normalize_statement_month($statement_month);
+        $statement_code = self::generate_statement_code($statement_month);
+        $now = current_time('mysql', true);
+        $notes = sanitize_textarea_field($notes);
+
+        $wpdb->insert($statements_table, [
+            'statement_code' => $statement_code,
+            'statement_month' => $statement_month,
+            'client_user_id' => $client_user_id,
+            'billing_bucket_id' => $billing_bucket_id,
+            'range_start' => $range_start ?: null,
+            'range_end' => $range_end ?: null,
+            'created_by' => $user_id,
+            'notes' => $notes,
+            'created_at' => $now,
+        ]);
+
+        $statement_id = (int) $wpdb->insert_id;
+        if ($statement_id <= 0) {
+            return new WP_Error('pq_statement_insert_failed', 'Failed to create the statement batch.', ['status' => 500]);
+        }
+
+        foreach ($rows as $row) {
+            $task_id = (int) $row['id'];
+            $wpdb->insert($items_table, [
+                'statement_id' => $statement_id,
+                'task_id' => $task_id,
+                'created_at' => $now,
+            ]);
+
+            $wpdb->update($tasks_table, [
+                'billing_status' => 'batched',
+                'statement_id' => $statement_id,
+                'statement_batched_at' => $now,
+                'updated_at' => $now,
+            ], ['id' => $task_id]);
+
+            self::insert_history_note($history_table, $task_id, (string) $row['status'], $user_id, 'statement_batch:' . $statement_code);
+            self::emit_event($task_id, 'statement_batched', 'Statement batch created', 'This delivered task was added to statement ' . $statement_code . '.');
+        }
+
+        return [
+            'id' => $statement_id,
+            'code' => $statement_code,
+            'month' => $statement_month,
+            'client_user_id' => $client_user_id,
+            'billing_bucket_id' => $billing_bucket_id,
+            'range_start' => $range_start,
+            'range_end' => $range_end,
+            'task_count' => count($rows),
+        ];
+    }
+
+    public static function create_work_log_batch(array $task_ids, string $notes = '', string $range_start = '', string $range_end = '', int $user_id = 0)
+    {
+        global $wpdb;
+
+        $task_ids = array_values(array_unique(array_filter(array_map('intval', $task_ids))));
+        if (empty($task_ids)) {
+            return new WP_Error('pq_no_work_log_tasks', 'Select at least one delivered task to add to a work log.', ['status' => 422]);
+        }
+
+        if ($user_id <= 0) {
+            $user_id = get_current_user_id();
+        }
+
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $logs_table = $wpdb->prefix . 'pq_work_logs';
+        $items_table = $wpdb->prefix . 'pq_work_log_items';
+        $ids_in = implode(',', $task_ids);
+        $rows = $wpdb->get_results("SELECT * FROM {$tasks_table} WHERE id IN ({$ids_in})", ARRAY_A);
+
+        if (count($rows) !== count($task_ids)) {
+            return new WP_Error('pq_missing_work_log_task', 'One or more tasks could not be loaded for the work log.', ['status' => 404]);
+        }
+
+        $client_user_id = 0;
+        $billing_bucket_id = 0;
+        $derived_start = '';
+        $derived_end = '';
+
+        foreach ($rows as $row) {
+            if (! self::can_access_task($row, $user_id)) {
+                return new WP_Error('pq_forbidden_work_log', 'You cannot add one or more selected tasks to a work log.', ['status' => 403]);
+            }
+            if ((string) $row['status'] !== 'delivered') {
+                return new WP_Error('pq_invalid_work_log_status', 'Only delivered tasks can be added to a work log.', ['status' => 422]);
+            }
+            if ((int) ($row['work_log_id'] ?? 0) > 0) {
+                return new WP_Error('pq_already_work_logged', 'Only tasks that are not already in a work log can be selected.', ['status' => 422]);
+            }
+
+            $row_client_id = (int) ($row['submitter_id'] ?? 0);
+            $row_bucket_id = (int) ($row['billing_bucket_id'] ?? 0);
+            if ($row_bucket_id <= 0) {
+                $row_bucket_id = WP_PQ_DB::get_or_create_default_billing_bucket_id($row_client_id);
+            }
+
+            if ($client_user_id === 0) {
+                $client_user_id = $row_client_id;
+                $billing_bucket_id = $row_bucket_id;
+            } elseif ($client_user_id !== $row_client_id || $billing_bucket_id !== $row_bucket_id) {
+                return new WP_Error('pq_mixed_work_log_group', 'Work logs must be created from tasks in one client and one billing bucket.', ['status' => 422]);
+            }
+
+            $row_rollup_date = self::task_rollup_date($row);
+            if ($row_rollup_date !== '') {
+                $derived_start = $derived_start === '' || $row_rollup_date < $derived_start ? $row_rollup_date : $derived_start;
+                $derived_end = $derived_end === '' || $row_rollup_date > $derived_end ? $row_rollup_date : $derived_end;
+            }
+        }
+
+        $range_start = self::normalize_rollup_date($range_start ?: $derived_start);
+        $range_end = self::normalize_rollup_date($range_end ?: $derived_end);
+        $log_code = self::generate_work_log_code($range_end ?: $range_start);
+        $now = current_time('mysql', true);
+
+        $wpdb->insert($logs_table, [
+            'work_log_code' => $log_code,
+            'client_user_id' => $client_user_id,
+            'billing_bucket_id' => $billing_bucket_id,
+            'range_start' => $range_start ?: null,
+            'range_end' => $range_end ?: null,
+            'created_by' => $user_id,
+            'notes' => sanitize_textarea_field($notes),
+            'created_at' => $now,
+        ]);
+
+        $work_log_id = (int) $wpdb->insert_id;
+        if ($work_log_id <= 0) {
+            return new WP_Error('pq_work_log_insert_failed', 'Failed to create the work log.', ['status' => 500]);
+        }
+
+        foreach ($rows as $row) {
+            $task_id = (int) $row['id'];
+            $wpdb->insert($items_table, [
+                'work_log_id' => $work_log_id,
+                'task_id' => $task_id,
+                'created_at' => $now,
+            ]);
+
+            $wpdb->update($tasks_table, [
+                'work_log_id' => $work_log_id,
+                'work_logged_at' => $now,
+                'updated_at' => $now,
+            ], ['id' => $task_id]);
+        }
+
+        return [
+            'id' => $work_log_id,
+            'code' => $log_code,
+            'client_user_id' => $client_user_id,
+            'billing_bucket_id' => $billing_bucket_id,
+            'range_start' => $range_start,
+            'range_end' => $range_end,
+            'task_count' => count($rows),
+        ];
+    }
+
+    private static function emit_event(int $task_id, string $event_key, string $subject, string $body): void
+    {
+        if ($task_id <= 0) {
+            return;
+        }
+
+        $task = self::get_task_row($task_id);
+        if (! $task) {
+            return;
+        }
+
+        $recipient_ids = [
+            (int) ($task['submitter_id'] ?? 0),
+            (int) ($task['client_user_id'] ?? 0),
+            (int) ($task['action_owner_id'] ?? 0),
+        ];
+        $owners = json_decode((string) $task['owner_ids'], true);
+
+        if (is_array($owners)) {
+            foreach ($owners as $owner_id) {
+                $recipient_ids[] = (int) $owner_id;
+            }
+        }
+
+        $recipient_ids = array_values(array_unique(array_filter($recipient_ids)));
+
+        foreach ($recipient_ids as $user_id) {
+            $user = get_user_by('ID', $user_id);
+            if (! $user) {
+                continue;
+            }
+
+            $message = self::build_event_message($task, $event_key, $user_id);
+            self::create_notification($user_id, $task_id, $event_key, $message['title'], $message['body'], [
+                'task_id' => $task_id,
+                'event_key' => $event_key,
+                'task_title' => (string) ($task['title'] ?? ''),
+            ]);
+
+            if (is_email($user->user_email) && WP_PQ_Housekeeping::is_event_enabled($user_id, $event_key)) {
+                wp_mail($user->user_email, $message['title'], $message['body'] . "\n\nTask ID: {$task_id}");
+            }
+        }
+    }
+
+    private static function emit_assignment_event(int $task_id, int $previous_action_owner_id, int $action_owner_id): void
+    {
+        if ($task_id <= 0 || $action_owner_id <= 0 || $action_owner_id === $previous_action_owner_id) {
+            return;
+        }
+
+        $task = self::get_task_row($task_id);
+        if (! $task) {
+            return;
+        }
+
+        $recipient = get_user_by('ID', $action_owner_id);
+        if (! $recipient) {
+            return;
+        }
+
+        $message = self::build_event_message($task, 'task_assigned', $action_owner_id);
+        self::create_notification($action_owner_id, $task_id, 'task_assigned', $message['title'], $message['body'], [
+            'task_id' => $task_id,
+            'event_key' => 'task_assigned',
+            'task_title' => (string) ($task['title'] ?? ''),
+            'action_owner_id' => $action_owner_id,
+            'previous_action_owner_id' => $previous_action_owner_id,
+        ]);
+
+        if (is_email($recipient->user_email) && WP_PQ_Housekeeping::is_event_enabled($action_owner_id, 'task_assigned')) {
+            wp_mail($recipient->user_email, $message['title'], $message['body'] . "\n\nTask ID: {$task_id}");
+        }
+    }
+
+    private static function notify_mentions(int $task_id, array $task, string $body, int $author_id): void
+    {
+        $mentions = self::extract_mentions($body);
+        if (empty($mentions)) {
+            return;
+        }
+
+        $participants = self::task_participants($task);
+        $by_handle = [];
+        foreach ($participants as $participant) {
+            $by_handle[strtolower((string) $participant['handle'])] = $participant;
+        }
+
+        $author = get_user_by('ID', $author_id);
+        $author_name = $author ? $author->display_name : 'A collaborator';
+
+        foreach ($mentions as $handle) {
+            $participant = $by_handle[strtolower($handle)] ?? null;
+            if (! $participant) {
+                continue;
+            }
+
+            $mentioned_user_id = (int) $participant['id'];
+            if ($mentioned_user_id === $author_id) {
+                continue;
+            }
+
+            $user = get_user_by('ID', $mentioned_user_id);
+            if (! $user || ! is_email($user->user_email)) {
+                if (! $user) {
+                    continue;
+                }
+            }
+
+            $notification_title = $author_name . ' mentioned you';
+            $notification_body = 'In "' . self::task_title($task) . '": ' . self::truncate_text(wp_strip_all_tags($body), 180);
+
+            self::create_notification($mentioned_user_id, $task_id, 'task_mentioned', $notification_title, $notification_body, [
+                'task_id' => $task_id,
+                'mention_handle' => $participant['handle'],
+                'task_title' => self::task_title($task),
+            ]);
+
+            if (is_email($user->user_email) && WP_PQ_Housekeeping::is_event_enabled($mentioned_user_id, 'task_mentioned')) {
+                wp_mail(
+                    $user->user_email,
+                    'You were mentioned on a task',
+                    $author_name . ' mentioned @' . $participant['handle'] . ' on "' . (string) ($task['title'] ?? 'Task') . "\".\n\n"
+                    . 'Message: ' . wp_strip_all_tags($body) . "\n\nTask ID: {$task_id}"
+                );
+            }
+        }
+    }
+
+    private static function extract_mentions(string $body): array
+    {
+        preg_match_all('/(^|\\s)@([A-Za-z0-9._-]{2,60})/', $body, $matches);
+        if (empty($matches[2])) {
+            return [];
+        }
+
+        return array_values(array_unique(array_map('sanitize_user', $matches[2])));
+    }
+
+    private static function task_participants(array $task): array
+    {
+        $ids = [
+            (int) ($task['submitter_id'] ?? 0),
+            (int) ($task['client_user_id'] ?? 0),
+            (int) ($task['action_owner_id'] ?? 0),
+        ];
+        $owners = json_decode((string) $task['owner_ids'], true);
+
+        if (is_array($owners)) {
+            foreach ($owners as $owner_id) {
+                $ids[] = (int) $owner_id;
+            }
+        }
+
+        $staff = get_users([
+            'role__in' => ['pq_worker', 'pq_manager', 'administrator'],
+            'fields' => ['ID', 'display_name', 'user_login', 'user_nicename'],
+        ]);
+
+        foreach ($staff as $user) {
+            $ids[] = (int) $user->ID;
+        }
+
+        $ids = array_values(array_unique(array_filter($ids)));
+        $people = [];
+
+        foreach ($ids as $id) {
+            $user = get_user_by('ID', $id);
+            if (! $user) {
+                continue;
+            }
+
+            $people[] = [
+                'id' => (int) $user->ID,
+                'name' => (string) $user->display_name,
+                'handle' => (string) $user->user_login,
+            ];
+        }
+
+        usort($people, static fn($a, $b) => strcmp((string) $a['name'], (string) $b['name']));
+        return $people;
+    }
+
+    private static function create_notification(int $user_id, ?int $task_id, string $event_key, string $title, string $body, array $payload = []): void
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'pq_notifications';
+
+        $wpdb->insert($table, [
+            'user_id' => $user_id,
+            'task_id' => $task_id ?: null,
+            'event_key' => $event_key,
+            'title' => sanitize_text_field($title),
+            'body' => sanitize_textarea_field($body),
+            'payload' => wp_json_encode($payload),
+            'is_read' => 0,
+            'created_at' => current_time('mysql', true),
+            'read_at' => null,
+        ]);
+    }
+
+    private static function attach_author_names(array $rows): array
+    {
+        foreach ($rows as &$row) {
+            $author_id = (int) ($row['author_id'] ?? 0);
+            $user = $author_id > 0 ? get_user_by('ID', $author_id) : null;
+            $row['author_name'] = $user ? (string) $user->display_name : 'Collaborator';
+        }
+
+        return $rows;
+    }
+
+    private static function build_event_message(array $task, string $event_key, int $recipient_id): array
+    {
+        $title = self::task_title($task);
+        $priority = self::humanize_token((string) ($task['priority'] ?? 'normal'));
+        $status = self::humanize_token((string) ($task['status'] ?? 'pending_approval'));
+        $deadline = self::humanize_datetime((string) ($task['requested_deadline'] ?: $task['due_at'] ?: ''));
+        $is_submitter = (int) ($task['submitter_id'] ?? 0) === $recipient_id;
+        $is_action_owner = (int) ($task['action_owner_id'] ?? 0) === $recipient_id;
+        $requester_name = (string) ($task['submitter_name'] ?? self::user_display_name((int) ($task['submitter_id'] ?? 0)));
+
+        switch ($event_key) {
+            case 'task_created':
+                return [
+                    'title' => $is_submitter ? 'Request received' : 'New request awaiting approval',
+                    'body' => $is_submitter
+                        ? '"' . $title . "\" is pending approval."
+                        : '"' . $title . "\" was submitted and is awaiting approval.",
+                ];
+            case 'task_assigned':
+                return [
+                    'title' => $is_action_owner ? 'Task assigned to you' : 'Action owner updated',
+                    'body' => $is_action_owner
+                        ? '"' . $title . '" is now assigned to you' . ($requester_name ? ' by ' . $requester_name : '') . '.'
+                        : 'The action owner for "' . $title . "\" was updated.",
+                ];
+            case 'task_approved':
+                return [
+                    'title' => 'Request approved',
+                    'body' => '"' . $title . "\" is approved and ready to move forward.",
+                ];
+            case 'task_rejected':
+                return [
+                    'title' => 'Clarification requested',
+                    'body' => '"' . $title . "\" was returned for clarification" . ($deadline ? ' before ' . $deadline : '') . '.',
+                ];
+            case 'task_revision_requested':
+                return [
+                    'title' => 'Revision requested',
+                    'body' => 'Changes were requested on "' . $title . "\".",
+                ];
+            case 'task_delivered':
+                return [
+                    'title' => 'Work delivered',
+                    'body' => 'A deliverable was posted to "' . $title . "\".",
+                ];
+            case 'statement_batched':
+                return [
+                    'title' => 'Added to statement',
+                    'body' => '"' . $title . "\" was added to a billing statement batch.",
+                ];
+            case 'task_reprioritized':
+                return [
+                    'title' => 'Priority changed to ' . $priority,
+                    'body' => '"' . $title . "\" was reprioritized in the queue.",
+                ];
+            case 'task_schedule_changed':
+                return [
+                    'title' => 'Deadline updated',
+                    'body' => '"' . $title . '"' . ($deadline ? ' is now targeting ' . $deadline : ' had its schedule adjusted') . '.',
+                ];
+            default:
+                return [
+                    'title' => self::humanize_token($event_key),
+                    'body' => '"' . $title . '" is now ' . $status . '.',
+                ];
+        }
+    }
+
+    private static function emit_status_event(int $task_id, string $new_status): void
+    {
+        if ($new_status === 'approved') {
+            self::emit_event($task_id, 'task_approved', 'Task approved', 'Your task was approved.');
+        } elseif ($new_status === 'not_approved') {
+            self::emit_event($task_id, 'task_rejected', 'Task needs clarification', 'Your task needs clarification and was returned.');
+        } elseif ($new_status === 'revision_requested') {
+            self::emit_event($task_id, 'task_revision_requested', 'Revision requested', 'A revision was requested for this task.');
+        } elseif ($new_status === 'delivered') {
+            self::emit_event($task_id, 'task_delivered', 'Task delivered', 'Work product has been delivered.');
+        }
+    }
+
+    private static function enrich_task_rows(array $rows): array
+    {
+        global $wpdb;
+
+        if (empty($rows)) {
+            return [];
+        }
+
+        $task_ids = [];
+        foreach ($rows as &$row) {
+            $row = self::normalize_task_row($row);
+            $task_ids[] = (int) $row['id'];
+        }
+
+        $task_ids = array_values(array_unique(array_filter($task_ids)));
+        if (empty($task_ids)) {
+            return $rows;
+        }
+
+        $ids_in = implode(',', $task_ids);
+        $comments_table = $wpdb->prefix . 'pq_task_comments';
+        $count_rows = $wpdb->get_results("SELECT task_id, COUNT(*) AS note_count FROM {$comments_table} WHERE task_id IN ({$ids_in}) GROUP BY task_id", ARRAY_A);
+        $latest_rows = $wpdb->get_results("
+            SELECT c.task_id, c.body
+            FROM {$comments_table} c
+            INNER JOIN (
+                SELECT task_id, MAX(id) AS max_id
+                FROM {$comments_table}
+                WHERE task_id IN ({$ids_in})
+                GROUP BY task_id
+            ) latest ON latest.max_id = c.id
+        ", ARRAY_A);
+
+        $note_counts = [];
+        foreach ($count_rows as $count_row) {
+            $note_counts[(int) $count_row['task_id']] = (int) $count_row['note_count'];
+        }
+
+        $latest_notes = [];
+        foreach ($latest_rows as $latest_row) {
+            $latest_notes[(int) $latest_row['task_id']] = self::truncate_text(wp_strip_all_tags((string) $latest_row['body']), 120);
+        }
+
+        $statement_ids = array_values(array_unique(array_filter(array_map(static fn($row) => (int) ($row['statement_id'] ?? 0), $rows))));
+        $statement_codes = [];
+        if (! empty($statement_ids)) {
+            $statement_ids_in = implode(',', $statement_ids);
+            $statement_rows = $wpdb->get_results("SELECT id, statement_code FROM {$wpdb->prefix}pq_statements WHERE id IN ({$statement_ids_in})", ARRAY_A);
+            foreach ($statement_rows as $statement_row) {
+                $statement_codes[(int) $statement_row['id']] = (string) $statement_row['statement_code'];
+            }
+        }
+
+        $bucket_ids = array_values(array_unique(array_filter(array_map(static fn($row) => (int) ($row['billing_bucket_id'] ?? 0), $rows))));
+        $bucket_names = [];
+        if (! empty($bucket_ids)) {
+            $bucket_ids_in = implode(',', $bucket_ids);
+            $bucket_rows = $wpdb->get_results("SELECT id, bucket_name, is_default FROM {$wpdb->prefix}pq_billing_buckets WHERE id IN ({$bucket_ids_in})", ARRAY_A);
+            foreach ($bucket_rows as $bucket_row) {
+                $bucket_name = trim((string) ($bucket_row['bucket_name'] ?? ''));
+                $bucket_names[(int) $bucket_row['id']] = $bucket_name !== '' ? $bucket_name : (((int) ($bucket_row['is_default'] ?? 0) === 1) ? 'Main' : 'Job Bucket');
+            }
+        }
+
+        foreach ($rows as &$row) {
+            $task_id = (int) $row['id'];
+            $row['note_count'] = $note_counts[$task_id] ?? 0;
+            $row['latest_note_preview'] = $latest_notes[$task_id] ?? '';
+            $row['statement_code'] = $statement_codes[(int) ($row['statement_id'] ?? 0)] ?? '';
+            $row['bucket_name'] = $bucket_names[(int) ($row['billing_bucket_id'] ?? 0)] ?? 'Main';
+        }
+
+        return $rows;
+    }
+
+    private static function get_enriched_task(int $task_id): ?array
+    {
+        $task = self::get_task_row($task_id);
+        if (! $task) {
+            return null;
+        }
+
+        $rows = self::enrich_task_rows([$task]);
+        return $rows[0] ?? null;
+    }
+
+    private static function task_title(array $task): string
+    {
+        $title = trim((string) ($task['title'] ?? ''));
+        return $title !== '' ? $title : 'Untitled task';
+    }
+
+    private static function humanize_token(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        return ucwords(str_replace('_', ' ', $value));
+    }
+
+    private static function humanize_datetime(string $value): string
+    {
+        if ($value === '') {
+            return '';
+        }
+
+        $timestamp = strtotime($value);
+        if (! $timestamp) {
+            return $value;
+        }
+
+        return wp_date('M j, Y g:i a', $timestamp);
+    }
+
+    private static function truncate_text(string $value, int $limit = 180): string
+    {
+        $value = trim(preg_replace('/\s+/', ' ', $value));
+        if (strlen($value) <= $limit) {
+            return $value;
+        }
+
+        return rtrim(substr($value, 0, max(0, $limit - 1))) . '…';
+    }
+
+    private static function get_task_row(int $task_id): ?array
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'pq_tasks';
+        $task = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $task_id), ARRAY_A);
+
+        return $task ?: null;
+    }
+
+    private static function can_access_task(array $task, int $user_id): bool
+    {
+        if (current_user_can(WP_PQ_Roles::CAP_VIEW_ALL) || current_user_can(WP_PQ_Roles::CAP_WORK)) {
+            return true;
+        }
+
+        if ((int) $task['submitter_id'] === $user_id) {
+            return true;
+        }
+
+        if ((int) ($task['client_user_id'] ?? 0) === $user_id) {
+            return true;
+        }
+
+        if ((int) ($task['action_owner_id'] ?? 0) === $user_id) {
+            return true;
+        }
+
+        $owners = json_decode((string) $task['owner_ids'], true);
+        return is_array($owners) && in_array($user_id, array_map('intval', $owners), true);
+    }
+
+    public static function normalize_statement_month(string $statement_month = ''): string
+    {
+        $statement_month = trim($statement_month);
+        if (! preg_match('/^\d{4}-\d{2}$/', $statement_month)) {
+            return wp_date('Y-m');
+        }
+
+        return $statement_month;
+    }
+
+    public static function normalize_rollup_date(string $value = ''): string
+    {
+        $value = trim($value);
+        if ($value === '' || ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)) {
+            return '';
+        }
+
+        return $value;
+    }
+
+    private static function generate_statement_code(string $statement_month = ''): string
+    {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'pq_statements';
+        $statement_month = self::normalize_statement_month($statement_month);
+        $month = str_replace('-', '', $statement_month);
+        $count = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$table} WHERE statement_month = %s",
+            $statement_month
+        ));
+
+        return 'STM-' . $month . '-' . str_pad((string) ($count + 1), 3, '0', STR_PAD_LEFT);
+    }
+
+    private static function generate_work_log_code(string $seed_date = ''): string
+    {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'pq_work_logs';
+        $month = preg_match('/^\d{4}-\d{2}-\d{2}$/', $seed_date) ? substr($seed_date, 0, 7) : wp_date('Y-m');
+        $code_month = str_replace('-', '', $month);
+        $count = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM {$table} WHERE DATE_FORMAT(created_at, '%%Y-%%m') = %s",
+            $month
+        ));
+
+        return 'LOG-' . $code_month . '-' . str_pad((string) ($count + 1), 3, '0', STR_PAD_LEFT);
+    }
+
+    private static function task_rollup_date(array $task): string
+    {
+        $value = (string) ($task['delivered_at'] ?? '');
+        if ($value === '') {
+            $value = (string) ($task['updated_at'] ?? '');
+        }
+        if ($value === '') {
+            return '';
+        }
+
+        return substr($value, 0, 10);
+    }
+
+    private static function insert_history_note(string $history_table, int $task_id, string $status, int $user_id, string $note): void
+    {
+        global $wpdb;
+
+        $wpdb->insert($history_table, [
+            'task_id' => $task_id,
+            'old_status' => $status,
+            'new_status' => $status,
+            'changed_by' => $user_id,
+            'note' => $note,
+            'created_at' => current_time('mysql', true),
+        ]);
+    }
+
+    private static function store_task_message(int $task_id, int $author_id, string $body, ?array $task = null): void
+    {
+        global $wpdb;
+
+        $clean_body = trim($body);
+        if ($clean_body === '') {
+            return;
+        }
+
+        $task = $task ?: self::get_task_row($task_id);
+        if (! $task) {
+            return;
+        }
+
+        $table = $wpdb->prefix . 'pq_task_messages';
+        $wpdb->insert($table, [
+            'task_id' => $task_id,
+            'author_id' => $author_id,
+            'body' => sanitize_textarea_field($clean_body),
+            'created_at' => current_time('mysql', true),
+        ]);
+
+        self::notify_mentions($task_id, $task, $clean_body, $author_id);
+    }
+
+    private static function shift_priority(string $priority, string $direction): string
+    {
+        $ladder = ['low', 'normal', 'high', 'urgent'];
+        $index = array_search($priority, $ladder, true);
+
+        if ($index === false) {
+            return 'normal';
+        }
+
+        if ($direction === 'down') {
+            return $ladder[max(0, $index - 1)];
+        }
+
+        if ($direction === 'up') {
+            return $ladder[min(count($ladder) - 1, $index + 1)];
+        }
+
+        return $ladder[$index];
+    }
+
+    private static function sort_task_rows(array $rows): array
+    {
+        usort($rows, static function (array $a, array $b): int {
+            $bucket_cmp = self::task_bucket_rank($a) <=> self::task_bucket_rank($b);
+            if ($bucket_cmp !== 0) {
+                return $bucket_cmp;
+            }
+
+            $priority_cmp = self::task_priority_rank($a) <=> self::task_priority_rank($b);
+            if ($priority_cmp !== 0) {
+                return $priority_cmp;
+            }
+
+            $deadline_cmp = self::task_deadline_timestamp($a) <=> self::task_deadline_timestamp($b);
+            if ($deadline_cmp !== 0) {
+                return $deadline_cmp;
+            }
+
+            $queue_cmp = ((int) ($a['queue_position'] ?? 0)) <=> ((int) ($b['queue_position'] ?? 0));
+            if ($queue_cmp !== 0) {
+                return $queue_cmp;
+            }
+
+            return ((int) ($b['id'] ?? 0)) <=> ((int) ($a['id'] ?? 0));
+        });
+
+        return $rows;
+    }
+
+    private static function task_priority_rank(array $task): int
+    {
+        $priority = (string) ($task['priority'] ?? 'normal');
+        $ranks = [
+            'urgent' => 0,
+            'high' => 1,
+            'normal' => 2,
+            'low' => 3,
+        ];
+
+        return $ranks[$priority] ?? 2;
+    }
+
+    private static function task_bucket_rank(array $task): int
+    {
+        $deadline = self::task_primary_deadline($task);
+        if (! $deadline) {
+            return 3;
+        }
+
+        $now = new DateTimeImmutable('now', wp_timezone());
+        $today_start = $now->setTime(0, 0, 0);
+        $tomorrow_start = $today_start->modify('+1 day');
+        $due_soon_end = $today_start->modify('+8 days');
+
+        if ($deadline < $now) {
+            return 0;
+        }
+
+        if ($deadline >= $today_start && $deadline < $tomorrow_start) {
+            return 1;
+        }
+
+        if ($deadline < $due_soon_end) {
+            return 2;
+        }
+
+        return 3;
+    }
+
+    private static function task_deadline_timestamp(array $task): int
+    {
+        $deadline = self::task_primary_deadline($task);
+        return $deadline ? $deadline->getTimestamp() : PHP_INT_MAX;
+    }
+
+    private static function task_primary_deadline(array $task): ?DateTimeImmutable
+    {
+        $value = (string) ($task['requested_deadline'] ?: $task['due_at'] ?: '');
+        if ($value === '') {
+            return null;
+        }
+
+        try {
+            $utc = new DateTimeImmutable($value, new DateTimeZone('UTC'));
+            return $utc->setTimezone(wp_timezone());
+        } catch (Exception $e) {
+            return null;
+        }
+    }
+
+    private static function normalize_task_row(array $row): array
+    {
+        $row['owner_ids'] = $row['owner_ids'] ? json_decode($row['owner_ids'], true) : [];
+        $row['needs_meeting'] = (bool) $row['needs_meeting'];
+        $row['owner_names'] = [];
+        $row['client_user_id'] = isset($row['client_user_id']) ? (int) $row['client_user_id'] : 0;
+        $row['action_owner_id'] = isset($row['action_owner_id']) ? (int) $row['action_owner_id'] : 0;
+        $row['billing_status'] = (string) ($row['billing_status'] ?? 'unbilled');
+        $row['statement_id'] = isset($row['statement_id']) ? (int) $row['statement_id'] : 0;
+        $row['statement_code'] = (string) ($row['statement_code'] ?? '');
+        $row['statement_batched_at'] = (string) ($row['statement_batched_at'] ?? '');
+
+        foreach ((array) $row['owner_ids'] as $owner_id) {
+            $user = get_user_by('ID', (int) $owner_id);
+            if ($user) {
+                $row['owner_names'][] = (string) $user->display_name;
+            }
+        }
+
+        $submitter = isset($row['submitter_id']) ? get_user_by('ID', (int) $row['submitter_id']) : null;
+        $row['submitter_name'] = $submitter ? (string) $submitter->display_name : '';
+        $row['submitter_email'] = ($submitter && is_email($submitter->user_email)) ? (string) $submitter->user_email : '';
+        $client = $row['client_user_id'] > 0 ? get_user_by('ID', $row['client_user_id']) : null;
+        $row['client_name'] = $client ? (string) $client->display_name : '';
+        $row['client_email'] = ($client && is_email($client->user_email)) ? (string) $client->user_email : '';
+        $action_owner = $row['action_owner_id'] > 0 ? get_user_by('ID', $row['action_owner_id']) : null;
+        $row['action_owner_name'] = $action_owner ? (string) $action_owner->display_name : '';
+        $row['action_owner_email'] = ($action_owner && is_email($action_owner->user_email)) ? (string) $action_owner->user_email : '';
+        $row['note_count'] = isset($row['note_count']) ? (int) $row['note_count'] : 0;
+        $row['latest_note_preview'] = isset($row['latest_note_preview']) ? (string) $row['latest_note_preview'] : '';
+
+        return $row;
+    }
+
+    private static function user_display_name(int $user_id): string
+    {
+        if ($user_id <= 0) {
+            return '';
+        }
+
+        $user = get_user_by('ID', $user_id);
+        return $user ? (string) $user->display_name : '';
+    }
+
+    private static function shift_task_schedule(array $task, string $new_primary_datetime): array
+    {
+        $requested_deadline = (string) ($task['requested_deadline'] ?? '');
+        $due_at = (string) ($task['due_at'] ?? '');
+        $current_primary = $requested_deadline !== '' ? $requested_deadline : $due_at;
+
+        if ($current_primary === '') {
+            return [$new_primary_datetime, null];
+        }
+
+        $old_ts = strtotime($current_primary . ' UTC');
+        $new_ts = strtotime($new_primary_datetime . ' UTC');
+        if (! $old_ts || ! $new_ts) {
+            return [$new_primary_datetime, $due_at !== '' ? $new_primary_datetime : null];
+        }
+
+        $delta = $new_ts - $old_ts;
+        $shift = static function (?string $value) use ($delta): ?string {
+            if (! $value) {
+                return null;
+            }
+
+            $ts = strtotime($value . ' UTC');
+            if (! $ts) {
+                return $value;
+            }
+
+            return gmdate('Y-m-d H:i:s', $ts + $delta);
+        };
+
+        return [
+            $shift($requested_deadline) ?: ($requested_deadline !== '' ? $new_primary_datetime : null),
+            $shift($due_at) ?: ($due_at !== '' ? $new_primary_datetime : null),
+        ];
+    }
+
+    private static function status_timestamp_updates(string $status): array
+    {
+        $now = current_time('mysql', true);
+
+        if ($status === 'delivered') {
+            return ['delivered_at' => $now];
+        }
+
+        return [];
+    }
+
+    private static function google_redirect_uri(): string
+    {
+        return (string) get_option('wp_pq_google_redirect_uri', home_url('/wp-json/pq/v1/google/oauth/callback'));
+    }
+
+    private static function google_scopes(): string
+    {
+        $scopes = trim((string) get_option('wp_pq_google_scopes', ''));
+        if ($scopes === '') {
+            $scopes = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly';
+        }
+
+        return $scopes;
+    }
+
+    private static function store_google_tokens(array $token_payload): void
+    {
+        $existing = (array) get_option('wp_pq_google_tokens', []);
+        $expires_in = isset($token_payload['expires_in']) ? (int) $token_payload['expires_in'] : 3600;
+        $tokens = [
+            'access_token' => (string) ($token_payload['access_token'] ?? ($existing['access_token'] ?? '')),
+            'refresh_token' => (string) ($token_payload['refresh_token'] ?? ($existing['refresh_token'] ?? '')),
+            'token_type' => (string) ($token_payload['token_type'] ?? ($existing['token_type'] ?? 'Bearer')),
+            'expires_at' => time() + max(60, $expires_in - 30),
+        ];
+
+        update_option('wp_pq_google_tokens', $tokens, false);
+    }
+
+    private static function get_google_access_token(): string
+    {
+        $tokens = (array) get_option('wp_pq_google_tokens', []);
+        $access_token = (string) ($tokens['access_token'] ?? '');
+        $expires_at = (int) ($tokens['expires_at'] ?? 0);
+        if ($access_token !== '' && $expires_at > (time() + 30)) {
+            return $access_token;
+        }
+
+        $refresh_token = (string) ($tokens['refresh_token'] ?? '');
+        if ($refresh_token === '') {
+            return '';
+        }
+
+        $client_id = (string) get_option('wp_pq_google_client_id', '');
+        $client_secret = (string) get_option('wp_pq_google_client_secret', '');
+        if ($client_id === '' || $client_secret === '') {
+            return '';
+        }
+
+        $resp = wp_remote_post('https://oauth2.googleapis.com/token', [
+            'timeout' => 20,
+            'body' => [
+                'client_id' => $client_id,
+                'client_secret' => $client_secret,
+                'refresh_token' => $refresh_token,
+                'grant_type' => 'refresh_token',
+            ],
+        ]);
+        if (is_wp_error($resp)) {
+            return '';
+        }
+
+        $status = (int) wp_remote_retrieve_response_code($resp);
+        $body = json_decode((string) wp_remote_retrieve_body($resp), true);
+        if ($status >= 300 || ! is_array($body) || empty($body['access_token'])) {
+            return '';
+        }
+
+        self::store_google_tokens($body);
+        $updated = (array) get_option('wp_pq_google_tokens', []);
+        return (string) ($updated['access_token'] ?? '');
+    }
+
+    private static function create_google_calendar_event(array $task, string $starts_at, string $ends_at)
+    {
+        $token = self::get_google_access_token();
+        if ($token === '') {
+            return new WP_Error('google_not_connected', 'Google Calendar is not connected. Complete OAuth first.');
+        }
+
+        $description = (string) ($task['description'] ?? '');
+        $summary = 'Priority Task #' . (int) $task['id'] . ': ' . (string) ($task['title'] ?? 'Meeting');
+        $request_id = 'pq_' . wp_generate_uuid4();
+        $attendees = self::meeting_attendees($task);
+        $body = [
+            'summary' => $summary,
+            'description' => $description,
+            'start' => [
+                'dateTime' => gmdate('c', strtotime($starts_at . ' UTC')),
+                'timeZone' => 'UTC',
+            ],
+            'end' => [
+                'dateTime' => gmdate('c', strtotime($ends_at . ' UTC')),
+                'timeZone' => 'UTC',
+            ],
+            'conferenceData' => [
+                'createRequest' => [
+                    'requestId' => $request_id,
+                    'conferenceSolutionKey' => [
+                        'type' => 'hangoutsMeet',
+                    ],
+                ],
+            ],
+            'guestsCanModify' => false,
+            'guestsCanInviteOthers' => true,
+        ];
+        if (! empty($attendees)) {
+            $body['attendees'] = $attendees;
+        }
+
+        $resp = wp_remote_post('https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1&sendUpdates=all', [
+            'timeout' => 25,
+            'headers' => [
+                'Authorization' => 'Bearer ' . $token,
+                'Content-Type' => 'application/json',
+            ],
+            'body' => wp_json_encode($body),
+        ]);
+        if (is_wp_error($resp)) {
+            return new WP_Error('google_event_error', $resp->get_error_message());
+        }
+
+        $status = (int) wp_remote_retrieve_response_code($resp);
+        $data = json_decode((string) wp_remote_retrieve_body($resp), true);
+        if ($status >= 300 || ! is_array($data) || empty($data['id'])) {
+            return new WP_Error('google_event_error', 'Failed to create Google Calendar event.');
+        }
+
+        return $data;
+    }
+
+    private static function meeting_attendees(array $task): array
+    {
+        $emails = [];
+
+        $submitter = isset($task['submitter_id']) ? get_user_by('ID', (int) $task['submitter_id']) : null;
+        if ($submitter && is_email($submitter->user_email)) {
+            $emails[] = (string) $submitter->user_email;
+        }
+
+        $emails = array_values(array_unique(array_filter($emails, 'is_email')));
+
+        return array_map(static fn($email) => ['email' => $email], $emails);
+    }
+
+    private static function sync_task_calendar_event(array $task): void
+    {
+        global $wpdb;
+
+        if (empty($task) || empty($task['id'])) {
+            return;
+        }
+
+        $table = $wpdb->prefix . 'pq_tasks';
+        $event_id = (string) ($task['google_event_id'] ?? '');
+        $starts_at = (string) ($task['requested_deadline'] ?: $task['due_at'] ?: '');
+
+        if ($starts_at === '') {
+            if ($event_id !== '') {
+                self::delete_google_calendar_event($event_id);
+                $wpdb->update($table, [
+                    'google_event_id' => null,
+                    'google_event_url' => null,
+                    'google_event_synced_at' => current_time('mysql', true),
+                    'updated_at' => current_time('mysql', true),
+                ], ['id' => (int) $task['id']]);
+            }
+            return;
+        }
+
+        $token = self::get_google_access_token();
+        if ($token === '') {
+            return;
+        }
+
+        $start_ts = strtotime($starts_at . ' UTC');
+        if (! $start_ts) {
+            return;
+        }
+
+        $ends_at = gmdate('Y-m-d H:i:s', $start_ts + HOUR_IN_SECONDS);
+        $summary = 'Priority Task #' . (int) $task['id'] . ': ' . self::task_title($task);
+        $description = trim((string) ($task['description'] ?? ''));
+        $body = [
+            'summary' => $summary,
+            'description' => $description,
+            'start' => [
+                'dateTime' => gmdate('c', $start_ts),
+                'timeZone' => 'UTC',
+            ],
+            'end' => [
+                'dateTime' => gmdate('c', strtotime($ends_at . ' UTC')),
+                'timeZone' => 'UTC',
+            ],
+            'extendedProperties' => [
+                'private' => [
+                    'wp_pq_task_id' => (string) (int) $task['id'],
+                ],
+            ],
+        ];
+
+        $url = $event_id !== ''
+            ? 'https://www.googleapis.com/calendar/v3/calendars/primary/events/' . rawurlencode($event_id) . '?sendUpdates=none'
+            : 'https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=none';
+        $method = $event_id !== '' ? 'PUT' : 'POST';
+
+        $resp = wp_remote_request($url, [
+            'method' => $method,
+            'timeout' => 20,
+            'headers' => [
+                'Authorization' => 'Bearer ' . $token,
+                'Content-Type' => 'application/json',
+            ],
+            'body' => wp_json_encode($body),
+        ]);
+
+        if (is_wp_error($resp)) {
+            return;
+        }
+
+        $status = (int) wp_remote_retrieve_response_code($resp);
+        $data = json_decode((string) wp_remote_retrieve_body($resp), true);
+        if ($status >= 300 || ! is_array($data) || empty($data['id'])) {
+            return;
+        }
+
+        $wpdb->update($table, [
+            'google_event_id' => sanitize_text_field((string) $data['id']),
+            'google_event_url' => esc_url_raw((string) ($data['htmlLink'] ?? '')),
+            'google_event_synced_at' => current_time('mysql', true),
+            'updated_at' => current_time('mysql', true),
+        ], ['id' => (int) $task['id']]);
+    }
+
+    private static function backfill_task_calendar_events(array $tasks): void
+    {
+        if (empty($tasks) || self::get_google_access_token() === '') {
+            return;
+        }
+
+        foreach ($tasks as $task) {
+            $starts_at = (string) ($task['requested_deadline'] ?: $task['due_at'] ?: '');
+            if ($starts_at === '') {
+                continue;
+            }
+
+            $event_id = (string) ($task['google_event_id'] ?? '');
+            if ($event_id !== '') {
+                continue;
+            }
+
+            self::sync_task_calendar_event((array) $task);
+        }
+    }
+
+    private static function delete_google_calendar_event(string $event_id): void
+    {
+        $token = self::get_google_access_token();
+        if ($token === '' || $event_id === '') {
+            return;
+        }
+
+        wp_remote_request('https://www.googleapis.com/calendar/v3/calendars/primary/events/' . rawurlencode($event_id) . '?sendUpdates=none', [
+            'method' => 'DELETE',
+            'timeout' => 20,
+            'headers' => [
+                'Authorization' => 'Bearer ' . $token,
+            ],
+        ]);
+    }
+
+    private static function fetch_google_calendar_events(): array
+    {
+        $token = self::get_google_access_token();
+        if ($token === '') {
+            return [];
+        }
+
+        $time_min = rawurlencode(gmdate('c', strtotime('-30 days')));
+        $time_max = rawurlencode(gmdate('c', strtotime('+90 days')));
+        $url = 'https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=100&timeMin=' . $time_min . '&timeMax=' . $time_max;
+
+        $resp = wp_remote_get($url, [
+            'timeout' => 20,
+            'headers' => [
+                'Authorization' => 'Bearer ' . $token,
+                'Accept' => 'application/json',
+            ],
+        ]);
+        if (is_wp_error($resp)) {
+            return [];
+        }
+
+        $status = (int) wp_remote_retrieve_response_code($resp);
+        $data = json_decode((string) wp_remote_retrieve_body($resp), true);
+        if ($status >= 300 || ! is_array($data) || empty($data['items']) || ! is_array($data['items'])) {
+            return [];
+        }
+
+        $events = [];
+        foreach ($data['items'] as $item) {
+            if (! empty($item['extendedProperties']['private']['wp_pq_task_id'])) {
+                continue;
+            }
+
+            $start = '';
+            $end = '';
+            $all_day = false;
+
+            if (! empty($item['start']['dateTime'])) {
+                $start = (string) $item['start']['dateTime'];
+                $end = ! empty($item['end']['dateTime']) ? (string) $item['end']['dateTime'] : '';
+            } elseif (! empty($item['start']['date'])) {
+                $start = (string) $item['start']['date'];
+                $end = ! empty($item['end']['date']) ? (string) $item['end']['date'] : '';
+                $all_day = true;
+            }
+
+            if ($start === '') {
+                continue;
+            }
+
+            $events[] = [
+                'id' => 'gcal_' . sanitize_text_field((string) ($item['id'] ?? wp_generate_uuid4())),
+                'title' => '[GCal] ' . sanitize_text_field((string) ($item['summary'] ?? 'Google Event')),
+                'start' => $start,
+                'end' => $end ?: null,
+                'allDay' => $all_day,
+                'backgroundColor' => '#0f766e',
+                'borderColor' => '#0f766e',
+                'url' => ! empty($item['htmlLink']) ? esc_url_raw((string) $item['htmlLink']) : null,
+                'extendedProps' => [
+                    'source' => 'google',
+                ],
+            ];
+        }
+
+        return $events;
+    }
+
+    private static function sanitize_priority(string $priority): string
+    {
+        $allowed = ['low', 'normal', 'high', 'urgent'];
+        $priority = sanitize_key($priority);
+
+        return in_array($priority, $allowed, true) ? $priority : 'normal';
+    }
+
+    private static function sanitize_priority_direction(string $direction): string
+    {
+        $direction = sanitize_key($direction);
+        return in_array($direction, ['keep', 'up', 'down'], true) ? $direction : 'keep';
+    }
+
+    private static function sanitize_datetime($value): ?string
+    {
+        if (! $value) {
+            return null;
+        }
+
+        $timestamp = strtotime((string) $value);
+        return $timestamp ? gmdate('Y-m-d H:i:s', $timestamp) : null;
+    }
+
+    private static function render_oauth_result_page(bool $ok, string $message): void
+    {
+        status_header($ok ? 200 : 400);
+        nocache_headers();
+
+        $title = $ok ? 'Google Connected' : 'Google Connection Failed';
+        $color = $ok ? '#166534' : '#991b1b';
+        $bg = $ok ? '#ecfdf5' : '#fef2f2';
+        $portal_url = home_url('/priority-portal/');
+
+        echo '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
+        echo '<title>' . esc_html($title) . '</title>';
+        echo '<style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:32px;background:#f3f4f6}';
+        echo '.card{max-width:640px;margin:40px auto;background:#fff;border:1px solid #d1d5db;border-radius:14px;padding:24px}';
+        echo '.state{display:inline-block;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:600;margin-bottom:12px}';
+        echo '.btn{display:inline-block;margin-top:16px;background:#be123c;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600}';
+        echo '</style></head><body><div class="card">';
+        echo '<span class="state" style="background:' . esc_attr($bg) . ';color:' . esc_attr($color) . ';">' . esc_html($title) . '</span>';
+        echo '<h1 style="margin:8px 0 10px">' . esc_html($title) . '</h1>';
+        echo '<p style="font-size:16px;line-height:1.5;color:#374151">' . esc_html($message) . '</p>';
+        echo '<a class="btn" href="' . esc_url($portal_url) . '">Return to Priority Portal</a>';
+        echo '</div></body></html>';
+        exit;
+    }
+}
