@@ -224,6 +224,7 @@ class WP_PQ_API
         $owner_ids = array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('owner_ids')))));
         $client_user_id = self::resolve_client_user_id($request, $user_id);
         $billing_bucket_id = self::resolve_billing_bucket_id($request, $client_user_id);
+        $is_billable = self::request_truthy($request->get_param('is_billable'), true) ? 1 : 0;
         $new_bucket_name = sanitize_text_field((string) $request->get_param('new_bucket_name'));
         if ($new_bucket_name !== '' && current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
             $billing_bucket_id = self::create_bucket_for_client($client_user_id, $new_bucket_name);
@@ -243,9 +244,11 @@ class WP_PQ_API
             'submitter_id' => $user_id,
             'client_user_id' => $client_user_id > 0 ? $client_user_id : $user_id,
             'action_owner_id' => $action_owner_id > 0 ? $action_owner_id : null,
+            'is_billable' => $is_billable,
             'billing_bucket_id' => $billing_bucket_id > 0 ? $billing_bucket_id : null,
             'owner_ids' => wp_json_encode($allowed_assign ? $owner_ids : []),
             'needs_meeting' => $request->get_param('needs_meeting') ? 1 : 0,
+            'billing_status' => $is_billable ? 'unbilled' : 'not_billable',
             'created_at' => current_time('mysql', true),
             'updated_at' => current_time('mysql', true),
         ]);
@@ -1538,6 +1541,9 @@ class WP_PQ_API
             if ((string) $row['status'] !== 'delivered') {
                 return new WP_Error('pq_invalid_batch_status', 'Only delivered tasks can be batched into a statement.', ['status' => 422]);
             }
+            if ((int) ($row['is_billable'] ?? 1) !== 1) {
+                return new WP_Error('pq_non_billable_task', 'Non-billable tasks cannot be batched into a statement.', ['status' => 422]);
+            }
             if ((string) ($row['billing_status'] ?? 'unbilled') !== 'unbilled') {
                 return new WP_Error('pq_invalid_billing_status', 'Only unbilled delivered tasks can be batched.', ['status' => 422]);
             }
@@ -1649,6 +1655,9 @@ class WP_PQ_API
             }
             if ((string) $row['status'] !== 'delivered') {
                 return new WP_Error('pq_invalid_work_log_status', 'Only delivered tasks can be added to a work log.', ['status' => 422]);
+            }
+            if ((int) ($row['is_billable'] ?? 1) !== 1) {
+                return new WP_Error('pq_non_billable_work_log_task', 'Non-billable tasks cannot be added to a billing work log.', ['status' => 422]);
             }
             if ((int) ($row['work_log_id'] ?? 0) > 0) {
                 return new WP_Error('pq_already_work_logged', 'Only tasks that are not already in a work log can be selected.', ['status' => 422]);
@@ -2395,10 +2404,11 @@ class WP_PQ_API
     {
         $row['owner_ids'] = $row['owner_ids'] ? json_decode($row['owner_ids'], true) : [];
         $row['needs_meeting'] = (bool) $row['needs_meeting'];
+        $row['is_billable'] = ! isset($row['is_billable']) ? true : ((int) $row['is_billable'] === 1);
         $row['owner_names'] = [];
         $row['client_user_id'] = isset($row['client_user_id']) ? (int) $row['client_user_id'] : 0;
         $row['action_owner_id'] = isset($row['action_owner_id']) ? (int) $row['action_owner_id'] : 0;
-        $row['billing_status'] = (string) ($row['billing_status'] ?? 'unbilled');
+        $row['billing_status'] = (string) ($row['billing_status'] ?? ($row['is_billable'] ? 'unbilled' : 'not_billable'));
         $row['statement_id'] = isset($row['statement_id']) ? (int) $row['statement_id'] : 0;
         $row['statement_code'] = (string) ($row['statement_code'] ?? '');
         $row['statement_batched_at'] = (string) ($row['statement_batched_at'] ?? '');
@@ -2480,6 +2490,23 @@ class WP_PQ_API
         }
 
         return [];
+    }
+
+    private static function request_truthy($value, bool $default = false): bool
+    {
+        if ($value === null || $value === '') {
+            return $default;
+        }
+
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_numeric($value)) {
+            return ((int) $value) === 1;
+        }
+
+        return in_array(strtolower(trim((string) $value)), ['1', 'true', 'yes', 'on'], true);
     }
 
     private static function google_redirect_uri(): string

@@ -506,7 +506,7 @@
     selectedBatchTaskIds = new Set(
       Array.from(selectedBatchTaskIds).filter((taskId) => {
         const task = tasksCache.find((item) => item.id === taskId);
-        return !!task && task.status === 'delivered' && task.billing_status === 'unbilled';
+        return !!task && task.status === 'delivered' && task.is_billable && task.billing_status === 'unbilled';
       })
     );
   }
@@ -574,7 +574,10 @@
     if (status === 'approved') return 'Ready to begin work';
     if (status === 'in_progress') return 'Work is in progress';
     if (status === 'pending_review') return 'Ready for internal review';
-    if (status === 'delivered') return task.billing_status === 'batched' ? 'Added to statement batch' : 'Waiting for batching or client response';
+    if (status === 'delivered') {
+      if (!task.is_billable) return 'Delivered · non-billable';
+      return task.billing_status === 'batched' ? 'Added to statement batch' : 'Waiting for batching or client response';
+    }
     if (status === 'revision_requested') return 'Revisions needed';
     return humanizeToken(status);
   }
@@ -605,7 +608,9 @@
     if (task.delivered_at) {
       facts.push({ label: 'Delivered', value: formatDateTime(task.delivered_at) });
     }
-    if (task.billing_status) {
+    if (!task.is_billable) {
+      facts.push({ label: 'Billing', value: 'Not billable' });
+    } else if (task.billing_status) {
       facts.push({ label: 'Billing', value: humanizeToken(task.billing_status) });
     }
     if (task.statement_code) {
@@ -633,7 +638,9 @@
     if (status === 'pending_review') return 'Review the work here, then deliver it or send it back for revisions.';
     if (status === 'delivered') return task.billing_status === 'batched'
       ? 'This delivered task has already been added to a statement batch.'
-      : 'Delivered work stays here until you batch it into a statement or request revisions.';
+      : (!task.is_billable
+        ? 'Delivered and complete. This task is marked non-billable, so it will stay out of billing rollups.'
+        : 'Delivered work stays here until you batch it into a statement or request revisions.');
     if (status === 'revision_requested') return 'Changes were requested. Update the work, then return it to active progress.';
     return '';
   }
@@ -770,7 +777,9 @@
     if (task.needs_meeting) {
       badges.push('<span class="wp-pq-badge meeting">Meeting requested</span>');
     }
-    if (task.billing_status === 'batched' && task.statement_code) {
+    if (!task.is_billable) {
+      badges.push('<span class="wp-pq-badge muted">Non-billable</span>');
+    } else if (task.billing_status === 'batched' && task.statement_code) {
       badges.push('<span class="wp-pq-badge muted">Statement ' + escapeHtml(task.statement_code) + '</span>');
     }
     if (task.bucket_name) {
@@ -781,7 +790,7 @@
       '<div class="wp-pq-task-card-top">' +
       '<span class="wp-pq-card-grip" title="Drag to reprioritize">::</span>' +
       '<span class="wp-pq-task-id">Task #' + escapeHtml(task.id) + '</span>' +
-      (window.wpPqConfig.canBatch && task.status === 'delivered' && task.billing_status === 'unbilled'
+      (window.wpPqConfig.canBatch && task.status === 'delivered' && task.is_billable && task.billing_status === 'unbilled'
         ? '<label class="wp-pq-batch-pick"><input type="checkbox" data-batch-task-id="' + escapeHtml(task.id) + '"' + (selectedBatchTaskIds.has(task.id) ? ' checked' : '') + '><span>Batch</span></label>'
         : '') +
       (task.note_count > 0
@@ -866,10 +875,12 @@
     }
     if (task.status === 'approved') {
       buttons.push(buttonHtml(task.id, 'in_progress', 'Start Work'));
+      buttons.push(buttonHtml(task.id, 'delivered', 'Mark Delivered'));
       buttons.push(buttonHtml(task.id, 'revision_requested', 'Request Revisions'));
     }
     if (task.status === 'in_progress') {
       buttons.push(buttonHtml(task.id, 'pending_review', 'Send to Review'));
+      buttons.push(buttonHtml(task.id, 'delivered', 'Mark Delivered'));
       buttons.push(buttonHtml(task.id, 'revision_requested', 'Request Revisions'));
     }
     if (task.status === 'pending_review') {
@@ -1369,6 +1380,7 @@
         due_at: formData.get('due_at') || null,
         requested_deadline: formData.get('requested_deadline') || null,
         needs_meeting: formData.get('needs_meeting') === 'on',
+        is_billable: !window.wpPqConfig.canApprove || formData.get('is_billable') === 'on',
         owner_ids: parseOwnerIds(formData.get('owner_ids')),
         client_user_id: createClientId || 0,
         billing_bucket_id: selectedBucketId > 0 ? selectedBucketId : 0,

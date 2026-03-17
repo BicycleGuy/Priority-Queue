@@ -28,8 +28,8 @@ class WP_PQ_Workflow
         $matrix = [
             'pending_approval' => ['approved', 'not_approved'],
             'not_approved' => ['approved'],
-            'approved' => ['not_approved', 'in_progress', 'revision_requested', 'archived'],
-            'in_progress' => ['pending_review', 'revision_requested', 'archived'],
+            'approved' => ['not_approved', 'in_progress', 'delivered', 'revision_requested', 'archived'],
+            'in_progress' => ['pending_review', 'delivered', 'revision_requested', 'archived'],
             'pending_review' => ['delivered', 'revision_requested', 'archived'],
             'delivered' => ['revision_requested', 'archived'],
             'revision_requested' => ['in_progress', 'archived'],

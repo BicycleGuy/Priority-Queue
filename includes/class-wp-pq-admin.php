@@ -1411,6 +1411,7 @@ class WP_PQ_Admin
              LEFT JOIN {$users_table} u ON u.ID = t.submitter_id
              LEFT JOIN {$buckets_table} b ON b.id = t.billing_bucket_id
              WHERE t.status = 'delivered'
+               AND COALESCE(t.is_billable, 1) = 1
                AND DATE(COALESCE(t.delivered_at, t.updated_at)) BETWEEN %s AND %s
              ORDER BY u.display_name ASC, b.bucket_name ASC, COALESCE(t.delivered_at, t.updated_at) DESC, t.id DESC",
             $start_date,
@@ -1551,6 +1552,7 @@ class WP_PQ_Admin
              FROM {$tasks_table} t
              LEFT JOIN {$users_table} u ON u.ID = t.submitter_id
              WHERE t.status = 'delivered'
+               AND COALESCE(t.is_billable, 1) = 1
                AND t.billing_status = 'unbilled'
                AND DATE_FORMAT(COALESCE(t.delivered_at, t.updated_at), '%%Y-%%m') = %s
              ORDER BY COALESCE(t.delivered_at, t.updated_at) DESC, t.priority DESC, t.id DESC",
