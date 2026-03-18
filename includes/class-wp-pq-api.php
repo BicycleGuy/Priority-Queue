@@ -237,12 +237,13 @@ class WP_PQ_API
         $client_id = self::resolve_client_id($request, $user_id);
         $client_user_id = self::resolve_client_primary_contact_id($client_id, $user_id);
         $billing_bucket_id = self::resolve_billing_bucket_id($request, $client_id);
-        $is_billable = self::request_truthy($request->get_param('is_billable'), true) ? 1 : 0;
         $new_bucket_name = sanitize_text_field((string) $request->get_param('new_bucket_name'));
         if ($new_bucket_name !== '' && current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
             $billing_bucket_id = self::create_bucket_for_client($client_id, $new_bucket_name);
         }
         $action_owner_id = self::resolve_action_owner_id($request, $allowed_assign ? $owner_ids : []);
+        $billable_default = self::default_billable_for_assignment($client_id, $action_owner_id, true);
+        $is_billable = self::request_truthy($request->get_param('is_billable'), $billable_default) ? 1 : 0;
 
         $max_position = (int) $wpdb->get_var("SELECT COALESCE(MAX(queue_position), 0) FROM {$table}");
 
@@ -343,11 +344,13 @@ class WP_PQ_API
             array_unshift($owner_ids, $action_owner_id);
         }
 
-        $wpdb->update($wpdb->prefix . 'pq_tasks', [
+        $billing_sync = self::billing_sync_for_assignment($task, $action_owner_id);
+
+        $wpdb->update($wpdb->prefix . 'pq_tasks', array_merge([
             'action_owner_id' => $action_owner_id > 0 ? $action_owner_id : null,
             'owner_ids' => wp_json_encode($owner_ids),
             'updated_at' => current_time('mysql', true),
-        ], ['id' => $task_id]);
+        ], $billing_sync), ['id' => $task_id]);
 
         self::insert_history_note(
             $wpdb->prefix . 'pq_task_status_history',
@@ -2697,6 +2700,50 @@ class WP_PQ_API
         }
 
         return (int) ($task['statement_id'] ?? 0) === 0 && (int) ($task['work_log_id'] ?? 0) === 0;
+    }
+
+    private static function default_billable_for_assignment(int $client_id, int $action_owner_id, bool $fallback = true): bool
+    {
+        if ($action_owner_id <= 0 || $client_id <= 0) {
+            return $fallback;
+        }
+
+        return ! self::user_is_client_member($client_id, $action_owner_id);
+    }
+
+    private static function billing_sync_for_assignment(array $task, int $action_owner_id): array
+    {
+        $locked_statuses = ['batched', 'statement_sent', 'paid'];
+        $current_status = (string) ($task['billing_status'] ?? '');
+        if (in_array($current_status, $locked_statuses, true)) {
+            return [];
+        }
+
+        $client_id = (int) ($task['client_id'] ?? 0);
+        if ($action_owner_id <= 0 || $client_id <= 0) {
+            return [];
+        }
+
+        $is_billable = self::default_billable_for_assignment($client_id, $action_owner_id, (int) ($task['is_billable'] ?? 1) === 1);
+        return [
+            'is_billable' => $is_billable ? 1 : 0,
+            'billing_status' => $is_billable ? 'unbilled' : 'not_billable',
+        ];
+    }
+
+    private static function user_is_client_member(int $client_id, int $user_id): bool
+    {
+        if ($client_id <= 0 || $user_id <= 0) {
+            return false;
+        }
+
+        foreach (WP_PQ_DB::get_client_memberships($client_id) as $membership) {
+            if ((int) ($membership['user_id'] ?? 0) === $user_id) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public static function normalize_statement_month(string $statement_month = ''): string

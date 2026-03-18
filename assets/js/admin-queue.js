@@ -2651,7 +2651,8 @@
         await api('tasks/' + taskId, { method: 'DELETE' });
         removeTaskById(taskId);
         closeDeleteModal();
-        await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar' });
+        closeDrawer();
+        await loadTasks();
         alert('Task deleted.', 'success');
       } catch (err) {
         alert(err.message);
