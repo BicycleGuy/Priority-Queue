@@ -161,6 +161,12 @@
   const applyMoveBtn = document.getElementById('wp-pq-apply-move');
   const moveMeetingOption = document.getElementById('wp-pq-move-meeting-option');
   const moveEmailOption = document.getElementById('wp-pq-move-email-option');
+  const deleteModalBackdrop = document.getElementById('wp-pq-delete-modal-backdrop');
+  const deleteModal = document.getElementById('wp-pq-delete-modal');
+  const deleteSummaryEl = document.getElementById('wp-pq-delete-summary');
+  const closeDeleteModalBtn = document.getElementById('wp-pq-close-delete-modal');
+  const cancelDeleteBtn = document.getElementById('wp-pq-cancel-delete');
+  const confirmDeleteBtn = document.getElementById('wp-pq-confirm-delete');
   const savedViewList = document.getElementById('wp-pq-saved-view-list');
   const binderClientContext = document.getElementById('wp-pq-binder-client-context');
   const binderJobContext = document.getElementById('wp-pq-binder-job-context');
@@ -171,6 +177,7 @@
   let pendingMove = null;
   let pendingStatusAction = null;
   let pendingRevisionAction = null;
+  let pendingDeleteTaskId = 0;
   let participantCache = [];
   let currentView = 'board';
   let prefsLoaded = false;
@@ -182,6 +189,7 @@
   let filterOptions = { canViewAll: !!window.wpPqConfig.canViewAll, clients: [], buckets: [] };
   let createFormState = { clientUserId: 0, billingBucketId: 0 };
   let savedView = 'all';
+  let summaryFilter = 'all';
   let workersCache = [];
   let workersCacheKey = '';
   let boardSortInstances = [];
@@ -258,6 +266,27 @@
     const text = String(value || '').trim();
     if (!text || text.length <= maxLength) return text;
     return text.slice(0, maxLength - 1).trimEnd() + '...';
+  }
+
+  function canDeleteTask(task) {
+    if (!task) return false;
+    if (!!window.wpPqConfig.canApprove) return true;
+    const currentUserId = parseInt(window.wpPqConfig.currentUserId || 0, 10) || 0;
+    return currentUserId > 0
+      && parseInt(task.submitter_id || 0, 10) === currentUserId
+      && ['pending_approval', 'not_approved'].includes(String(task.status || ''))
+      && !(parseInt(task.statement_id || 0, 10) || 0)
+      && !(parseInt(task.work_log_id || 0, 10) || 0)
+      && !['batched', 'statement_sent', 'paid'].includes(String(task.billing_status || ''));
+  }
+
+  function removeTaskById(taskId) {
+    tasksCache = tasksCache.filter((task) => task.id !== taskId);
+    selectedApprovalTaskIds.delete(taskId);
+    selectedBatchTaskIds.delete(taskId);
+    if (selectedTaskId === taskId) {
+      selectedTaskId = null;
+    }
   }
 
   function formatDateTime(value) {
@@ -543,11 +572,12 @@
 
   function renderTaskCollections() {
     pruneBatchSelection();
-    const visibleTasks = getVisibleTasks();
+    const scopedTasks = getTasksForSavedView();
+    const visibleTasks = applySummaryFilter(scopedTasks);
 
     if (boardEl) {
       renderBoard(visibleTasks);
-      updateBoardSummary(visibleTasks);
+      updateBoardSummary(scopedTasks);
       updateBatchApproveButton();
       updateBatchButton();
       initBoardSort();
@@ -562,7 +592,7 @@
     highlightSelected();
   }
 
-  function getVisibleTasks() {
+  function getTasksForSavedView() {
     if (savedView === 'awaiting_me') {
       return tasksCache.filter((task) => parseInt(task.action_owner_id || 0, 10) === parseInt(window.wpPqConfig.currentUserId || 0, 10));
     }
@@ -576,6 +606,22 @@
       return tasksCache.filter((task) => String(task.status || '') === 'delivered' && !!task.is_billable && String(task.billing_status || '') === 'unbilled');
     }
     return tasksCache.slice();
+  }
+
+  function applySummaryFilter(tasks) {
+    if (summaryFilter === 'urgent') {
+      return tasks.filter((task) => String(task.priority || '') === 'urgent');
+    }
+    if (summaryFilter === 'pending_approval') {
+      return tasks.filter((task) => String(task.status || '') === 'pending_approval');
+    }
+    if (summaryFilter === 'pending_review') {
+      return tasks.filter((task) => String(task.status || '') === 'pending_review');
+    }
+    if (summaryFilter === 'blocked') {
+      return tasks.filter((task) => ['not_approved', 'revision_requested'].includes(String(task.status || '')));
+    }
+    return tasks;
   }
 
   function updateSavedViewUi(visibleTasks) {
@@ -908,7 +954,7 @@
       '<span class="wp-pq-card-grip" title="Drag to reprioritize">::</span>' +
       '<span class="wp-pq-task-id">Task #' + escapeHtml(task.id) + '</span>' +
       (window.wpPqConfig.canApprove && task.status === 'pending_approval'
-        ? '<label class="wp-pq-batch-pick"><input type="checkbox" data-approve-task-id="' + escapeHtml(task.id) + '"' + (selectedApprovalTaskIds.has(task.id) ? ' checked' : '') + '><span>Approve</span></label>'
+        ? '<label class="wp-pq-batch-pick"><input type="checkbox" data-approve-task-id="' + escapeHtml(task.id) + '"><span>Approve</span></label>'
         : '') +
       (window.wpPqConfig.canBatch && task.status === 'delivered' && task.is_billable && task.billing_status === 'unbilled'
         ? '<label class="wp-pq-batch-pick"><input type="checkbox" data-batch-task-id="' + escapeHtml(task.id) + '"' + (selectedBatchTaskIds.has(task.id) ? ' checked' : '') + '><span>Batch</span></label>'
@@ -936,15 +982,30 @@
     const approvePick = card.querySelector('[data-approve-task-id]');
     if (approvePick) {
       approvePick.addEventListener('click', (e) => e.stopPropagation());
-      approvePick.addEventListener('change', (e) => {
+      approvePick.addEventListener('change', async (e) => {
         const taskId = parseInt(e.target.getAttribute('data-approve-task-id'), 10);
         if (!taskId) return;
-        if (e.target.checked) {
-          selectedApprovalTaskIds.add(taskId);
-        } else {
-          selectedApprovalTaskIds.delete(taskId);
+        if (!e.target.checked) {
+          return;
         }
-        updateBatchApproveButton();
+        e.target.disabled = true;
+        try {
+          const result = await api('tasks/' + taskId + '/status', {
+            method: 'POST',
+            body: JSON.stringify({ status: 'approved' }),
+          });
+          if (result.task) {
+            upsertTask(result.task);
+            await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar' });
+          } else {
+            await loadTasks();
+          }
+          alert('Task approved.', 'success');
+        } catch (err) {
+          e.target.checked = false;
+          e.target.disabled = false;
+          alert(err.message);
+        }
       });
     }
     const batchPick = card.querySelector('[data-batch-task-id]');
@@ -1025,11 +1086,16 @@
       buttons.push(buttonHtml(task.id, 'revision_requested', 'Request Revisions'));
     }
     if (task.status === 'revision_requested') buttons.push(buttonHtml(task.id, 'in_progress', 'Resume Work'));
+    if (canDeleteTask(task)) buttons.push(deleteButtonHtml(task.id));
     return buttons.join(' ');
   }
 
   function buttonHtml(taskId, status, label) {
     return '<button type="button" class="button wp-pq-status-btn" data-task-id="' + taskId + '" data-status="' + status + '">' + label + '</button>';
+  }
+
+  function deleteButtonHtml(taskId) {
+    return '<button type="button" class="button wp-pq-delete-btn wp-pq-button-danger" data-task-id="' + taskId + '">Delete</button>';
   }
 
   function openRevisionModal(action) {
@@ -1333,6 +1399,31 @@
     }
   }
 
+  function openDeleteModal(taskId) {
+    if (!deleteModal || !deleteModalBackdrop || !taskId) return;
+    pendingDeleteTaskId = taskId;
+    const task = getTaskById(taskId);
+    if (deleteSummaryEl) {
+      deleteSummaryEl.textContent = task
+        ? 'Delete "' + task.title + '" and remove its related messages, notes, files, meetings, and notifications.'
+        : 'This removes the task and its related messages, notes, files, meetings, and notifications.';
+    }
+    deleteModal.hidden = false;
+    deleteModal.setAttribute('aria-hidden', 'false');
+    deleteModalBackdrop.hidden = false;
+  }
+
+  function closeDeleteModal() {
+    pendingDeleteTaskId = 0;
+    if (deleteModal) {
+      deleteModal.hidden = true;
+      deleteModal.setAttribute('aria-hidden', 'true');
+    }
+    if (deleteModalBackdrop) {
+      deleteModalBackdrop.hidden = true;
+    }
+  }
+
   function updateBoardSummary(tasks) {
     if (!boardSummaryEl) return;
 
@@ -1342,11 +1433,11 @@
     const blockedCount = tasks.filter((task) => task.status === 'not_approved' || task.status === 'revision_requested').length;
 
     boardSummaryEl.innerHTML =
-      '<span class="wp-pq-summary-pill">' + tasks.length + ' active</span>' +
-      '<span class="wp-pq-summary-pill">' + urgentCount + ' urgent</span>' +
-      '<span class="wp-pq-summary-pill">' + approvalCount + ' awaiting approval</span>' +
-      '<span class="wp-pq-summary-pill">' + reviewCount + ' awaiting review</span>' +
-      '<span class="wp-pq-summary-pill">' + blockedCount + ' waiting on changes</span>';
+      '<button type="button" class="wp-pq-summary-pill ' + (summaryFilter === 'all' ? 'is-active' : '') + '" data-summary-filter="all">' + tasks.length + ' active</button>' +
+      '<button type="button" class="wp-pq-summary-pill ' + (summaryFilter === 'urgent' ? 'is-active' : '') + '" data-summary-filter="urgent">' + urgentCount + ' urgent</button>' +
+      '<button type="button" class="wp-pq-summary-pill ' + (summaryFilter === 'pending_approval' ? 'is-active' : '') + '" data-summary-filter="pending_approval">' + approvalCount + ' awaiting approval</button>' +
+      '<button type="button" class="wp-pq-summary-pill ' + (summaryFilter === 'pending_review' ? 'is-active' : '') + '" data-summary-filter="pending_review">' + reviewCount + ' awaiting review</button>' +
+      '<button type="button" class="wp-pq-summary-pill ' + (summaryFilter === 'blocked' ? 'is-active' : '') + '" data-summary-filter="blocked">' + blockedCount + ' waiting on changes</button>';
   }
 
   function updateBatchButton() {
@@ -1465,6 +1556,7 @@
   function wireBoardFilters() {
     if (clientFilterEl) {
       clientFilterEl.addEventListener('change', async () => {
+        summaryFilter = 'all';
         setFilterState({
           clientUserId: parseInt(clientFilterEl.value || '0', 10) || 0,
           billingBucketId: 0,
@@ -1477,6 +1569,7 @@
 
     if (bucketFilterEl) {
       bucketFilterEl.addEventListener('change', async () => {
+        summaryFilter = 'all';
         setFilterState({
           clientUserId: filterState.clientUserId,
           billingBucketId: parseInt(bucketFilterEl.value || '0', 10) || 0,
@@ -2311,6 +2404,19 @@
       if (!button) return;
       e.preventDefault();
       savedView = button.dataset.savedView || 'all';
+      summaryFilter = 'all';
+      await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar' });
+    });
+  }
+
+  function wireBoardSummary() {
+    if (!boardSummaryEl) return;
+    boardSummaryEl.addEventListener('click', async (e) => {
+      const button = e.target.closest('[data-summary-filter]');
+      if (!button) return;
+      e.preventDefault();
+      const nextFilter = button.dataset.summaryFilter || 'all';
+      summaryFilter = nextFilter === summaryFilter ? 'all' : nextFilter;
       await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar' });
     });
   }
@@ -2321,6 +2427,7 @@
       const button = e.target.closest('[data-job-id]');
       if (!button) return;
       e.preventDefault();
+      summaryFilter = 'all';
       setFilterState({
         clientUserId: filterState.clientUserId,
         billingBucketId: parseInt(button.dataset.jobId || '0', 10) || 0,
@@ -2361,10 +2468,19 @@
   function wireStatusActions() {
     document.addEventListener('click', async (e) => {
       const btn = e.target.closest('.wp-pq-status-btn');
-      if (!btn) return;
+      const deleteBtn = e.target.closest('.wp-pq-delete-btn');
+      if (!btn && !deleteBtn) return;
 
       e.preventDefault();
       e.stopPropagation();
+
+      if (deleteBtn) {
+        const taskId = parseInt(deleteBtn.dataset.taskId, 10);
+        if (!taskId) return;
+        selectedTaskId = taskId;
+        openDeleteModal(taskId);
+        return;
+      }
 
       const id = parseInt(btn.dataset.taskId, 10);
       const status = btn.dataset.status;
@@ -2406,6 +2522,10 @@
     if (drawerCloseBtn) drawerCloseBtn.addEventListener('click', closeDrawer);
     if (drawerBackdrop) drawerBackdrop.addEventListener('click', closeDrawer);
     document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && deleteModal && !deleteModal.hidden) {
+        closeDeleteModal();
+        return;
+      }
       if (e.key === 'Escape' && revisionModal && !revisionModal.hidden) {
         closeRevisionModal(true).catch(console.error);
         return;
@@ -2507,6 +2627,40 @@
     });
   }
 
+  function wireDeleteModal() {
+    if (closeDeleteModalBtn) {
+      closeDeleteModalBtn.addEventListener('click', closeDeleteModal);
+    }
+
+    if (cancelDeleteBtn) {
+      cancelDeleteBtn.addEventListener('click', closeDeleteModal);
+    }
+
+    if (deleteModalBackdrop) {
+      deleteModalBackdrop.addEventListener('click', closeDeleteModal);
+    }
+
+    if (!confirmDeleteBtn) return;
+
+    confirmDeleteBtn.addEventListener('click', async () => {
+      if (!pendingDeleteTaskId) return;
+
+      const taskId = pendingDeleteTaskId;
+      confirmDeleteBtn.disabled = true;
+      try {
+        await api('tasks/' + taskId, { method: 'DELETE' });
+        removeTaskById(taskId);
+        closeDeleteModal();
+        await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar' });
+        alert('Task deleted.', 'success');
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        confirmDeleteBtn.disabled = false;
+      }
+    });
+  }
+
   function wireRevisionModal() {
     if (closeRevisionModalBtn) {
       closeRevisionModalBtn.addEventListener('click', () => {
@@ -2603,10 +2757,12 @@
   wirePrefs();
   wireInbox();
   wireSavedViews();
+  wireBoardSummary();
   wireJobNav();
   wireStatusActions();
   wireDrawerControls();
   wireMoveModal();
+  wireDeleteModal();
   wireRevisionModal();
   wireTogglePanel(openCreateBtn, createPanel, closeCreateBtn);
   wireTogglePanel(openInboxBtn, inboxPanel, closeInboxBtn);

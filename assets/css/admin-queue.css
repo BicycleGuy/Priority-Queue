@@ -536,10 +536,12 @@
 .wp-pq-binder {
   position: sticky;
   top: 46px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 14px;
   align-content: start;
   padding: 18px;
+  min-height: calc(100vh - 56px);
 }
 
 .wp-pq-binder-head {
@@ -555,6 +557,10 @@
 .wp-pq-binder-section {
   display: grid;
   gap: 8px;
+}
+
+.wp-pq-binder-section-bottom {
+  margin-top: auto;
 }
 
 .wp-pq-binder-label {
@@ -741,11 +747,18 @@
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
+  border: 0;
   background: var(--pq-soft-2);
   color: var(--pq-ink);
   padding: 7px 10px;
   font-size: 10px;
   font-weight: 700;
+  cursor: pointer;
+}
+
+.wp-pq-summary-pill.is-active {
+  background: #dbe6f6;
+  color: #10233e;
 }
 
 .wp-pq-board {
@@ -775,7 +788,6 @@
   gap: 8px;
   margin-bottom: 10px;
   padding: 0 4px 2px;
-  border-bottom: 1px solid rgba(215, 222, 234, 0.9);
 }
 
 .wp-pq-board-column-head h4 {
@@ -1216,6 +1228,17 @@
   min-height: 32px;
   padding: 6px 10px;
   font-size: 12px;
+}
+
+.wp-pq-wrap .button.wp-pq-button-danger,
+.wp-pq-wrap .button.wp-pq-button-danger.button-primary {
+  background: #b91c1c;
+  color: #fff;
+}
+
+.wp-pq-wrap .button.wp-pq-button-danger:hover,
+.wp-pq-wrap .button.wp-pq-button-danger.button-primary:hover {
+  background: #991b1b;
 }
 
 .wp-pq-workspace-tabs {

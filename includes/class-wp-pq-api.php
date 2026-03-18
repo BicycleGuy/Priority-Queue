@@ -50,6 +50,12 @@ class WP_PQ_API
             'permission_callback' => static fn() => is_user_logged_in(),
         ]);
 
+        register_rest_route('pq/v1', '/tasks/(?P<id>\d+)', [
+            'methods' => WP_REST_Server::DELETABLE,
+            'callback' => [self::class, 'delete_task'],
+            'permission_callback' => static fn() => is_user_logged_in(),
+        ]);
+
         register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/assignment', [
             'methods' => WP_REST_Server::CREATABLE,
             'callback' => [self::class, 'update_assignment'],
@@ -743,6 +749,36 @@ class WP_PQ_API
             'ok' => true,
             'tasks' => $updated,
             'task_count' => count($updated),
+        ], 200);
+    }
+
+    public static function delete_task(WP_REST_Request $request): WP_REST_Response
+    {
+        $task_id = (int) $request->get_param('id');
+        $task = self::get_task_row($task_id);
+
+        if (! $task) {
+            return new WP_REST_Response(['message' => 'Task not found.'], 404);
+        }
+
+        $user_id = get_current_user_id();
+        if (! self::can_delete_task($task, $user_id)) {
+            return new WP_REST_Response(['message' => 'You cannot delete this task.'], 403);
+        }
+
+        if (
+            (int) ($task['statement_id'] ?? 0) > 0
+            || (int) ($task['work_log_id'] ?? 0) > 0
+            || in_array((string) ($task['billing_status'] ?? ''), ['batched', 'statement_sent', 'paid'], true)
+        ) {
+            return new WP_REST_Response(['message' => 'This task is already tied to billing records. Remove it from billing first or archive it instead.'], 422);
+        }
+
+        self::purge_task($task);
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'deleted_task_id' => $task_id,
         ], 200);
     }
 
@@ -2500,6 +2536,53 @@ class WP_PQ_API
         return $task ?: null;
     }
 
+    private static function purge_task(array $task): void
+    {
+        global $wpdb;
+
+        $task_id = (int) ($task['id'] ?? 0);
+        if ($task_id <= 0) {
+            return;
+        }
+
+        $event_id = sanitize_text_field((string) ($task['google_event_id'] ?? ''));
+        if ($event_id !== '') {
+            self::delete_google_calendar_event($event_id);
+        }
+
+        $file_rows = $wpdb->get_results(
+            $wpdb->prepare("SELECT media_id FROM {$wpdb->prefix}pq_task_files WHERE task_id = %d", $task_id),
+            ARRAY_A
+        );
+        foreach ((array) $file_rows as $file_row) {
+            $media_id = (int) ($file_row['media_id'] ?? 0);
+            if ($media_id > 0) {
+                wp_delete_attachment($media_id, true);
+            }
+        }
+
+        $meeting_rows = $wpdb->get_results(
+            $wpdb->prepare("SELECT event_id FROM {$wpdb->prefix}pq_task_meetings WHERE task_id = %d", $task_id),
+            ARRAY_A
+        );
+        foreach ((array) $meeting_rows as $meeting_row) {
+            $meeting_event_id = sanitize_text_field((string) ($meeting_row['event_id'] ?? ''));
+            if ($meeting_event_id !== '') {
+                self::delete_google_calendar_event($meeting_event_id);
+            }
+        }
+
+        $wpdb->delete($wpdb->prefix . 'pq_statement_items', ['task_id' => $task_id]);
+        $wpdb->delete($wpdb->prefix . 'pq_work_log_items', ['task_id' => $task_id]);
+        $wpdb->delete($wpdb->prefix . 'pq_notifications', ['task_id' => $task_id]);
+        $wpdb->delete($wpdb->prefix . 'pq_task_messages', ['task_id' => $task_id]);
+        $wpdb->delete($wpdb->prefix . 'pq_task_comments', ['task_id' => $task_id]);
+        $wpdb->delete($wpdb->prefix . 'pq_task_meetings', ['task_id' => $task_id]);
+        $wpdb->delete($wpdb->prefix . 'pq_task_files', ['task_id' => $task_id]);
+        $wpdb->delete($wpdb->prefix . 'pq_task_status_history', ['task_id' => $task_id]);
+        $wpdb->delete($wpdb->prefix . 'pq_tasks', ['id' => $task_id]);
+    }
+
     private static function current_client_scope_id(int $user_id): int
     {
         $memberships = WP_PQ_DB::get_user_client_memberships($user_id);
@@ -2593,6 +2676,27 @@ class WP_PQ_API
         }
 
         return false;
+    }
+
+    private static function can_delete_task(array $task, int $user_id): bool
+    {
+        if ($user_id <= 0) {
+            return false;
+        }
+
+        if (user_can($user_id, WP_PQ_Roles::CAP_APPROVE)) {
+            return true;
+        }
+
+        if ((int) ($task['submitter_id'] ?? 0) !== $user_id) {
+            return false;
+        }
+
+        if (! in_array((string) ($task['status'] ?? ''), ['pending_approval', 'not_approved'], true)) {
+            return false;
+        }
+
+        return (int) ($task['statement_id'] ?? 0) === 0 && (int) ($task['work_log_id'] ?? 0) === 0;
     }
 
     public static function normalize_statement_month(string $statement_month = ''): string
