@@ -196,6 +196,7 @@
   let workersCache = [];
   let workersCacheKey = '';
   let boardSortInstances = [];
+  let notificationsCache = [];
 
   async function api(path, options) {
     let resp;
@@ -1771,10 +1772,11 @@
   }
 
   async function loadInbox() {
-    if (!inboxList) return;
+    if (!inboxList) return { notifications: [], unread_count: 0 };
 
     const data = await api('notifications', { method: 'GET' });
     const notifications = data.notifications || [];
+    notificationsCache = notifications;
     inboxList.innerHTML = '';
 
     if (inboxCount) inboxCount.textContent = String(data.unread_count || 0);
@@ -1784,7 +1786,7 @@
 
     if (!notifications.length) {
       renderEmptyStream(inboxList, 'No alerts yet.');
-      return;
+      return data;
     }
 
     notifications.forEach((item) => {
@@ -1796,9 +1798,34 @@
         '<div class="msg-author">' + escapeHtml(humanizeToken(item.event_key)) + ' · ' + escapeHtml(formatDateTime(item.created_at)) + '</div>' +
         '<div><strong>' + escapeHtml(item.title) + '</strong></div>' +
         '<div>' + escapeHtml(item.body || '') + '</div>' +
-        (item.task_id ? '<div class="wp-pq-inbox-task"><button type="button" class="wp-pq-linkish" data-open-task="' + item.task_id + '">Open ' + escapeHtml(taskLabel) + '</button></div>' : '');
+        (item.task_id ? '<div class="wp-pq-inbox-task"><button type="button" class="wp-pq-linkish" data-open-task="' + item.task_id + '" data-notification-id="' + escapeHtml(item.id) + '">Open ' + escapeHtml(taskLabel) + '</button></div>' : '');
       inboxList.appendChild(li);
     });
+
+    return data;
+  }
+
+  async function openTaskFromAlert(notification) {
+    const taskId = parseInt(notification && notification.task_id, 10);
+    const notificationId = parseInt(notification && notification.id, 10);
+    if (!taskId) return;
+
+    selectedTaskId = taskId;
+    await loadTasks();
+    await selectTask(taskId, !!drawerEl);
+
+    if (notificationId > 0) {
+      try {
+        await api('notifications/mark-read', { method: 'POST', body: JSON.stringify({ ids: [notificationId] }) });
+        notificationsCache = notificationsCache.map((item) => (
+          parseInt(item.id, 10) === notificationId ? { ...item, is_read: true } : item
+        ));
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    await loadInbox();
   }
 
   function renderMentionChips() {
@@ -2558,18 +2585,45 @@
       });
     }
 
+    if (openInboxBtn) {
+      openInboxBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+
+        try {
+          const data = await loadInbox();
+          const unreadNotifications = (data.notifications || []).filter((item) => !item.is_read);
+          const actionableAlerts = unreadNotifications.filter((item) => parseInt(item.task_id, 10) > 0);
+
+          if (unreadNotifications.length === 1 && actionableAlerts.length === 1) {
+            if (inboxPanel) inboxPanel.hidden = true;
+            await openTaskFromAlert(actionableAlerts[0]);
+            return;
+          }
+
+          if (inboxPanel) inboxPanel.hidden = false;
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    }
+
+    if (closeInboxBtn && inboxPanel) {
+      closeInboxBtn.addEventListener('click', () => {
+        inboxPanel.hidden = true;
+      });
+    }
+
     if (inboxList) {
       inboxList.addEventListener('click', async (e) => {
         const button = e.target.closest('[data-open-task]');
         if (!button) return;
 
         const taskId = parseInt(button.dataset.openTask, 10);
+        const notificationId = parseInt(button.dataset.notificationId || '0', 10);
         if (!taskId) return;
 
         if (inboxPanel) inboxPanel.hidden = true;
-        selectedTaskId = taskId;
-        await loadTasks();
-        await selectTask(taskId, !!drawerEl);
+        await openTaskFromAlert({ id: notificationId, task_id: taskId });
       });
     }
   }
@@ -2876,12 +2930,6 @@
   wireDeleteModal();
   wireRevisionModal();
   wireTogglePanel(openCreateBtn, createPanel, closeCreateBtn);
-  wireTogglePanel(openInboxBtn, inboxPanel, closeInboxBtn);
-  if (openInboxBtn) {
-    openInboxBtn.addEventListener('click', () => {
-      loadInbox().catch(console.error);
-    });
-  }
   if (openPrefsBtn && prefPanel) {
     openPrefsBtn.addEventListener('click', () => {
       prefPanel.hidden = !prefPanel.hidden;
