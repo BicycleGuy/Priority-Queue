@@ -115,6 +115,9 @@
   const assignmentFactsEl = document.getElementById('wp-pq-assignment-summary');
   const assignmentSelectEl = document.getElementById('wp-pq-assignment-select');
   const assignmentSaveBtn = document.getElementById('wp-pq-save-assignment');
+  const priorityPanelEl = document.getElementById('wp-pq-priority-panel');
+  const prioritySelectEl = document.getElementById('wp-pq-priority-select');
+  const prioritySaveBtn = document.getElementById('wp-pq-save-priority');
   const meetingPanel = document.getElementById('wp-pq-meeting-panel');
   const meetingSummaryEl = document.getElementById('wp-pq-meeting-summary');
   const meetingList = document.getElementById('wp-pq-meeting-list');
@@ -898,6 +901,18 @@
     assignmentSaveBtn.disabled = false;
   }
 
+  function syncPriorityPanel(task) {
+    if (!priorityPanelEl || !prioritySelectEl || !prioritySaveBtn) return;
+    if (!window.wpPqConfig.canApprove || !task) {
+      priorityPanelEl.hidden = true;
+      return;
+    }
+
+    priorityPanelEl.hidden = false;
+    prioritySelectEl.value = String(task.priority || 'normal');
+    prioritySaveBtn.disabled = false;
+  }
+
   function ensureAssigneePresent(task) {
     if (!task || !task.action_owner_id || !task.action_owner_name) return;
     const exists = workersCache.some((worker) => parseInt(worker.id, 10) === parseInt(task.action_owner_id, 10));
@@ -1511,6 +1526,7 @@
     if (currentTaskDescriptionEl) currentTaskDescriptionEl.textContent = '';
     if (currentTaskActionsEl) currentTaskActionsEl.innerHTML = '';
     if (assignmentPanelEl) assignmentPanelEl.hidden = true;
+    if (priorityPanelEl) priorityPanelEl.hidden = true;
   }
 
   async function updateTaskSummary(task) {
@@ -1532,6 +1548,7 @@
       ensureAssigneePresent(task);
       syncAssignmentPanel(task);
     }
+    syncPriorityPanel(task);
   }
 
   function drawerIsOpen() {
@@ -2106,6 +2123,11 @@
         if (result.task) {
           upsertTask(result.task);
           await refreshFromCache({ reloadActivePane: false, refreshCalendar: false, forceSelect: true });
+          await selectTask(selectedTaskId, drawerIsOpen(), {
+            preservePanelState: true,
+            loadParticipants: false,
+            loadWorkspace: false,
+          });
         } else {
           await loadTasks();
         }
@@ -2113,6 +2135,41 @@
         alert(err.message);
       } finally {
         assignmentSaveBtn.disabled = false;
+      }
+    });
+  }
+
+  function wirePriority() {
+    if (!prioritySaveBtn || !prioritySelectEl) return;
+
+    prioritySaveBtn.addEventListener('click', async () => {
+      if (!selectedTaskId) return;
+
+      const priority = String(prioritySelectEl.value || 'normal');
+      prioritySaveBtn.disabled = true;
+
+      try {
+        const result = await api('tasks/' + selectedTaskId + '/priority', {
+          method: 'POST',
+          body: JSON.stringify({ priority: priority }),
+        });
+
+        if (result.task) {
+          upsertTask(result.task);
+          await refreshFromCache({ reloadActivePane: false, refreshCalendar: false, forceSelect: true });
+          await selectTask(selectedTaskId, drawerIsOpen(), {
+            preservePanelState: true,
+            loadParticipants: false,
+            loadWorkspace: false,
+          });
+          alert('Priority updated.', 'success');
+        } else {
+          await loadTasks();
+        }
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        prioritySaveBtn.disabled = false;
       }
     });
   }
@@ -2792,6 +2849,7 @@
   wireFiles();
   wireMeetings();
   wireAssignment();
+  wirePriority();
   wireBatching();
   wirePrefs();
   wireInbox();

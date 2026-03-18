@@ -62,6 +62,12 @@ class WP_PQ_API
             'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_ASSIGN),
         ]);
 
+        register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/priority', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'update_priority'],
+            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
+        ]);
+
         register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/schedule', [
             'methods' => WP_REST_Server::CREATABLE,
             'callback' => [self::class, 'update_schedule'],
@@ -361,6 +367,51 @@ class WP_PQ_API
         );
 
         self::emit_assignment_event($task_id, $previous_action_owner_id, $action_owner_id);
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'task' => self::get_enriched_task($task_id),
+        ], 200);
+    }
+
+    public static function update_priority(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+
+        $task_id = (int) $request->get_param('id');
+        $task = self::get_task_row($task_id);
+        if (! $task) {
+            return new WP_REST_Response(['message' => 'Task not found.'], 404);
+        }
+
+        $user_id = get_current_user_id();
+        if (! self::can_access_task($task, $user_id)) {
+            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        }
+
+        $current_priority = (string) ($task['priority'] ?? 'normal');
+        $new_priority = self::sanitize_priority((string) $request->get_param('priority'));
+        if ($new_priority === $current_priority) {
+            return new WP_REST_Response([
+                'ok' => true,
+                'task' => self::get_enriched_task($task_id),
+            ], 200);
+        }
+
+        $wpdb->update($wpdb->prefix . 'pq_tasks', [
+            'priority' => $new_priority,
+            'updated_at' => current_time('mysql', true),
+        ], ['id' => $task_id]);
+
+        self::insert_history_note(
+            $wpdb->prefix . 'pq_task_status_history',
+            $task_id,
+            (string) $task['status'],
+            $user_id,
+            'priority:' . $current_priority . '->' . $new_priority
+        );
+
+        self::emit_event($task_id, 'task_reprioritized', 'Task reprioritized', 'The task priority was updated.');
 
         return new WP_REST_Response([
             'ok' => true,

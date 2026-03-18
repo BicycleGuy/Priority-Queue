@@ -1265,6 +1265,42 @@
   font-size: 13px;
 }
 
+.wp-pq-priority-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.wp-pq-priority-copy {
+  min-width: 0;
+}
+
+.wp-pq-priority-copy strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.wp-pq-priority-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.wp-pq-priority-controls select {
+  min-width: 0;
+  flex: 1 1 auto;
+  min-height: 34px;
+  font-size: 12px;
+}
+
 .wp-pq-assignment-controls {
   display: flex;
   align-items: center;
@@ -1562,11 +1598,13 @@ body.wp-pq-drawer-open {
     grid-template-columns: 1fr;
   }
 
+  .wp-pq-priority-controls,
   .wp-pq-assignment-controls {
     width: 100%;
     flex-wrap: wrap;
   }
 
+  .wp-pq-priority-controls select,
   .wp-pq-assignment-controls select {
     min-width: 0;
     flex: 1 1 auto;
