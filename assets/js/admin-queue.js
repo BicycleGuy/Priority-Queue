@@ -297,6 +297,19 @@
     return parsed.toLocaleString();
   }
 
+  function formatCardDateTime(value) {
+    if (!value) return '';
+    const normalized = String(value).includes('T') ? String(value) : String(value).replace(' ', 'T') + 'Z';
+    const parsed = new Date(normalized);
+    if (Number.isNaN(parsed.getTime())) return String(value);
+    return parsed.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  }
+
   function toLocalDatetimeValue(date) {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -796,6 +809,40 @@
     return 'Awaiting assignment';
   }
 
+  function personInitials(name) {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+  }
+
+  function personAvatarHtml(name, role, tone) {
+    const safeName = String(name || '').trim();
+    const label = role + ': ' + (safeName || 'Unassigned');
+    return '<span class="wp-pq-task-avatar wp-pq-task-avatar-' + escapeHtml(tone) + '" title="' + escapeHtml(label) + '">' +
+      escapeHtml(personInitials(safeName)) +
+      '</span>';
+  }
+
+  function priorityMarkerHtml(priority) {
+    const normalized = String(priority || 'normal');
+    return '<span class="wp-pq-priority-marker priority-' + escapeHtml(normalized) + '" title="' + escapeHtml(humanizeToken(normalized) + ' priority') + '">▲</span>';
+  }
+
+  function cardActionHtml(task) {
+    if (window.wpPqConfig.canApprove && task.status === 'pending_approval') {
+      return '<button type="button" class="wp-pq-card-inline-action" data-approve-task-id="' + escapeHtml(task.id) + '">Approve →</button>';
+    }
+
+    if (window.wpPqConfig.canBatch && task.status === 'delivered' && task.is_billable && task.billing_status === 'unbilled') {
+      return '<button type="button" class="wp-pq-card-inline-action ' + (selectedBatchTaskIds.has(task.id) ? 'is-selected' : '') + '" data-batch-task-id="' + escapeHtml(task.id) + '">' +
+        (selectedBatchTaskIds.has(task.id) ? 'Queued' : 'Batch') +
+        '</button>';
+    }
+
+    return '';
+  }
+
   function assignmentFacts(task) {
     const requester = task.submitter_name || 'Unspecified';
     const client = task.client_account_name || task.client_name || requester;
@@ -924,71 +971,61 @@
 
   function boardCard(task) {
     const card = document.createElement('article');
-    card.className = 'wp-pq-task-card';
+    card.className = 'wp-pq-task-card is-status-' + String(task.status || 'pending_approval').replaceAll('_', '-');
     card.dataset.id = task.id;
 
     const brief = truncateText(task.description || 'No request brief yet.', 160);
-    const deadline = formatDateTime(task.requested_deadline || task.due_at);
-    const actionOwner = task.action_owner_name || '';
-    const badges = [
-      '<span class="wp-pq-badge priority-' + escapeHtml(task.priority) + '">' + escapeHtml(humanizeToken(task.priority)) + '</span>',
-    ];
+    const deadline = formatCardDateTime(task.requested_deadline || task.due_at);
+    const clientName = task.client_account_name || task.client_name || task.submitter_name || 'Client';
+    const actionOwnerName = task.action_owner_name || '';
+    const metaBits = [];
+    const cardActions = [];
 
-    if (deadline) {
-      badges.push('<span class="wp-pq-badge muted">Due ' + escapeHtml(deadline) + '</span>');
-    }
-    if (task.needs_meeting) {
-      badges.push('<span class="wp-pq-badge meeting">Meeting requested</span>');
-    }
+    if (deadline) metaBits.push('<span>Due ' + escapeHtml(deadline) + '</span>');
+    if (task.needs_meeting) metaBits.push('<span>Meeting requested</span>');
     if (!task.is_billable) {
-      badges.push('<span class="wp-pq-badge muted">Non-billable</span>');
+      metaBits.push('<span>Non-billable</span>');
     } else if (task.billing_status === 'batched' && task.statement_code) {
-      badges.push('<span class="wp-pq-badge muted">Statement ' + escapeHtml(task.statement_code) + '</span>');
+      metaBits.push('<span>Statement ' + escapeHtml(task.statement_code) + '</span>');
     }
-    if (task.bucket_name) {
-      badges.push('<span class="wp-pq-badge muted">' + escapeHtml(task.bucket_name) + '</span>');
+
+    const inlineAction = cardActionHtml(task);
+    if (inlineAction) cardActions.push(inlineAction);
+    if (task.note_count > 0) {
+      cardActions.push('<span class="wp-pq-note-flag" title="' + escapeHtml((task.latest_note_preview || (task.note_count + ' sticky notes on this task'))) + '"></span>');
+    }
+    cardActions.push(priorityMarkerHtml(task.priority));
+
+    const avatars = [];
+    avatars.push(personAvatarHtml(actionOwnerName || 'Unassigned', 'Owner', 'owner'));
+    if (!actionOwnerName || actionOwnerName !== clientName) {
+      avatars.push(personAvatarHtml(clientName, 'Client', 'client'));
     }
 
     card.innerHTML =
       '<div class="wp-pq-task-card-top">' +
-      '<span class="wp-pq-card-grip" title="Drag to reprioritize">::</span>' +
-      '<span class="wp-pq-task-id">Task #' + escapeHtml(task.id) + '</span>' +
-      (window.wpPqConfig.canApprove && task.status === 'pending_approval'
-        ? '<label class="wp-pq-batch-pick"><input type="checkbox" data-approve-task-id="' + escapeHtml(task.id) + '"><span>Approve</span></label>'
-        : '') +
-      (window.wpPqConfig.canBatch && task.status === 'delivered' && task.is_billable && task.billing_status === 'unbilled'
-        ? '<label class="wp-pq-batch-pick"><input type="checkbox" data-batch-task-id="' + escapeHtml(task.id) + '"' + (selectedBatchTaskIds.has(task.id) ? ' checked' : '') + '><span>Batch</span></label>'
-        : '') +
-      (task.note_count > 0
-        ? '<span class="wp-pq-note-flag" title="' + escapeHtml((task.latest_note_preview || (task.note_count + ' sticky notes on this task'))) + '"></span>'
-        : '') +
+      '<div class="wp-pq-task-card-identity"><span class="wp-pq-task-id">#' + escapeHtml(task.id) + '</span></div>' +
+      '<div class="wp-pq-task-card-actions">' + cardActions.join('') + '</div>' +
       '</div>' +
       '<h4>' + escapeHtml(task.title) + '</h4>' +
       '<p class="wp-pq-task-brief">' + escapeHtml(brief || 'No request brief yet.') + '</p>' +
-      '<div class="wp-pq-task-badges">' + badges.join('') + '</div>' +
-      '<div class="wp-pq-task-next-step">' + escapeHtml(nextStepLabel(task)) + '</div>' +
+      '<div class="wp-pq-task-meta">' +
+      (task.bucket_name ? '<span class="wp-pq-task-tag">' + escapeHtml(task.bucket_name) + '</span>' : '') +
+      (metaBits.length ? '<div class="wp-pq-task-meta-line">' + metaBits.join('<span class="wp-pq-task-meta-sep">·</span>') + '</div>' : '') +
+      '</div>' +
       '<div class="wp-pq-task-footer">' +
-      '<span>' + escapeHtml(taskActorLabel(task)) + '</span>' +
-      (window.wpPqConfig.canViewAll && (task.client_account_name || task.client_name || task.submitter_name)
-        ? '<span>' + escapeHtml(task.client_account_name || task.client_name || task.submitter_name) + '</span>'
-        : (actionOwner ? '<span>' + escapeHtml(actionOwner) + '</span>' : '')) +
+      '<span class="wp-pq-task-awaiting">' + escapeHtml(taskActorLabel(task)) + '</span>' +
+      '<div class="wp-pq-task-avatars">' + avatars.join('') + '</div>' +
       '</div>';
 
     card.addEventListener('click', () => selectTask(task.id, true));
-    const grip = card.querySelector('.wp-pq-card-grip');
-    if (grip) {
-      grip.addEventListener('click', (e) => e.stopPropagation());
-    }
     const approvePick = card.querySelector('[data-approve-task-id]');
     if (approvePick) {
       approvePick.addEventListener('click', (e) => e.stopPropagation());
-      approvePick.addEventListener('change', async (e) => {
-        const taskId = parseInt(e.target.getAttribute('data-approve-task-id'), 10);
+      approvePick.addEventListener('click', async (e) => {
+        const taskId = parseInt(e.currentTarget.getAttribute('data-approve-task-id'), 10);
         if (!taskId) return;
-        if (!e.target.checked) {
-          return;
-        }
-        e.target.disabled = true;
+        e.currentTarget.disabled = true;
         try {
           const result = await api('tasks/' + taskId + '/status', {
             method: 'POST',
@@ -1002,8 +1039,7 @@
           }
           alert('Task approved.', 'success');
         } catch (err) {
-          e.target.checked = false;
-          e.target.disabled = false;
+          e.currentTarget.disabled = false;
           alert(err.message);
         }
       });
@@ -1011,15 +1047,16 @@
     const batchPick = card.querySelector('[data-batch-task-id]');
     if (batchPick) {
       batchPick.addEventListener('click', (e) => e.stopPropagation());
-      batchPick.addEventListener('change', (e) => {
-        const taskId = parseInt(e.target.getAttribute('data-batch-task-id'), 10);
+      batchPick.addEventListener('click', (e) => {
+        const taskId = parseInt(e.currentTarget.getAttribute('data-batch-task-id'), 10);
         if (!taskId) return;
-        if (e.target.checked) {
-          selectedBatchTaskIds.add(taskId);
-        } else {
+        if (selectedBatchTaskIds.has(taskId)) {
           selectedBatchTaskIds.delete(taskId);
+        } else {
+          selectedBatchTaskIds.add(taskId);
         }
         updateBatchButton();
+        renderTaskCollections();
       });
     }
     return card;
@@ -1243,13 +1280,14 @@
       const sortable = Sortable.create(columnEl, {
         group: 'wp-pq-board',
         animation: 160,
-        handle: '.wp-pq-card-grip',
         forceFallback: true,
         fallbackOnBody: true,
         emptyInsertThreshold: 20,
         scroll: true,
         scrollSensitivity: 120,
         scrollSpeed: 18,
+        filter: 'button, input, label, a, select, textarea',
+        preventOnFilter: false,
         onEnd: async (evt) => {
           const sourceStatus = evt.from && evt.from.dataset ? evt.from.dataset.status : '';
           const targetStatus = evt.to && evt.to.dataset ? evt.to.dataset.status : sourceStatus;

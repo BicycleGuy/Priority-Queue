@@ -816,13 +816,24 @@
 }
 
 .wp-pq-task-card {
+  position: relative;
   border: 1px solid #dae2ee;
+  border-left: 0;
   border-radius: 14px;
   background: #fff;
-  padding: 11px;
+  padding: 10px 10px 10px 14px;
   cursor: pointer;
   transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
   box-shadow: 0 6px 14px rgba(15, 23, 42, 0.03);
+  overflow: hidden;
+}
+
+.wp-pq-task-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+  background: var(--pq-card-status, #cbd5e1);
 }
 
 .wp-pq-task-card:hover {
@@ -835,106 +846,88 @@
   box-shadow: 0 0 0 1px #1d4ed8, 0 12px 24px rgba(29, 78, 216, 0.14);
 }
 
+.wp-pq-task-card.is-status-pending-approval { --pq-card-status: #eab308; }
+.wp-pq-task-card.is-status-approved { --pq-card-status: #64748b; }
+.wp-pq-task-card.is-status-in-progress { --pq-card-status: #2563eb; }
+.wp-pq-task-card.is-status-pending-review { --pq-card-status: #8b5cf6; }
+.wp-pq-task-card.is-status-delivered { --pq-card-status: #16a34a; }
+.wp-pq-task-card.is-status-not-approved,
+.wp-pq-task-card.is-status-revision-requested { --pq-card-status: #dc2626; }
+
 .wp-pq-task-card-top {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 5px;
-  margin-bottom: 5px;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
 }
 
-.wp-pq-batch-pick {
+.wp-pq-task-card-identity,
+.wp-pq-task-card-actions {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+}
+
+.wp-pq-task-card-actions {
   margin-left: auto;
-  color: var(--pq-muted);
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.wp-pq-batch-pick input {
-  margin: 0;
-}
-
-.wp-pq-card-grip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 8px;
-  background: var(--pq-soft);
-  color: var(--pq-muted);
-  cursor: grab;
-  font-weight: 900;
-  letter-spacing: 0.06em;
-  user-select: none;
-}
-
-.wp-pq-card-grip:active {
-  cursor: grabbing;
 }
 
 .wp-pq-task-id {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
-  background: var(--pq-soft);
-  color: var(--pq-muted);
-  padding: 2px 6px;
-  font-size: 8px;
+  color: #7b879d;
+  padding: 0;
+  font-size: 10px;
   font-weight: 800;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
 }
 
 .wp-pq-note-flag {
-  width: 12px;
-  height: 12px;
-  margin-left: auto;
-  border-radius: 3px;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
   background: #facc15;
   box-shadow: inset 0 0 0 1px rgba(120, 53, 15, 0.15);
 }
 
 .wp-pq-task-card h4 {
-  margin: 0 0 5px;
-  font-size: 0.9rem;
-  line-height: 1.22;
+  margin: 0 0 4px;
+  font-size: 1rem;
+  line-height: 1.14;
 }
 
 .wp-pq-task-brief {
-  margin: 0 0 8px;
+  margin: 0 0 7px;
   color: var(--pq-muted);
-  font-size: 11px;
-  line-height: 1.36;
+  font-size: 10px;
+  line-height: 1.32;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 3;
   overflow: hidden;
 }
 
-.wp-pq-task-badges {
+.wp-pq-task-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  align-items: center;
+  gap: 6px;
   margin-bottom: 6px;
 }
 
-.wp-pq-badge {
+.wp-pq-task-tag {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  padding: 3px 6px;
-  font-size: 8px;
-  line-height: 1.15;
-  font-weight: 800;
-}
-
-.wp-pq-badge.muted {
   background: var(--pq-soft);
-  color: var(--pq-muted);
+  color: #44506a;
+  padding: 3px 8px;
+  font-size: 10px;
+  line-height: 1.1;
+  font-weight: 700;
 }
 
 .wp-pq-board-shell > .wp-pq-section-heading {
@@ -999,49 +992,112 @@
   transform: translateY(8px);
 }
 
-.wp-pq-badge.meeting {
-  background: #ecfdf5;
-  color: #047857;
+.wp-pq-task-meta-line {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  color: var(--pq-muted);
+  font-size: 10px;
+  line-height: 1.2;
 }
 
-.wp-pq-badge.priority-low {
-  background: #eff6ff;
-  color: #1d4ed8;
-}
-
-.wp-pq-badge.priority-normal {
-  background: #f3f4f6;
-  color: #374151;
-}
-
-.wp-pq-badge.priority-high {
-  background: #fff7ed;
-  color: #c2410c;
-}
-
-.wp-pq-badge.priority-urgent {
-  background: #fef2f2;
-  color: #b91c1c;
+.wp-pq-task-meta-sep {
+  color: #a0abc0;
 }
 
 .wp-pq-task-footer {
   display: flex;
   justify-content: space-between;
-  gap: 6px;
+  align-items: center;
+  gap: 8px;
   color: var(--pq-muted);
-  font-size: 11px;
-  flex-wrap: wrap;
+  font-size: 10px;
+  flex-wrap: nowrap;
 }
 
-.wp-pq-task-next-step {
-  margin: 0 0 8px;
-  padding: 8px 10px;
-  border-radius: 12px;
-  background: #f8fafc;
+.wp-pq-task-awaiting {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wp-pq-task-avatars {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.wp-pq-task-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.wp-pq-task-avatar-owner {
+  background: #1f2937;
+  color: #fff;
+}
+
+.wp-pq-task-avatar-client {
+  background: var(--pq-soft);
+  color: var(--pq-muted);
+  box-shadow: inset 0 0 0 1px #d8dfeb;
+}
+
+.wp-pq-priority-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.wp-pq-priority-marker.priority-low {
+  color: #93c5fd;
+}
+
+.wp-pq-priority-marker.priority-normal {
+  color: #9ca3af;
+}
+
+.wp-pq-priority-marker.priority-high {
+  color: #ea580c;
+}
+
+.wp-pq-priority-marker.priority-urgent {
+  color: #dc2626;
+}
+
+.wp-pq-card-inline-action {
+  border: 0;
+  border-radius: 999px;
+  background: rgba(23, 32, 51, 0.08);
   color: var(--pq-ink);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.35;
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.wp-pq-card-inline-action:hover,
+.wp-pq-card-inline-action:focus-visible {
+  background: rgba(23, 32, 51, 0.14);
+}
+
+.wp-pq-card-inline-action.is-selected {
+  background: rgba(185, 28, 28, 0.12);
+  color: #991b1b;
 }
 
 .wp-pq-empty-state {
