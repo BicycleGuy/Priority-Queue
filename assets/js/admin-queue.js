@@ -1485,12 +1485,23 @@
     const reviewCount = tasks.filter((task) => task.status === 'pending_review').length;
     const blockedCount = tasks.filter((task) => task.status === 'not_approved' || task.status === 'revision_requested').length;
 
-    boardSummaryEl.innerHTML =
-      '<button type="button" class="wp-pq-summary-pill ' + (summaryFilter === 'all' ? 'is-active' : '') + '" data-summary-filter="all">' + tasks.length + ' active</button>' +
-      '<button type="button" class="wp-pq-summary-pill ' + (summaryFilter === 'urgent' ? 'is-active' : '') + '" data-summary-filter="urgent">' + urgentCount + ' urgent</button>' +
-      '<button type="button" class="wp-pq-summary-pill ' + (summaryFilter === 'pending_approval' ? 'is-active' : '') + '" data-summary-filter="pending_approval">' + approvalCount + ' awaiting approval</button>' +
-      '<button type="button" class="wp-pq-summary-pill ' + (summaryFilter === 'pending_review' ? 'is-active' : '') + '" data-summary-filter="pending_review">' + reviewCount + ' awaiting review</button>' +
-      '<button type="button" class="wp-pq-summary-pill ' + (summaryFilter === 'blocked' ? 'is-active' : '') + '" data-summary-filter="blocked">' + blockedCount + ' waiting on changes</button>';
+    const items = [
+      { key: 'all', label: 'Active', count: tasks.length, tone: 'default' },
+      { key: 'urgent', label: 'Urgent', count: urgentCount, tone: urgentCount > 0 ? 'warning' : 'default' },
+      { key: 'pending_approval', label: 'Awaiting approval', count: approvalCount, tone: 'default' },
+      { key: 'pending_review', label: 'Awaiting review', count: reviewCount, tone: 'default' },
+      { key: 'blocked', label: 'Waiting on changes', count: blockedCount, tone: blockedCount > 0 ? 'warning' : 'default' },
+    ];
+
+    boardSummaryEl.innerHTML = items.map((item) => (
+      '<button type="button" class="wp-pq-summary-row ' +
+        (summaryFilter === item.key ? 'is-active ' : '') +
+        (item.tone === 'warning' ? 'is-warning' : '') +
+        '" data-summary-filter="' + escapeHtml(item.key) + '">' +
+        '<span class="wp-pq-summary-row-label">' + escapeHtml(item.label) + '</span>' +
+        '<span class="wp-pq-summary-row-count">' + escapeHtml(item.count) + '</span>' +
+      '</button>'
+    )).join('');
   }
 
   function updateBatchButton() {
@@ -1767,6 +1778,9 @@
     inboxList.innerHTML = '';
 
     if (inboxCount) inboxCount.textContent = String(data.unread_count || 0);
+    if (openInboxBtn) {
+      openInboxBtn.classList.toggle('has-unread', (data.unread_count || 0) > 0);
+    }
 
     if (!notifications.length) {
       renderEmptyStream(inboxList, 'No alerts yet.');
