@@ -839,8 +839,8 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 6px;
-  margin-bottom: 6px;
+  gap: 5px;
+  margin-bottom: 5px;
 }
 
 .wp-pq-batch-pick {
@@ -882,8 +882,8 @@
   border-radius: 999px;
   background: var(--pq-soft);
   color: var(--pq-muted);
-  padding: 3px 7px;
-  font-size: 9px;
+  padding: 2px 6px;
+  font-size: 8px;
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -918,16 +918,17 @@
 .wp-pq-task-badges {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
-  margin-bottom: 8px;
+  gap: 4px;
+  margin-bottom: 6px;
 }
 
 .wp-pq-badge {
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
-  padding: 4px 7px;
-  font-size: 9px;
+  padding: 3px 6px;
+  font-size: 8px;
+  line-height: 1.15;
   font-weight: 800;
 }
 
