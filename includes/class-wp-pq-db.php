@@ -21,11 +21,53 @@ class WP_PQ_DB
         $meetings = $wpdb->prefix . 'pq_task_meetings';
         $prefs = $wpdb->prefix . 'pq_notification_prefs';
         $notifications = $wpdb->prefix . 'pq_notifications';
+        $clients = $wpdb->prefix . 'pq_clients';
+        $client_members = $wpdb->prefix . 'pq_client_members';
+        $job_members = $wpdb->prefix . 'pq_job_members';
         $billing_buckets = $wpdb->prefix . 'pq_billing_buckets';
         $statements = $wpdb->prefix . 'pq_statements';
         $statement_items = $wpdb->prefix . 'pq_statement_items';
         $work_logs = $wpdb->prefix . 'pq_work_logs';
         $work_log_items = $wpdb->prefix . 'pq_work_log_items';
+
+        dbDelta("CREATE TABLE {$clients} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            name VARCHAR(190) NOT NULL,
+            slug VARCHAR(190) NOT NULL,
+            primary_contact_user_id BIGINT UNSIGNED NULL,
+            created_by BIGINT UNSIGNED NOT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY slug (slug),
+            KEY primary_contact_user_id (primary_contact_user_id)
+        ) {$charset_collate};");
+
+        dbDelta("CREATE TABLE {$client_members} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            client_id BIGINT UNSIGNED NOT NULL,
+            user_id BIGINT UNSIGNED NOT NULL,
+            role VARCHAR(40) NOT NULL DEFAULT 'client_contributor',
+            created_by BIGINT UNSIGNED NOT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY client_user (client_id, user_id),
+            KEY user_id (user_id),
+            KEY role (role)
+        ) {$charset_collate};");
+
+        dbDelta("CREATE TABLE {$job_members} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            billing_bucket_id BIGINT UNSIGNED NOT NULL,
+            user_id BIGINT UNSIGNED NOT NULL,
+            created_by BIGINT UNSIGNED NOT NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY job_user (billing_bucket_id, user_id),
+            KEY user_id (user_id)
+        ) {$charset_collate};");
 
         dbDelta("CREATE TABLE {$tasks} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -37,6 +79,7 @@ class WP_PQ_DB
             due_at DATETIME NULL,
             requested_deadline DATETIME NULL,
             submitter_id BIGINT UNSIGNED NOT NULL,
+            client_id BIGINT UNSIGNED NULL,
             client_user_id BIGINT UNSIGNED NULL,
             action_owner_id BIGINT UNSIGNED NULL,
             owner_ids LONGTEXT NULL,
@@ -57,6 +100,7 @@ class WP_PQ_DB
             updated_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             KEY submitter_id (submitter_id),
+            KEY client_id (client_id),
             KEY client_user_id (client_user_id),
             KEY action_owner_id (action_owner_id),
             KEY status (status),
@@ -164,6 +208,7 @@ class WP_PQ_DB
 
         dbDelta("CREATE TABLE {$billing_buckets} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            client_id BIGINT UNSIGNED NULL,
             client_user_id BIGINT UNSIGNED NOT NULL,
             bucket_name VARCHAR(190) NOT NULL,
             bucket_slug VARCHAR(190) NOT NULL,
@@ -173,6 +218,7 @@ class WP_PQ_DB
             created_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             UNIQUE KEY client_slug (client_user_id, bucket_slug),
+            KEY client_id (client_id),
             KEY client_user_id (client_user_id),
             KEY is_default (is_default)
         ) {$charset_collate};");
@@ -181,6 +227,7 @@ class WP_PQ_DB
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             statement_code VARCHAR(50) NOT NULL,
             statement_month VARCHAR(7) NULL,
+            client_id BIGINT UNSIGNED NULL,
             client_user_id BIGINT UNSIGNED NULL,
             billing_bucket_id BIGINT UNSIGNED NULL,
             range_start DATE NULL,
@@ -194,6 +241,7 @@ class WP_PQ_DB
             PRIMARY KEY (id),
             UNIQUE KEY statement_code (statement_code),
             KEY statement_month (statement_month),
+            KEY client_id (client_id),
             KEY client_user_id (client_user_id),
             KEY billing_bucket_id (billing_bucket_id)
         ) {$charset_collate};");
@@ -211,6 +259,7 @@ class WP_PQ_DB
         dbDelta("CREATE TABLE {$work_logs} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             work_log_code VARCHAR(50) NOT NULL,
+            client_id BIGINT UNSIGNED NULL,
             client_user_id BIGINT UNSIGNED NOT NULL,
             billing_bucket_id BIGINT UNSIGNED NOT NULL,
             range_start DATE NULL,
@@ -220,6 +269,7 @@ class WP_PQ_DB
             created_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             UNIQUE KEY work_log_code (work_log_code),
+            KEY client_id (client_id),
             KEY client_user_id (client_user_id),
             KEY billing_bucket_id (billing_bucket_id),
             KEY range_start (range_start),
@@ -324,6 +374,107 @@ class WP_PQ_DB
         update_option('wp_pq_task_context_migration_087_applied', 1, false);
     }
 
+    public static function migrate_client_accounts(): void
+    {
+        global $wpdb;
+
+        if (get_option('wp_pq_client_account_migration_098_applied')) {
+            return;
+        }
+
+        $clients_table = $wpdb->prefix . 'pq_clients';
+        $client_members_table = $wpdb->prefix . 'pq_client_members';
+        $job_members_table = $wpdb->prefix . 'pq_job_members';
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
+        $statements_table = $wpdb->prefix . 'pq_statements';
+        $work_logs_table = $wpdb->prefix . 'pq_work_logs';
+
+        $user_ids = array_map('intval', array_unique(array_filter(array_merge(
+            $wpdb->get_col("SELECT DISTINCT client_user_id FROM {$tasks_table} WHERE client_user_id > 0"),
+            $wpdb->get_col("SELECT DISTINCT client_user_id FROM {$buckets_table} WHERE client_user_id > 0"),
+            $wpdb->get_col("SELECT DISTINCT client_user_id FROM {$statements_table} WHERE client_user_id > 0"),
+            $wpdb->get_col("SELECT DISTINCT client_user_id FROM {$work_logs_table} WHERE client_user_id > 0"),
+            get_users([
+                'role' => 'pq_client',
+                'fields' => 'ID',
+            ])
+        ))));
+
+        foreach ($user_ids as $user_id) {
+            $client_id = self::get_or_create_client_id_for_user($user_id);
+            if ($client_id <= 0) {
+                continue;
+            }
+
+            self::ensure_client_member($client_id, $user_id, 'client_admin');
+
+            $bucket_ids = $wpdb->get_col($wpdb->prepare(
+                "SELECT id FROM {$buckets_table} WHERE client_user_id = %d",
+                $user_id
+            ));
+
+            foreach (array_map('intval', (array) $bucket_ids) as $bucket_id) {
+                $wpdb->update($buckets_table, ['client_id' => $client_id], ['id' => $bucket_id]);
+                self::ensure_job_member($bucket_id, $user_id);
+            }
+
+            $wpdb->query($wpdb->prepare(
+                "UPDATE {$tasks_table} SET client_id = %d WHERE client_user_id = %d AND (client_id IS NULL OR client_id = 0)",
+                $client_id,
+                $user_id
+            ));
+            $wpdb->query($wpdb->prepare(
+                "UPDATE {$statements_table} SET client_id = %d WHERE client_user_id = %d AND (client_id IS NULL OR client_id = 0)",
+                $client_id,
+                $user_id
+            ));
+            $wpdb->query($wpdb->prepare(
+                "UPDATE {$work_logs_table} SET client_id = %d WHERE client_user_id = %d AND (client_id IS NULL OR client_id = 0)",
+                $client_id,
+                $user_id
+            ));
+        }
+
+        $bucket_rows = $wpdb->get_results("SELECT id, client_id, client_user_id FROM {$buckets_table}", ARRAY_A);
+        foreach ((array) $bucket_rows as $bucket_row) {
+            $bucket_id = (int) ($bucket_row['id'] ?? 0);
+            $client_id = (int) ($bucket_row['client_id'] ?? 0);
+            $primary_user_id = (int) ($bucket_row['client_user_id'] ?? 0);
+            if ($bucket_id <= 0) {
+                continue;
+            }
+            if ($client_id <= 0 && $primary_user_id > 0) {
+                $client_id = self::get_or_create_client_id_for_user($primary_user_id);
+                if ($client_id > 0) {
+                    $wpdb->update($buckets_table, ['client_id' => $client_id], ['id' => $bucket_id]);
+                }
+            }
+            if ($bucket_id > 0 && $primary_user_id > 0) {
+                self::ensure_job_member($bucket_id, $primary_user_id);
+            }
+        }
+
+        $client_members = $wpdb->get_results("SELECT client_id, user_id FROM {$client_members_table}", ARRAY_A);
+        foreach ((array) $client_members as $membership) {
+            $client_id = (int) ($membership['client_id'] ?? 0);
+            $user_id = (int) ($membership['user_id'] ?? 0);
+            if ($client_id <= 0 || $user_id <= 0) {
+                continue;
+            }
+
+            $bucket_ids = $wpdb->get_col($wpdb->prepare(
+                "SELECT id FROM {$buckets_table} WHERE client_id = %d AND is_default = 1",
+                $client_id
+            ));
+            foreach (array_map('intval', (array) $bucket_ids) as $bucket_id) {
+                self::ensure_job_member($bucket_id, $user_id);
+            }
+        }
+
+        update_option('wp_pq_client_account_migration_098_applied', 1, false);
+    }
+
     public static function ensure_default_billing_buckets(): void
     {
         global $wpdb;
@@ -331,19 +482,29 @@ class WP_PQ_DB
         $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
         $tasks_table = $wpdb->prefix . 'pq_tasks';
 
-        $client_ids = $wpdb->get_col("SELECT DISTINCT submitter_id FROM {$tasks_table} WHERE submitter_id > 0");
-        if (empty($client_ids)) {
+        $client_user_ids = $wpdb->get_col("SELECT DISTINCT submitter_id FROM {$tasks_table} WHERE submitter_id > 0");
+        if (empty($client_user_ids)) {
             return;
         }
 
-        foreach (array_map('intval', $client_ids) as $client_id) {
+        foreach (array_map('intval', $client_user_ids) as $client_user_id) {
+            $client_id = self::get_or_create_client_id_for_user($client_user_id);
+            if ($client_id <= 0) {
+                continue;
+            }
+
             $default_bucket_id = self::get_or_create_default_billing_bucket_id($client_id);
 
             if ($default_bucket_id > 0) {
                 $wpdb->query($wpdb->prepare(
                     "UPDATE {$tasks_table} SET billing_bucket_id = %d WHERE submitter_id = %d AND (billing_bucket_id IS NULL OR billing_bucket_id = 0)",
                     $default_bucket_id,
-                    $client_id
+                    $client_user_id
+                ));
+                $wpdb->query($wpdb->prepare(
+                    "UPDATE {$tasks_table} SET client_id = %d WHERE submitter_id = %d AND (client_id IS NULL OR client_id = 0)",
+                    $client_id,
+                    $client_user_id
                 ));
             }
         }
@@ -369,7 +530,8 @@ class WP_PQ_DB
         }
 
         foreach ($by_client as $client_user_id => $client_buckets) {
-            if ($client_user_id <= 0) {
+            $client_id = self::get_or_create_client_id_for_user((int) $client_user_id);
+            if ($client_id <= 0) {
                 continue;
             }
 
@@ -405,8 +567,8 @@ class WP_PQ_DB
 
             if (! $default_bucket) {
                 $default_bucket_id = (int) $wpdb->get_var($wpdb->prepare(
-                    "SELECT id FROM {$buckets_table} WHERE client_user_id = %d ORDER BY id ASC LIMIT 1",
-                    $client_user_id
+                    "SELECT id FROM {$buckets_table} WHERE client_id = %d ORDER BY id ASC LIMIT 1",
+                    $client_id
                 ));
                 if ($default_bucket_id > 0) {
                     $wpdb->update($buckets_table, ['is_default' => 1], ['id' => $default_bucket_id]);
@@ -414,11 +576,11 @@ class WP_PQ_DB
             }
 
             $default_bucket_id = (int) $wpdb->get_var($wpdb->prepare(
-                "SELECT id FROM {$buckets_table} WHERE client_user_id = %d AND is_default = 1 ORDER BY id ASC LIMIT 1",
-                $client_user_id
+                "SELECT id FROM {$buckets_table} WHERE client_id = %d AND is_default = 1 ORDER BY id ASC LIMIT 1",
+                $client_id
             ));
             if ($default_bucket_id > 0) {
-                $suggested = self::suggest_default_bucket_name($client_user_id);
+                $suggested = self::suggest_default_bucket_name($client_id);
                 $current_name = (string) $wpdb->get_var($wpdb->prepare(
                     "SELECT bucket_name FROM {$buckets_table} WHERE id = %d",
                     $default_bucket_id
@@ -435,18 +597,18 @@ class WP_PQ_DB
         update_option('wp_pq_named_bucket_migration_090_applied', 1, false);
     }
 
-    public static function get_or_create_default_billing_bucket_id(int $client_user_id): int
+    public static function get_or_create_default_billing_bucket_id(int $client_id): int
     {
         global $wpdb;
 
-        if ($client_user_id <= 0) {
+        if ($client_id <= 0) {
             return 0;
         }
 
         $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
         $default_bucket_id = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT id FROM {$buckets_table} WHERE client_user_id = %d AND is_default = 1 LIMIT 1",
-            $client_user_id
+            "SELECT id FROM {$buckets_table} WHERE client_id = %d AND is_default = 1 LIMIT 1",
+            $client_id
         ));
 
         if ($default_bucket_id > 0) {
@@ -454,8 +616,8 @@ class WP_PQ_DB
         }
 
         $first_bucket_id = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT id FROM {$buckets_table} WHERE client_user_id = %d ORDER BY id ASC LIMIT 1",
-            $client_user_id
+            "SELECT id FROM {$buckets_table} WHERE client_id = %d ORDER BY id ASC LIMIT 1",
+            $client_id
         ));
         if ($first_bucket_id > 0) {
             $wpdb->update($buckets_table, ['is_default' => 1], ['id' => $first_bucket_id]);
@@ -464,33 +626,272 @@ class WP_PQ_DB
 
         $created_by = get_current_user_id();
         if ($created_by <= 0) {
-            $created_by = $client_user_id;
+            $created_by = self::get_primary_contact_user_id($client_id);
         }
         if ($created_by <= 0) {
             $created_by = 1;
         }
 
         $wpdb->insert($buckets_table, [
-            'client_user_id' => $client_user_id,
-            'bucket_name' => self::suggest_default_bucket_name($client_user_id),
-            'bucket_slug' => sanitize_title(self::suggest_default_bucket_name($client_user_id)),
+            'client_id' => $client_id,
+            'client_user_id' => self::get_primary_contact_user_id($client_id),
+            'bucket_name' => self::suggest_default_bucket_name($client_id),
+            'bucket_slug' => sanitize_title(self::suggest_default_bucket_name($client_id)),
             'description' => '',
             'is_default' => 1,
             'created_by' => $created_by,
             'created_at' => current_time('mysql', true),
         ]);
 
-        return (int) $wpdb->insert_id;
+        $bucket_id = (int) $wpdb->insert_id;
+        if ($bucket_id > 0) {
+            foreach (self::get_client_admin_user_ids($client_id) as $admin_user_id) {
+                self::ensure_job_member($bucket_id, $admin_user_id);
+            }
+        }
+
+        return $bucket_id;
     }
 
-    public static function suggest_default_bucket_name(int $client_user_id): string
+    public static function suggest_default_bucket_name(int $client_id): string
     {
-        $user = $client_user_id > 0 ? get_user_by('ID', $client_user_id) : null;
-        $base = $user ? trim((string) $user->display_name) : '';
+        $base = trim(self::get_client_name($client_id));
         if ($base === '') {
             return 'Main';
         }
 
         return $base . ' - Main';
+    }
+
+    public static function get_or_create_client_id_for_user(int $primary_contact_user_id, string $fallback_name = ''): int
+    {
+        global $wpdb;
+
+        if ($primary_contact_user_id <= 0) {
+            return 0;
+        }
+
+        $clients_table = $wpdb->prefix . 'pq_clients';
+        $existing_id = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$clients_table} WHERE primary_contact_user_id = %d LIMIT 1",
+            $primary_contact_user_id
+        ));
+        if ($existing_id > 0) {
+            return $existing_id;
+        }
+
+        $user = get_user_by('ID', $primary_contact_user_id);
+        $name = trim($fallback_name);
+        if ($name === '' && $user) {
+            $name = trim((string) $user->display_name);
+        }
+        if ($name === '' && $user) {
+            $name = trim((string) $user->user_email);
+        }
+        if ($name === '') {
+            $name = 'Client ' . $primary_contact_user_id;
+        }
+
+        $base_slug = sanitize_title($name);
+        if ($base_slug === '') {
+            $base_slug = 'client-' . $primary_contact_user_id;
+        }
+        $slug = $base_slug;
+        $suffix = 2;
+        while ((int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$clients_table} WHERE slug = %s", $slug)) > 0) {
+            $slug = $base_slug . '-' . $suffix;
+            $suffix++;
+        }
+
+        $now = current_time('mysql', true);
+        $created_by = get_current_user_id();
+        if ($created_by <= 0) {
+            $created_by = $primary_contact_user_id;
+        }
+
+        $wpdb->insert($clients_table, [
+            'name' => $name,
+            'slug' => $slug,
+            'primary_contact_user_id' => $primary_contact_user_id,
+            'created_by' => $created_by,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        return (int) $wpdb->insert_id;
+    }
+
+    public static function ensure_client_member(int $client_id, int $user_id, string $role = 'client_contributor'): void
+    {
+        global $wpdb;
+
+        if ($client_id <= 0 || $user_id <= 0) {
+            return;
+        }
+
+        $table = $wpdb->prefix . 'pq_client_members';
+        $existing = $wpdb->get_row($wpdb->prepare(
+            "SELECT id, role FROM {$table} WHERE client_id = %d AND user_id = %d LIMIT 1",
+            $client_id,
+            $user_id
+        ), ARRAY_A);
+
+        $now = current_time('mysql', true);
+        $created_by = get_current_user_id();
+        if ($created_by <= 0) {
+            $created_by = $user_id;
+        }
+
+        if ($existing) {
+            if ((string) ($existing['role'] ?? '') !== $role) {
+                $wpdb->update($table, [
+                    'role' => $role,
+                    'updated_at' => $now,
+                ], ['id' => (int) $existing['id']]);
+            }
+            return;
+        }
+
+        $wpdb->insert($table, [
+            'client_id' => $client_id,
+            'user_id' => $user_id,
+            'role' => $role,
+            'created_by' => $created_by,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+    }
+
+    public static function ensure_job_member(int $billing_bucket_id, int $user_id): void
+    {
+        global $wpdb;
+
+        if ($billing_bucket_id <= 0 || $user_id <= 0) {
+            return;
+        }
+
+        $table = $wpdb->prefix . 'pq_job_members';
+        $existing_id = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$table} WHERE billing_bucket_id = %d AND user_id = %d LIMIT 1",
+            $billing_bucket_id,
+            $user_id
+        ));
+        if ($existing_id > 0) {
+            return;
+        }
+
+        $now = current_time('mysql', true);
+        $created_by = get_current_user_id();
+        if ($created_by <= 0) {
+            $created_by = $user_id;
+        }
+
+        $wpdb->insert($table, [
+            'billing_bucket_id' => $billing_bucket_id,
+            'user_id' => $user_id,
+            'created_by' => $created_by,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+    }
+
+    public static function get_client_name(int $client_id): string
+    {
+        global $wpdb;
+
+        if ($client_id <= 0) {
+            return '';
+        }
+
+        $clients_table = $wpdb->prefix . 'pq_clients';
+        return (string) $wpdb->get_var($wpdb->prepare(
+            "SELECT name FROM {$clients_table} WHERE id = %d LIMIT 1",
+            $client_id
+        ));
+    }
+
+    public static function get_primary_contact_user_id(int $client_id): int
+    {
+        global $wpdb;
+
+        if ($client_id <= 0) {
+            return 0;
+        }
+
+        $clients_table = $wpdb->prefix . 'pq_clients';
+        return (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT primary_contact_user_id FROM {$clients_table} WHERE id = %d LIMIT 1",
+            $client_id
+        ));
+    }
+
+    public static function get_client_memberships(int $client_id): array
+    {
+        global $wpdb;
+
+        if ($client_id <= 0) {
+            return [];
+        }
+
+        $table = $wpdb->prefix . 'pq_client_members';
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$table} WHERE client_id = %d ORDER BY id ASC",
+            $client_id
+        ), ARRAY_A) ?: [];
+    }
+
+    public static function get_client_admin_user_ids(int $client_id): array
+    {
+        return array_values(array_map(
+            static fn(array $membership): int => (int) ($membership['user_id'] ?? 0),
+            array_filter(self::get_client_memberships($client_id), static function (array $membership): bool {
+                return (string) ($membership['role'] ?? '') === 'client_admin' && (int) ($membership['user_id'] ?? 0) > 0;
+            })
+        ));
+    }
+
+    public static function get_job_member_ids(int $billing_bucket_id): array
+    {
+        global $wpdb;
+
+        if ($billing_bucket_id <= 0) {
+            return [];
+        }
+
+        $table = $wpdb->prefix . 'pq_job_members';
+        return array_map('intval', (array) $wpdb->get_col($wpdb->prepare(
+            "SELECT user_id FROM {$table} WHERE billing_bucket_id = %d",
+            $billing_bucket_id
+        )));
+    }
+
+    public static function get_job_member_ids_for_user(int $user_id): array
+    {
+        global $wpdb;
+
+        if ($user_id <= 0) {
+            return [];
+        }
+
+        $table = $wpdb->prefix . 'pq_job_members';
+        return array_map('intval', (array) $wpdb->get_col($wpdb->prepare(
+            "SELECT billing_bucket_id FROM {$table} WHERE user_id = %d",
+            $user_id
+        )));
+    }
+
+    public static function get_user_client_memberships(int $user_id): array
+    {
+        global $wpdb;
+
+        if ($user_id <= 0) {
+            return [];
+        }
+
+        $table = $wpdb->prefix . 'pq_client_members';
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$table} WHERE user_id = %d ORDER BY id ASC",
+            $user_id
+        ), ARRAY_A) ?: [];
     }
 }

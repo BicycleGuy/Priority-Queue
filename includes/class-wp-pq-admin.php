@@ -14,6 +14,8 @@ class WP_PQ_Admin
         add_action('admin_post_wp_pq_create_client', [self::class, 'handle_create_client']);
         add_action('admin_post_wp_pq_link_client', [self::class, 'handle_link_client']);
         add_action('admin_post_wp_pq_create_bucket', [self::class, 'handle_create_bucket']);
+        add_action('admin_post_wp_pq_add_client_member', [self::class, 'handle_add_client_member']);
+        add_action('admin_post_wp_pq_assign_job_member', [self::class, 'handle_assign_job_member']);
         add_action('admin_post_wp_pq_assign_bucket', [self::class, 'handle_assign_bucket']);
         add_action('admin_post_wp_pq_create_work_log', [self::class, 'handle_create_work_log']);
         add_action('admin_post_wp_pq_export_work_log', [self::class, 'handle_export_work_log']);
@@ -28,6 +30,10 @@ class WP_PQ_Admin
 
     public static function register_menu(): void
     {
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE) && ! self::can_manage_any_clients()) {
+            return;
+        }
+
         add_menu_page(
             'Priority Queue',
             'Priority Queue',
@@ -59,7 +65,7 @@ class WP_PQ_Admin
             'wp-pq-queue',
             'Priority Queue Billing Rollup',
             'Billing Rollup',
-            'read',
+            WP_PQ_Roles::CAP_APPROVE,
             'wp-pq-rollups',
             [self::class, 'render_rollups_page']
         );
@@ -68,7 +74,7 @@ class WP_PQ_Admin
             'wp-pq-queue',
             'Priority Queue Statements',
             'Statements',
-            'read',
+            WP_PQ_Roles::CAP_APPROVE,
             'wp-pq-statements',
             [self::class, 'render_statements_page']
         );
@@ -77,7 +83,7 @@ class WP_PQ_Admin
             'wp-pq-queue',
             'Priority Queue Settings',
             'Settings',
-            'read',
+            WP_PQ_Roles::CAP_APPROVE,
             'wp-pq-settings',
             [self::class, 'render_settings_page']
         );
@@ -131,6 +137,14 @@ class WP_PQ_Admin
 
     public static function render_page(): void
     {
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            if (self::can_manage_any_clients()) {
+                self::render_clients_page();
+                return;
+            }
+            wp_die('Forbidden');
+        }
+
         echo '<div class="wrap wp-pq-wrap">';
         echo '<h1>Priority Queue</h1>';
         echo '<p>Workflow scaffold: queue, approvals, owners, status transitions, files, and notifications.</p>';
@@ -170,17 +184,19 @@ class WP_PQ_Admin
 
     public static function render_clients_page(): void
     {
-        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+        if (! self::can_manage_any_clients()) {
             wp_die('Forbidden');
         }
 
         $clients = self::get_billing_clients();
         $client_details = self::get_client_directory_rows();
         $linkable_users = self::get_linkable_users();
+        $member_users = self::get_member_candidate_users();
+        $can_manage_all = current_user_can(WP_PQ_Roles::CAP_APPROVE);
 
         echo '<div class="wrap wp-pq-wrap">';
         echo '<h1>Clients</h1>';
-        echo '<p>Create clients, link existing WordPress users as clients, manage billing buckets, and jump straight into that client\'s work logs and statements.</p>';
+        echo '<p>Create client accounts, link existing WordPress users as client members, manage jobs, and jump straight into that client\'s work logs and statements.</p>';
         echo self::admin_section_nav('clients');
 
         if (isset($_GET['wp_pq_notice'])) {
@@ -192,35 +208,38 @@ class WP_PQ_Admin
 
         echo self::render_client_datalist($clients, 'wp-pq-client-options');
         echo self::render_user_datalist($linkable_users, 'wp-pq-user-options');
+        echo self::render_user_datalist($member_users, 'wp-pq-member-user-options');
 
-        echo '<div class="wp-pq-billing-grid">';
-        echo '  <section class="wp-pq-panel">';
-        echo '    <h2>Create Client</h2>';
-        echo '    <p class="wp-pq-panel-note">Create a new WordPress user with the client role and set the first job bucket right away.</p>';
-        echo '    <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-bucket-form">';
-        wp_nonce_field('wp_pq_create_client');
-        echo '      <input type="hidden" name="action" value="wp_pq_create_client">';
-        echo '      <input type="hidden" name="redirect_page" value="wp-pq-client-directory">';
-        echo '      <label>Client name <input type="text" name="client_name" placeholder="Read Spear" required></label>';
-        echo '      <label>Client email <input type="email" name="client_email" placeholder="client@example.com" required></label>';
-        echo '      <label>First job bucket <input type="text" name="initial_bucket_name" placeholder="Client Name - Main" required></label>';
-        echo '      <button class="button button-primary" type="submit">Create Client</button>';
-        echo '    </form>';
-        echo '  </section>';
+        if ($can_manage_all) {
+            echo '<div class="wp-pq-billing-grid">';
+            echo '  <section class="wp-pq-panel">';
+            echo '    <h2>Create Client</h2>';
+            echo '    <p class="wp-pq-panel-note">Create a new WordPress user with the client role and set the first job right away.</p>';
+            echo '    <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-bucket-form">';
+            wp_nonce_field('wp_pq_create_client');
+            echo '      <input type="hidden" name="action" value="wp_pq_create_client">';
+            echo '      <input type="hidden" name="redirect_page" value="wp-pq-client-directory">';
+            echo '      <label>Client name <input type="text" name="client_name" placeholder="Read Spear" required></label>';
+            echo '      <label>Client email <input type="email" name="client_email" placeholder="client@example.com" required></label>';
+            echo '      <label>First job <input type="text" name="initial_bucket_name" placeholder="Client Name - Main" required></label>';
+            echo '      <button class="button button-primary" type="submit">Create Client</button>';
+            echo '    </form>';
+            echo '  </section>';
 
-        echo '  <section class="wp-pq-panel">';
-        echo '    <h2>Link Existing User</h2>';
-        echo '    <p class="wp-pq-panel-note">Promote any existing WordPress user into the client directory without changing their other roles.</p>';
-        echo '    <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-bucket-form">';
-        wp_nonce_field('wp_pq_link_client');
-        echo '      <input type="hidden" name="action" value="wp_pq_link_client">';
-        echo '      <input type="hidden" name="redirect_page" value="wp-pq-client-directory">';
-        echo self::render_user_picker('existing-user-link', 'user_id', $linkable_users, 0, 'Existing user', 'Type a WordPress username or email', true);
-        echo '      <label>First job bucket <input type="text" name="initial_bucket_name" placeholder="Client Name - Main" required></label>';
-        echo '      <button class="button" type="submit">Link User as Client</button>';
-        echo '    </form>';
-        echo '  </section>';
-        echo '</div>';
+            echo '  <section class="wp-pq-panel">';
+            echo '    <h2>Link Existing User</h2>';
+            echo '    <p class="wp-pq-panel-note">Promote any existing WordPress user into the client directory without changing their other roles.</p>';
+            echo '    <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-bucket-form">';
+            wp_nonce_field('wp_pq_link_client');
+            echo '      <input type="hidden" name="action" value="wp_pq_link_client">';
+            echo '      <input type="hidden" name="redirect_page" value="wp-pq-client-directory">';
+            echo self::render_user_picker('existing-user-link', 'user_id', $linkable_users, 0, 'Existing user', 'Type a WordPress username or email', true);
+            echo '      <label>First job <input type="text" name="initial_bucket_name" placeholder="Client Name - Main" required></label>';
+            echo '      <button class="button" type="submit">Link User as Client</button>';
+            echo '    </form>';
+            echo '  </section>';
+            echo '</div>';
+        }
 
         echo '<div class="wp-pq-rollup-groups">';
         if (empty($client_details)) {
@@ -229,28 +248,80 @@ class WP_PQ_Admin
             foreach ($client_details as $client) {
                 $rollup_url = add_query_arg([
                     'page' => 'wp-pq-rollups',
-                    'client_user_id' => (int) $client['id'],
+                    'client_id' => (int) $client['id'],
                 ], admin_url('admin.php'));
                 $statement_url = add_query_arg([
                     'page' => 'wp-pq-statements',
-                    'client_user_id' => (int) $client['id'],
+                    'client_id' => (int) $client['id'],
                 ], admin_url('admin.php'));
+                $members = self::get_client_member_rows((int) $client['id']);
                 echo '<section class="wp-pq-panel wp-pq-rollup-group">';
-                echo '<h2>' . esc_html((string) $client['label']) . '</h2>';
+                echo '<h2>' . esc_html((string) $client['name']) . '</h2>';
                 echo '<p class="wp-pq-panel-note">Delivered tasks: ' . (int) $client['delivered_count'] . ' · Unbilled: ' . (int) $client['unbilled_count'] . ' · Work logs: ' . (int) $client['work_log_count'] . ' · Statements: ' . (int) $client['statement_count'] . '.</p>';
+                echo '<p class="wp-pq-panel-note">Primary contact: ' . esc_html((string) ($client['email'] ?: 'Not set')) . '</p>';
+                if (! empty($members)) {
+                    echo '<h3>Members</h3>';
+                    echo '<table class="widefat striped wp-pq-admin-table"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Jobs</th></tr></thead><tbody>';
+                    foreach ($members as $member) {
+                        echo '<tr>';
+                        echo '<td>' . esc_html((string) $member['name']) . '</td>';
+                        echo '<td>' . esc_html((string) $member['email']) . '</td>';
+                        echo '<td>' . esc_html(self::humanize_label((string) $member['role'])) . '</td>';
+                        echo '<td>' . esc_html(! empty($member['job_names']) ? implode(', ', (array) $member['job_names']) : 'No jobs yet') . '</td>';
+                        echo '</tr>';
+                    }
+                    echo '</tbody></table>';
+                }
+                echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-inline-action-form">';
+                wp_nonce_field('wp_pq_add_client_member_' . (int) $client['id']);
+                echo '  <input type="hidden" name="action" value="wp_pq_add_client_member">';
+                echo '  <input type="hidden" name="client_id" value="' . (int) $client['id'] . '">';
+                echo '  <input type="hidden" name="redirect_page" value="wp-pq-client-directory">';
+                echo self::render_user_picker('client-member-' . (int) $client['id'], 'user_id', $member_users, 0, 'Add member', 'Type a user name or email', true, 'wp-pq-member-user-options');
+                echo '  <label>Role<select name="client_role"><option value="client_admin">Client admin</option><option value="client_contributor" selected>Client contributor</option><option value="client_viewer">Client viewer</option></select></label>';
+                echo '  <button class="button" type="submit">Add Member</button>';
+                echo '</form>';
                 echo '<div class="wp-pq-chip-row">';
                 foreach ($client['buckets'] as $bucket) {
                     echo '<span class="wp-pq-detail-pill">' . esc_html(self::bucket_label_from_row($bucket)) . '</span>';
                 }
                 echo '</div>';
-                echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-inline-action-form">';
-                wp_nonce_field('wp_pq_create_bucket');
-                echo '  <input type="hidden" name="action" value="wp_pq_create_bucket">';
-                echo '  <input type="hidden" name="redirect_page" value="wp-pq-client-directory">';
-                echo '  <input type="hidden" name="client_user_id" value="' . (int) $client['id'] . '">';
-                echo '  <label>Add bucket <input type="text" name="bucket_name" placeholder="Retainer, Launch, etc." required></label>';
-                echo '  <button class="button" type="submit">Add Bucket</button>';
-                echo '</form>';
+                if ($can_manage_all) {
+                    echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-inline-action-form">';
+                    wp_nonce_field('wp_pq_create_bucket');
+                    echo '  <input type="hidden" name="action" value="wp_pq_create_bucket">';
+                    echo '  <input type="hidden" name="redirect_page" value="wp-pq-client-directory">';
+                    echo '  <input type="hidden" name="client_id" value="' . (int) $client['id'] . '">';
+                    echo '  <label>Add job <input type="text" name="bucket_name" placeholder="Retainer, Launch, etc." required></label>';
+                    echo '  <button class="button" type="submit">Add Job</button>';
+                    echo '</form>';
+                }
+                foreach ($client['buckets'] as $bucket) {
+                    $job_members = self::get_job_member_rows((int) ($bucket['id'] ?? 0), $members);
+                    echo '<div class="wp-pq-bucket-group">';
+                    echo '<strong>' . esc_html(self::bucket_label_from_row($bucket)) . '</strong>';
+                    if (! empty($job_members)) {
+                        echo '<div class="wp-pq-chip-row">';
+                        foreach ($job_members as $job_member) {
+                            echo '<span class="wp-pq-detail-pill">' . esc_html((string) $job_member['name']) . '</span>';
+                        }
+                        echo '</div>';
+                    }
+                    echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-inline-action-form">';
+                    wp_nonce_field('wp_pq_assign_job_member_' . (int) ($bucket['id'] ?? 0));
+                    echo '  <input type="hidden" name="action" value="wp_pq_assign_job_member">';
+                    echo '  <input type="hidden" name="client_id" value="' . (int) $client['id'] . '">';
+                    echo '  <input type="hidden" name="billing_bucket_id" value="' . (int) ($bucket['id'] ?? 0) . '">';
+                    echo '  <input type="hidden" name="redirect_page" value="wp-pq-client-directory">';
+                    echo '  <label>Assign member<select name="user_id" required><option value="">Choose member</option>';
+                    foreach ($members as $member) {
+                        echo '<option value="' . (int) $member['id'] . '">' . esc_html((string) $member['name'] . ' (' . self::humanize_label((string) $member['role']) . ')') . '</option>';
+                    }
+                    echo '  </select></label>';
+                    echo '  <button class="button" type="submit">Assign to Job</button>';
+                    echo '</form>';
+                    echo '</div>';
+                }
                 echo '<div class="wp-pq-inline-action-form">';
                 echo '  <a class="button" href="' . esc_url($rollup_url) . '">View Billing Rollup</a>';
                 echo '  <a class="button" href="' . esc_url($statement_url) . '">View Statements</a>';
@@ -280,6 +351,10 @@ class WP_PQ_Admin
 
     public static function render_settings_page(): void
     {
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            wp_die('Forbidden');
+        }
+
         $redirect_uri = (string) get_option('wp_pq_google_redirect_uri', home_url('/wp-json/pq/v1/google/oauth/callback'));
         $tokens = (array) get_option('wp_pq_google_tokens', []);
         $is_connected = ! empty($tokens['refresh_token']);
@@ -329,7 +404,7 @@ class WP_PQ_Admin
         }
 
         $range = self::get_rollup_range();
-        $selected_client_id = isset($_GET['client_user_id']) ? (int) $_GET['client_user_id'] : 0;
+        $selected_client_id = isset($_GET['client_id']) ? (int) $_GET['client_id'] : (isset($_GET['client_user_id']) ? (int) $_GET['client_user_id'] : 0);
         $clients = self::get_billing_clients();
         $buckets_by_client = self::get_buckets_by_client();
         $groups = self::get_rollup_groups($range['start'], $range['end'], $buckets_by_client);
@@ -342,15 +417,15 @@ class WP_PQ_Admin
         $statements = self::get_statement_summaries_for_range($range['start'], $range['end']);
         if ($selected_client_id > 0) {
             $work_logs = array_values(array_filter($work_logs, static function (array $row) use ($selected_client_id): bool {
-                return (int) ($row['client_user_id'] ?? 0) === $selected_client_id;
+                return (int) ($row['client_id'] ?? 0) === $selected_client_id;
             }));
             $statements = array_values(array_filter($statements, static function (array $row) use ($selected_client_id): bool {
-                return (int) ($row['client_user_id'] ?? 0) === $selected_client_id;
+                return (int) ($row['client_id'] ?? 0) === $selected_client_id;
             }));
         }
         echo '<div class="wrap wp-pq-wrap">';
         echo '<h1>Billing Rollup</h1>';
-        echo '<p>Review delivered work by date range, sort it into client billing buckets, then create either a work log or a billing statement.</p>';
+        echo '<p>Review delivered work by date range, sort it into client jobs, then create either a work log or a billing statement.</p>';
         echo self::admin_section_nav('rollups');
 
         if (isset($_GET['wp_pq_notice'])) {
@@ -363,7 +438,7 @@ class WP_PQ_Admin
         echo '<div class="wp-pq-panel wp-pq-filter-bar">';
         echo '  <form method="get" class="wp-pq-period-form">';
         echo '    <input type="hidden" name="page" value="wp-pq-rollups">';
-        echo '    <input type="hidden" name="client_user_id" value="' . (int) $selected_client_id . '">';
+        echo '    <input type="hidden" name="client_id" value="' . (int) $selected_client_id . '">';
         echo '    <label>Month';
         echo '      <input type="month" name="month" value="' . esc_attr($range['month']) . '">';
         echo '    </label>';
@@ -380,8 +455,8 @@ class WP_PQ_Admin
 
         echo '<div class="wp-pq-billing-grid">';
         echo '  <section class="wp-pq-panel">';
-        echo '    <h2>Clients &amp; Buckets</h2>';
-        echo '    <p class="wp-pq-panel-note">Create a client, give them a first job bucket, then sort delivered work into those client buckets.</p>';
+        echo '    <h2>Clients &amp; Jobs</h2>';
+        echo '    <p class="wp-pq-panel-note">Create a client, give them a first job, then sort delivered work into the right client job.</p>';
         echo self::render_client_datalist($clients, 'wp-pq-client-options');
         echo '    <div class="wp-pq-admin-stack">';
         echo '      <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-bucket-form">';
@@ -394,7 +469,7 @@ class WP_PQ_Admin
         echo '        <h3>Create Client</h3>';
         echo '        <label>Client name <input type="text" name="client_name" placeholder="Read Spear" required></label>';
         echo '        <label>Client email <input type="email" name="client_email" placeholder="client@example.com" required></label>';
-        echo '        <label>First job bucket <input type="text" name="initial_bucket_name" placeholder="Client Name - Main" required></label>';
+        echo '        <label>First job <input type="text" name="initial_bucket_name" placeholder="Client Name - Main" required></label>';
         echo '        <button class="button button-primary" type="submit">Create Client</button>';
         echo '      </form>';
         echo '      <form method="get" class="wp-pq-bucket-form wp-pq-client-filter-form">';
@@ -403,7 +478,7 @@ class WP_PQ_Admin
         echo '        <input type="hidden" name="start_date" value="' . esc_attr($range['custom_start']) . '">';
         echo '        <input type="hidden" name="end_date" value="' . esc_attr($range['custom_end']) . '">';
         echo '        <h3>Find Client</h3>';
-        echo self::render_client_picker('rollup-client-filter', 'client_user_id', $clients, $selected_client_id, 'Search client', 'Type a client name or email');
+        echo self::render_client_picker('rollup-client-filter', 'client_id', $clients, $selected_client_id, 'Search client', 'Type a client name or email');
         echo '        <div class="wp-pq-inline-action-form">';
         echo '          <button class="button" type="submit">Show Client</button>';
         if ($selected_client_id > 0) {
@@ -423,10 +498,10 @@ class WP_PQ_Admin
         echo '      <input type="hidden" name="month" value="' . esc_attr($range['month']) . '">';
         echo '      <input type="hidden" name="start_date" value="' . esc_attr($range['custom_start']) . '">';
         echo '      <input type="hidden" name="end_date" value="' . esc_attr($range['custom_end']) . '">';
-        echo '      <h3>Define Bucket</h3>';
-        echo self::render_client_picker('bucket-client-picker', 'client_user_id', $clients, $selected_client_id, 'Client', 'Type a client name or email', true);
-        echo '      <label>Bucket name <input type="text" name="bucket_name" placeholder="Website retainer" required></label>';
-        echo '      <button class="button button-primary" type="submit">Add Bucket</button>';
+        echo '      <h3>Add Job</h3>';
+        echo self::render_client_picker('bucket-client-picker', 'client_id', $clients, $selected_client_id, 'Client', 'Type a client name or email', true);
+        echo '      <label>Job name <input type="text" name="bucket_name" placeholder="Website retainer" required></label>';
+        echo '      <button class="button button-primary" type="submit">Add Job</button>';
         echo '    </form>';
         echo '    </div>';
 
@@ -593,19 +668,19 @@ class WP_PQ_Admin
         }
 
         $selected_month = WP_PQ_API::normalize_statement_month((string) ($_GET['period'] ?? ''));
-        $selected_client_id = isset($_GET['client_user_id']) ? (int) $_GET['client_user_id'] : 0;
+        $selected_client_id = isset($_GET['client_id']) ? (int) $_GET['client_id'] : (isset($_GET['client_user_id']) ? (int) $_GET['client_user_id'] : 0);
         $selected_statement_id = isset($_GET['statement_id']) ? (int) $_GET['statement_id'] : 0;
         $unbilled_tasks = self::get_delivered_unbilled_tasks($selected_month);
         $statement_summaries = self::get_statement_summaries($selected_month);
         $statement_detail = $selected_statement_id > 0 ? self::get_statement_detail($selected_statement_id) : null;
         if ($selected_client_id > 0) {
             $unbilled_tasks = array_values(array_filter($unbilled_tasks, static function (array $task) use ($selected_client_id): bool {
-                return (int) ($task['submitter_id'] ?? 0) === $selected_client_id;
+                return (int) ($task['client_id'] ?? 0) === $selected_client_id;
             }));
             $statement_summaries = array_values(array_filter($statement_summaries, static function (array $statement) use ($selected_client_id): bool {
-                return (int) ($statement['client_user_id'] ?? 0) === $selected_client_id;
+                return (int) ($statement['client_id'] ?? 0) === $selected_client_id;
             }));
-            if ($statement_detail && (int) ($statement_detail['client_user_id'] ?? 0) !== $selected_client_id) {
+            if ($statement_detail && (int) ($statement_detail['client_id'] ?? 0) !== $selected_client_id) {
                 $statement_detail = null;
             }
         }
@@ -628,7 +703,7 @@ class WP_PQ_Admin
         echo '<div class="wp-pq-panel wp-pq-filter-bar">';
         echo '  <form method="get" class="wp-pq-period-form">';
         echo '    <input type="hidden" name="page" value="wp-pq-statements">';
-        echo '    <input type="hidden" name="client_user_id" value="' . (int) $selected_client_id . '">';
+        echo '    <input type="hidden" name="client_id" value="' . (int) $selected_client_id . '">';
         echo '    <label>Period';
         echo '      <input type="month" name="period" value="' . esc_attr($selected_month) . '">';
         echo '    </label>';
@@ -849,15 +924,18 @@ class WP_PQ_Admin
             exit;
         }
 
+        $client_id = WP_PQ_DB::get_or_create_client_id_for_user($client_user_id, $client_name);
+        WP_PQ_DB::ensure_client_member($client_id, $client_user_id, 'client_admin');
+
         if ($initial_bucket_name === '') {
             $initial_bucket_name = $created
                 ? trim($client_name) . ' - Main'
-                : WP_PQ_DB::suggest_default_bucket_name($client_user_id);
+                : WP_PQ_DB::suggest_default_bucket_name($client_id);
         }
-        self::create_bucket_for_client($client_user_id, $initial_bucket_name);
+        self::create_bucket_for_client($client_id, $initial_bucket_name);
 
         $message = $created ? 'Client created and ready for billing.' : 'Existing user linked as a client.';
-        wp_safe_redirect(self::admin_redirect_url($redirect_page, 'client_saved', $message, [], ['client_user_id' => $client_user_id]));
+        wp_safe_redirect(self::admin_redirect_url($redirect_page, 'client_saved', $message, [], ['client_user_id' => $client_user_id, 'client_id' => $client_id]));
         exit;
     }
 
@@ -880,12 +958,14 @@ class WP_PQ_Admin
         }
 
         $user->add_role('pq_client');
+        $client_id = WP_PQ_DB::get_or_create_client_id_for_user((int) $user->ID, (string) $user->display_name);
+        WP_PQ_DB::ensure_client_member($client_id, (int) $user->ID, 'client_admin');
         if ($initial_bucket_name === '') {
-            $initial_bucket_name = WP_PQ_DB::suggest_default_bucket_name((int) $user->ID);
+            $initial_bucket_name = WP_PQ_DB::suggest_default_bucket_name($client_id);
         }
-        self::create_bucket_for_client((int) $user->ID, $initial_bucket_name);
+        self::create_bucket_for_client($client_id, $initial_bucket_name);
 
-        wp_safe_redirect(self::admin_redirect_url($redirect_page, 'client_saved', 'Existing user linked as a client.', [], ['client_user_id' => (int) $user->ID]));
+        wp_safe_redirect(self::admin_redirect_url($redirect_page, 'client_saved', 'Existing user linked as a client.', [], ['client_user_id' => (int) $user->ID, 'client_id' => $client_id]));
         exit;
     }
 
@@ -898,13 +978,76 @@ class WP_PQ_Admin
         check_admin_referer('wp_pq_create_bucket');
         global $wpdb;
 
-        $client_user_id = isset($_POST['client_user_id']) ? (int) $_POST['client_user_id'] : 0;
+        $client_id = isset($_POST['client_id']) ? (int) $_POST['client_id'] : 0;
+        $redirect_page = sanitize_key((string) ($_POST['redirect_page'] ?? 'wp-pq-rollups'));
+        if ($client_id <= 0 && isset($_POST['client_user_id'])) {
+            $client_id = WP_PQ_DB::get_or_create_client_id_for_user((int) $_POST['client_user_id']);
+        }
         $bucket_name = sanitize_text_field(wp_unslash((string) ($_POST['bucket_name'] ?? '')));
-        if ($client_user_id > 0 && $bucket_name !== '') {
-            self::create_bucket_for_client($client_user_id, $bucket_name);
+        if ($client_id > 0 && $bucket_name !== '') {
+            self::create_bucket_for_client($client_id, $bucket_name);
         }
 
-        wp_safe_redirect(self::admin_redirect_url('wp-pq-rollups', 'bucket_saved', 'Billing bucket saved.', [], ['client_user_id' => $client_user_id]));
+        wp_safe_redirect(self::admin_redirect_url($redirect_page, 'bucket_saved', 'Job saved.', [], ['client_id' => $client_id]));
+        exit;
+    }
+
+    public static function handle_add_client_member(): void
+    {
+        $client_id = isset($_POST['client_id']) ? (int) $_POST['client_id'] : 0;
+        if (! self::can_manage_client($client_id)) {
+            wp_die('Forbidden');
+        }
+        check_admin_referer('wp_pq_add_client_member_' . $client_id);
+
+        $user_id = isset($_POST['user_id']) ? (int) $_POST['user_id'] : 0;
+        $role = sanitize_key((string) ($_POST['client_role'] ?? 'client_contributor'));
+        $redirect_page = sanitize_key((string) ($_POST['redirect_page'] ?? 'wp-pq-client-directory'));
+
+        if (! in_array($role, ['client_admin', 'client_contributor', 'client_viewer'], true)) {
+            $role = 'client_contributor';
+        }
+
+        $user = $user_id > 0 ? get_user_by('ID', $user_id) : false;
+        if ($client_id <= 0 || ! $user) {
+            wp_safe_redirect(self::admin_redirect_url($redirect_page, 'client_error', 'Choose a valid user to add to this client.', [], ['client_id' => $client_id]));
+            exit;
+        }
+
+        $user->add_role('pq_client');
+        WP_PQ_DB::ensure_client_member($client_id, $user_id, $role);
+
+        wp_safe_redirect(self::admin_redirect_url($redirect_page, 'client_saved', 'Client member saved.', [], ['client_id' => $client_id]));
+        exit;
+    }
+
+    public static function handle_assign_job_member(): void
+    {
+        $bucket_id = isset($_POST['billing_bucket_id']) ? (int) $_POST['billing_bucket_id'] : 0;
+        check_admin_referer('wp_pq_assign_job_member_' . $bucket_id);
+        global $wpdb;
+
+        $client_id = isset($_POST['client_id']) ? (int) $_POST['client_id'] : 0;
+        if (! self::can_manage_client($client_id)) {
+            wp_die('Forbidden');
+        }
+        $user_id = isset($_POST['user_id']) ? (int) $_POST['user_id'] : 0;
+        $redirect_page = sanitize_key((string) ($_POST['redirect_page'] ?? 'wp-pq-client-directory'));
+        $bucket = $bucket_id > 0 ? $wpdb->get_row($wpdb->prepare("SELECT id, client_id FROM {$wpdb->prefix}pq_billing_buckets WHERE id = %d", $bucket_id), ARRAY_A) : null;
+
+        if (! $bucket || (int) ($bucket['client_id'] ?? 0) !== $client_id || $user_id <= 0) {
+            wp_safe_redirect(self::admin_redirect_url($redirect_page, 'client_error', 'Choose a valid client member and job.', [], ['client_id' => $client_id]));
+            exit;
+        }
+
+        $member_ids = array_map(static fn(array $membership): int => (int) ($membership['user_id'] ?? 0), WP_PQ_DB::get_client_memberships($client_id));
+        if (! in_array($user_id, $member_ids, true)) {
+            wp_safe_redirect(self::admin_redirect_url($redirect_page, 'client_error', 'Add the user to the client account before assigning them to a job.', [], ['client_id' => $client_id]));
+            exit;
+        }
+
+        WP_PQ_DB::ensure_job_member($bucket_id, $user_id);
+        wp_safe_redirect(self::admin_redirect_url($redirect_page, 'client_saved', 'Job membership saved.', [], ['client_id' => $client_id]));
         exit;
     }
 
@@ -921,10 +1064,10 @@ class WP_PQ_Admin
         $bucket_id = isset($_POST['billing_bucket_id']) ? (int) $_POST['billing_bucket_id'] : 0;
         $tasks_table = $wpdb->prefix . 'pq_tasks';
         $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
-        $task = $wpdb->get_row($wpdb->prepare("SELECT id, submitter_id FROM {$tasks_table} WHERE id = %d", $task_id), ARRAY_A);
-        $bucket = $wpdb->get_row($wpdb->prepare("SELECT id, client_user_id FROM {$buckets_table} WHERE id = %d", $bucket_id), ARRAY_A);
+        $task = $wpdb->get_row($wpdb->prepare("SELECT id, client_id FROM {$tasks_table} WHERE id = %d", $task_id), ARRAY_A);
+        $bucket = $wpdb->get_row($wpdb->prepare("SELECT id, client_id FROM {$buckets_table} WHERE id = %d", $bucket_id), ARRAY_A);
 
-        if ($task && $bucket && (int) $task['submitter_id'] === (int) $bucket['client_user_id']) {
+        if ($task && $bucket && (int) ($task['client_id'] ?? 0) === (int) ($bucket['client_id'] ?? 0)) {
             $wpdb->update($tasks_table, [
                 'billing_bucket_id' => $bucket_id,
                 'updated_at' => current_time('mysql', true),
@@ -1156,10 +1299,13 @@ class WP_PQ_Admin
         $items = [
             'queue' => ['label' => 'Queue', 'url' => admin_url('admin.php?page=wp-pq-queue')],
             'clients' => ['label' => 'Clients', 'url' => admin_url('admin.php?page=wp-pq-client-directory')],
-            'rollups' => ['label' => 'Billing Rollup', 'url' => admin_url('admin.php?page=wp-pq-rollups')],
-            'statements' => ['label' => 'Statements', 'url' => admin_url('admin.php?page=wp-pq-statements')],
-            'settings' => ['label' => 'Settings', 'url' => admin_url('admin.php?page=wp-pq-settings')],
         ];
+
+        if (current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            $items['rollups'] = ['label' => 'Billing Rollup', 'url' => admin_url('admin.php?page=wp-pq-rollups')];
+            $items['statements'] = ['label' => 'Statements', 'url' => admin_url('admin.php?page=wp-pq-statements')];
+            $items['settings'] = ['label' => 'Settings', 'url' => admin_url('admin.php?page=wp-pq-settings')];
+        }
 
         $html = '<nav class="wp-pq-admin-nav">';
         foreach ($items as $key => $item) {
@@ -1223,10 +1369,14 @@ class WP_PQ_Admin
         } elseif (isset($_REQUEST['end_date'])) {
             $args['end_date'] = sanitize_text_field(wp_unslash((string) $_REQUEST['end_date']));
         }
-        if (! empty($extra['client_user_id'])) {
-            $args['client_user_id'] = (int) $extra['client_user_id'];
+        if (! empty($extra['client_id'])) {
+            $args['client_id'] = (int) $extra['client_id'];
+        } elseif (isset($_REQUEST['client_id'])) {
+            $args['client_id'] = (int) $_REQUEST['client_id'];
+        } elseif (! empty($extra['client_user_id'])) {
+            $args['client_id'] = (int) $extra['client_user_id'];
         } elseif (isset($_REQUEST['client_user_id'])) {
-            $args['client_user_id'] = (int) $_REQUEST['client_user_id'];
+            $args['client_id'] = (int) $_REQUEST['client_user_id'];
         }
 
         return add_query_arg($args, admin_url('admin.php'));
@@ -1236,35 +1386,28 @@ class WP_PQ_Admin
     {
         global $wpdb;
 
-        $tasks_table = $wpdb->prefix . 'pq_tasks';
-        $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
-
-        $client_ids = array_map('intval', array_unique(array_filter(array_merge(
-            get_users([
-                'role' => 'pq_client',
-                'fields' => 'ID',
-            ]),
-            $wpdb->get_col("SELECT DISTINCT submitter_id FROM {$tasks_table} WHERE submitter_id > 0"),
-            $wpdb->get_col("SELECT DISTINCT client_user_id FROM {$buckets_table} WHERE client_user_id > 0")
-        ))));
-
-        if (empty($client_ids)) {
-            return [];
+        $clients_table = $wpdb->prefix . 'pq_clients';
+        $managed_client_ids = self::managed_client_ids();
+        $sql = "SELECT * FROM {$clients_table}";
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            if (empty($managed_client_ids)) {
+                return [];
+            }
+            $sql .= ' WHERE id IN (' . implode(',', array_map('intval', $managed_client_ids)) . ')';
         }
-
-        $users = get_users([
-            'include' => $client_ids,
-            'orderby' => 'display_name',
-            'order' => 'ASC',
-        ]);
-
+        $sql .= ' ORDER BY name ASC, id ASC';
+        $rows = $wpdb->get_results($sql, ARRAY_A);
         $clients = [];
-        foreach ($users as $user) {
+        foreach ((array) $rows as $row) {
+            $primary_contact = (int) ($row['primary_contact_user_id'] ?? 0) > 0
+                ? get_user_by('ID', (int) $row['primary_contact_user_id'])
+                : null;
             $clients[] = [
-                'id' => (int) $user->ID,
-                'name' => (string) $user->display_name,
-                'email' => (string) $user->user_email,
-                'label' => self::user_label($user),
+                'id' => (int) ($row['id'] ?? 0),
+                'name' => (string) ($row['name'] ?? ''),
+                'email' => ($primary_contact && is_email($primary_contact->user_email)) ? (string) $primary_contact->user_email : '',
+                'label' => (string) ($row['name'] ?? '') . ($primary_contact ? ' <' . $primary_contact->user_email . '>' : ''),
+                'primary_contact_user_id' => (int) ($row['primary_contact_user_id'] ?? 0),
             ];
         }
 
@@ -1311,16 +1454,16 @@ class WP_PQ_Admin
         $task_counts = [];
         if ($ids_in !== '') {
             $task_rows = $wpdb->get_results(
-                "SELECT submitter_id AS client_user_id,
+                "SELECT client_id,
                         SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) AS delivered_count,
                         SUM(CASE WHEN status = 'delivered' AND billing_status = 'unbilled' THEN 1 ELSE 0 END) AS unbilled_count
                  FROM {$tasks_table}
-                 WHERE submitter_id IN ({$ids_in})
-                 GROUP BY submitter_id",
+                 WHERE client_id IN ({$ids_in})
+                 GROUP BY client_id",
                 ARRAY_A
             );
             foreach ($task_rows as $row) {
-                $task_counts[(int) $row['client_user_id']] = [
+                $task_counts[(int) $row['client_id']] = [
                     'delivered_count' => (int) $row['delivered_count'],
                     'unbilled_count' => (int) $row['unbilled_count'],
                 ];
@@ -1330,10 +1473,10 @@ class WP_PQ_Admin
         $work_log_rows = [];
         if ($ids_in !== '') {
             $work_log_rows = $wpdb->get_results(
-                "SELECT client_user_id, work_log_code, billing_bucket_id, range_start, range_end, created_at,
+                "SELECT client_id, client_user_id, work_log_code, billing_bucket_id, range_start, range_end, created_at,
                         (SELECT COUNT(*) FROM {$wpdb->prefix}pq_work_log_items wli WHERE wli.work_log_id = l.id) AS task_count
                  FROM {$logs_table} l
-                 WHERE client_user_id IN ({$ids_in})
+                 WHERE client_id IN ({$ids_in})
                  ORDER BY created_at DESC, id DESC",
                 ARRAY_A
             );
@@ -1342,10 +1485,10 @@ class WP_PQ_Admin
         $statement_rows = [];
         if ($ids_in !== '') {
             $statement_rows = $wpdb->get_results(
-                "SELECT client_user_id, statement_code, billing_bucket_id, range_start, range_end, created_at,
+                "SELECT client_id, client_user_id, statement_code, billing_bucket_id, range_start, range_end, created_at,
                         (SELECT COUNT(*) FROM {$wpdb->prefix}pq_statement_items psi WHERE psi.statement_id = s.id) AS task_count
                  FROM {$statements_table} s
-                 WHERE client_user_id IN ({$ids_in})
+                 WHERE client_id IN ({$ids_in})
                  ORDER BY created_at DESC, id DESC",
                 ARRAY_A
             );
@@ -1355,13 +1498,15 @@ class WP_PQ_Admin
         foreach ($clients as $client) {
             $client_id = (int) $client['id'];
             $client_work_logs = array_values(array_filter($work_log_rows, static function (array $row) use ($client_id): bool {
-                return (int) ($row['client_user_id'] ?? 0) === $client_id;
+                return (int) ($row['client_id'] ?? 0) === $client_id;
             }));
             $client_statements = array_values(array_filter($statement_rows, static function (array $row) use ($client_id): bool {
-                return (int) ($row['client_user_id'] ?? 0) === $client_id;
+                return (int) ($row['client_id'] ?? 0) === $client_id;
             }));
             $rows[] = [
                 'id' => $client_id,
+                'name' => (string) ($client['name'] ?? ''),
+                'email' => (string) ($client['email'] ?? ''),
                 'label' => (string) $client['label'],
                 'delivered_count' => (int) ($task_counts[$client_id]['delivered_count'] ?? 0),
                 'unbilled_count' => (int) ($task_counts[$client_id]['unbilled_count'] ?? 0),
@@ -1385,14 +1530,15 @@ class WP_PQ_Admin
         $rows = $wpdb->get_results(
             "SELECT b.*, u.display_name AS client_name, u.user_email AS client_email
              FROM {$buckets_table} b
+             LEFT JOIN {$wpdb->prefix}pq_clients c ON c.id = b.client_id
              LEFT JOIN {$users_table} u ON u.ID = b.client_user_id
-             ORDER BY u.display_name ASC, b.is_default DESC, b.bucket_name ASC",
+             ORDER BY c.name ASC, b.is_default DESC, b.bucket_name ASC",
             ARRAY_A
         );
 
         $by_client = [];
         foreach ($rows as $row) {
-            $by_client[(int) $row['client_user_id']][] = $row;
+            $by_client[(int) ($row['client_id'] ?? 0)][] = $row;
         }
 
         return $by_client;
@@ -1406,9 +1552,10 @@ class WP_PQ_Admin
         $users_table = $wpdb->users;
         $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
         $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT t.*, u.display_name AS submitter_name, u.user_email AS client_email, b.bucket_name, b.is_default
+            "SELECT t.*, c.name AS client_account_name, u.display_name AS submitter_name, u.user_email AS client_email, b.bucket_name, b.is_default
              FROM {$tasks_table} t
              LEFT JOIN {$users_table} u ON u.ID = t.submitter_id
+             LEFT JOIN {$wpdb->prefix}pq_clients c ON c.id = t.client_id
              LEFT JOIN {$buckets_table} b ON b.id = t.billing_bucket_id
              WHERE t.status = 'delivered'
                AND COALESCE(t.is_billable, 1) = 1
@@ -1420,7 +1567,7 @@ class WP_PQ_Admin
 
         $groups = [];
         foreach ($rows as $row) {
-            $client_id = (int) ($row['submitter_id'] ?? 0);
+            $client_id = (int) ($row['client_id'] ?? 0);
             $bucket_id = (int) ($row['billing_bucket_id'] ?? 0);
             if ($bucket_id <= 0) {
                 $bucket_id = WP_PQ_DB::get_or_create_default_billing_bucket_id($client_id);
@@ -1674,7 +1821,7 @@ class WP_PQ_Admin
             . '<input type="hidden" id="' . esc_attr($base_id) . '-value" name="' . esc_attr($hidden_name) . '" value="' . (int) $selected_id . '"></label>';
     }
 
-    private static function render_user_picker(string $base_id, string $hidden_name, array $users, int $selected_id, string $label, string $placeholder, bool $required = false): string
+    private static function render_user_picker(string $base_id, string $hidden_name, array $users, int $selected_id, string $label, string $placeholder, bool $required = false, string $list_id = 'wp-pq-user-options'): string
     {
         $selected = null;
         foreach ($users as $user) {
@@ -1686,7 +1833,7 @@ class WP_PQ_Admin
         $required_attr = $required ? ' required' : '';
 
         return '<label>' . esc_html($label)
-            . '<input type="text" class="wp-pq-client-picker" id="' . esc_attr($base_id) . '-search" data-hidden-target="' . esc_attr($base_id) . '-value" list="wp-pq-user-options" value="' . esc_attr((string) ($selected['label'] ?? '')) . '" placeholder="' . esc_attr($placeholder) . '"' . $required_attr . '>'
+            . '<input type="text" class="wp-pq-client-picker" id="' . esc_attr($base_id) . '-search" data-hidden-target="' . esc_attr($base_id) . '-value" list="' . esc_attr($list_id) . '" value="' . esc_attr((string) ($selected['label'] ?? '')) . '" placeholder="' . esc_attr($placeholder) . '"' . $required_attr . '>'
             . '<input type="hidden" id="' . esc_attr($base_id) . '-value" name="' . esc_attr($hidden_name) . '" value="' . (int) $selected_id . '"></label>';
     }
 
@@ -1712,20 +1859,20 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>";
     }
 
-    private static function create_bucket_for_client(int $client_user_id, string $bucket_name): int
+    private static function create_bucket_for_client(int $client_id, string $bucket_name): int
     {
         global $wpdb;
 
         $bucket_name = trim($bucket_name);
-        if ($client_user_id <= 0 || $bucket_name === '') {
+        if ($client_id <= 0 || $bucket_name === '') {
             return 0;
         }
 
         $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
         $slug = sanitize_title($bucket_name);
         $existing_id = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT id FROM {$buckets_table} WHERE client_user_id = %d AND bucket_slug = %s LIMIT 1",
-            $client_user_id,
+            "SELECT id FROM {$buckets_table} WHERE client_id = %d AND bucket_slug = %s LIMIT 1",
+            $client_id,
             $slug
         ));
 
@@ -1734,11 +1881,13 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         $has_default = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT id FROM {$buckets_table} WHERE client_user_id = %d AND is_default = 1 LIMIT 1",
-            $client_user_id
+            "SELECT id FROM {$buckets_table} WHERE client_id = %d AND is_default = 1 LIMIT 1",
+            $client_id
         ));
+        $client_user_id = WP_PQ_DB::get_primary_contact_user_id($client_id);
 
         $wpdb->insert($buckets_table, [
+            'client_id' => $client_id,
             'client_user_id' => $client_user_id,
             'bucket_name' => $bucket_name,
             'bucket_slug' => $slug,
@@ -1748,7 +1897,57 @@ document.addEventListener('DOMContentLoaded', function () {
             'created_at' => current_time('mysql', true),
         ]);
 
-        return (int) $wpdb->insert_id;
+        $bucket_id = (int) $wpdb->insert_id;
+        if ($bucket_id > 0) {
+            foreach (WP_PQ_DB::get_client_admin_user_ids($client_id) as $admin_user_id) {
+                WP_PQ_DB::ensure_job_member($bucket_id, $admin_user_id);
+            }
+        }
+
+        return $bucket_id;
+    }
+
+    private static function can_manage_any_clients(): bool
+    {
+        return current_user_can(WP_PQ_Roles::CAP_APPROVE) || ! empty(self::managed_client_ids());
+    }
+
+    private static function managed_client_ids(int $user_id = 0): array
+    {
+        if ($user_id <= 0) {
+            $user_id = get_current_user_id();
+        }
+
+        if (user_can($user_id, WP_PQ_Roles::CAP_APPROVE)) {
+            return [];
+        }
+
+        $client_ids = [];
+        foreach (WP_PQ_DB::get_user_client_memberships($user_id) as $membership) {
+            if ((string) ($membership['role'] ?? '') !== 'client_admin') {
+                continue;
+            }
+            $client_ids[] = (int) ($membership['client_id'] ?? 0);
+        }
+
+        return array_values(array_unique(array_filter($client_ids)));
+    }
+
+    private static function can_manage_client(int $client_id, int $user_id = 0): bool
+    {
+        if ($client_id <= 0) {
+            return false;
+        }
+
+        if ($user_id <= 0) {
+            $user_id = get_current_user_id();
+        }
+
+        if (user_can($user_id, WP_PQ_Roles::CAP_APPROVE)) {
+            return true;
+        }
+
+        return in_array($client_id, self::managed_client_ids($user_id), true);
     }
 
     private static function user_label(WP_User $user): string
@@ -1760,6 +1959,79 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         return $email !== '' && strcasecmp($display, $email) !== 0 ? $display . ' <' . $email . '>' : $display;
+    }
+
+    private static function get_member_candidate_users(): array
+    {
+        $users = get_users([
+            'orderby' => 'display_name',
+            'order' => 'ASC',
+        ]);
+
+        $rows = [];
+        foreach ($users as $user) {
+            $rows[] = [
+                'id' => (int) $user->ID,
+                'label' => self::user_label($user),
+            ];
+        }
+
+        return $rows;
+    }
+
+    private static function get_client_member_rows(int $client_id): array
+    {
+        $rows = [];
+        foreach (WP_PQ_DB::get_client_memberships($client_id) as $membership) {
+            $user_id = (int) ($membership['user_id'] ?? 0);
+            $user = $user_id > 0 ? get_user_by('ID', $user_id) : null;
+            if (! $user) {
+                continue;
+            }
+
+            $rows[] = [
+                'id' => $user_id,
+                'name' => (string) $user->display_name,
+                'email' => (string) $user->user_email,
+                'role' => (string) ($membership['role'] ?? 'client_contributor'),
+                'job_names' => self::job_names_for_member($client_id, $user_id),
+            ];
+        }
+
+        usort($rows, static fn(array $a, array $b): int => strcmp((string) $a['name'], (string) $b['name']));
+        return $rows;
+    }
+
+    private static function get_job_member_rows(int $bucket_id, array $members): array
+    {
+        $member_ids = WP_PQ_DB::get_job_member_ids($bucket_id);
+        return array_values(array_filter($members, static function (array $member) use ($member_ids): bool {
+            return in_array((int) ($member['id'] ?? 0), $member_ids, true);
+        }));
+    }
+
+    private static function job_names_for_member(int $client_id, int $user_id): array
+    {
+        global $wpdb;
+
+        $job_names = [];
+        foreach (WP_PQ_DB::get_job_member_ids_for_user($user_id) as $bucket_id) {
+            $bucket = $wpdb->get_row($wpdb->prepare(
+                "SELECT client_id, bucket_name, is_default FROM {$wpdb->prefix}pq_billing_buckets WHERE id = %d",
+                $bucket_id
+            ), ARRAY_A);
+            if (! $bucket || (int) ($bucket['client_id'] ?? 0) !== $client_id) {
+                continue;
+            }
+            $job_names[] = self::bucket_label_from_row($bucket);
+        }
+
+        return array_values(array_unique($job_names));
+    }
+
+    private static function humanize_label(string $value): string
+    {
+        return ucwords(str_replace('_', ' ', trim($value)));
     }
 
     private static function client_label_from_row(array $row): string
@@ -1778,10 +2050,10 @@ document.addEventListener('DOMContentLoaded', function () {
         $bucket_name = trim((string) ($row['bucket_name'] ?? ''));
         $is_default = (int) ($row['is_default'] ?? 0) === 1;
         if ($bucket_name === '') {
-            return $is_default ? 'Default Bucket' : 'Billing Bucket';
+            return $is_default ? 'Default Job' : 'Job';
         }
         if ($is_default && in_array(strtolower($bucket_name), ['general', 'default', 'default bucket'], true)) {
-            return 'Default Bucket';
+            return 'Default Job';
         }
 
         return $is_default ? $bucket_name . ' (Default)' : $bucket_name;

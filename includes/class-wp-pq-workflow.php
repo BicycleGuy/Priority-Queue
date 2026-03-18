@@ -64,6 +64,8 @@ class WP_PQ_Workflow
             'task_revision_requested',
             'task_delivered',
             'statement_batched',
+            'client_status_updates',
+            'client_daily_digest',
             'retention_day_300',
         ];
     }

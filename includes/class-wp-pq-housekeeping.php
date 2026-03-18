@@ -14,7 +14,11 @@ class WP_PQ_Housekeeping
     public static function schedule(): void
     {
         if (! wp_next_scheduled('wp_pq_daily_housekeeping')) {
-            wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', 'wp_pq_daily_housekeeping');
+            $next_run = strtotime('tomorrow 8:00', current_time('timestamp'));
+            if ($next_run <= current_time('timestamp')) {
+                $next_run = current_time('timestamp') + HOUR_IN_SECONDS;
+            }
+            wp_schedule_event($next_run, 'daily', 'wp_pq_daily_housekeeping');
         }
     }
 
@@ -95,6 +99,8 @@ class WP_PQ_Housekeeping
             }
             $wpdb->delete($files_table, ['id' => (int) $file['id']]);
         }
+
+        self::send_client_daily_digests();
     }
 
     public static function is_event_enabled(int $user_id, string $event_key): bool
@@ -113,5 +119,155 @@ class WP_PQ_Housekeeping
         }
 
         return (int) $value === 1;
+    }
+
+    public static function build_client_status_digest_body_for_api(int $user_id, array $groups): string
+    {
+        $user = get_user_by('ID', $user_id);
+        if (! $user) {
+            return '';
+        }
+
+        return self::build_digest_body($user, $groups);
+    }
+
+    private static function send_client_daily_digests(): void
+    {
+        global $wpdb;
+
+        $members_table = $wpdb->prefix . 'pq_client_members';
+        $task_table = $wpdb->prefix . 'pq_tasks';
+        $history_table = $wpdb->prefix . 'pq_task_status_history';
+
+        $members = $wpdb->get_results(
+            "SELECT DISTINCT user_id FROM {$members_table} ORDER BY user_id ASC",
+            ARRAY_A
+        );
+
+        $now = current_time('mysql', true);
+
+        foreach ((array) $members as $member_row) {
+            $user_id = (int) ($member_row['user_id'] ?? 0);
+            if ($user_id <= 0 || ! self::is_event_enabled($user_id, 'client_daily_digest')) {
+                continue;
+            }
+
+            $user = get_user_by('ID', $user_id);
+            if (! $user || ! is_email($user->user_email)) {
+                continue;
+            }
+
+            $last_sent_at = (string) get_user_meta($user_id, 'wp_pq_client_digest_last_sent_at', true);
+            if ($last_sent_at === '') {
+                $last_sent_at = gmdate('Y-m-d H:i:s', strtotime('-1 day'));
+            }
+
+            $task_ids = array_map('intval', (array) $wpdb->get_col($wpdb->prepare(
+                "SELECT DISTINCT h.task_id
+                 FROM {$history_table} h
+                 INNER JOIN {$task_table} t ON t.id = h.task_id
+                 WHERE h.created_at > %s
+                   AND h.created_at <= %s
+                   AND t.client_id > 0",
+                $last_sent_at,
+                $now
+            )));
+
+            if (empty($task_ids)) {
+                update_user_meta($user_id, 'wp_pq_client_digest_last_sent_at', $now);
+                continue;
+            }
+
+            $ids_in = implode(',', array_map('intval', $task_ids));
+            $tasks = $wpdb->get_results("SELECT * FROM {$task_table} WHERE id IN ({$ids_in})", ARRAY_A);
+            $visible_tasks = array_values(array_filter((array) $tasks, static function (array $task) use ($user_id): bool {
+                return WP_PQ_API::can_access_task($task, $user_id);
+            }));
+
+            if (empty($visible_tasks)) {
+                update_user_meta($user_id, 'wp_pq_client_digest_last_sent_at', $now);
+                continue;
+            }
+
+            $groups = [
+                'Awaiting you' => [],
+                'Delivered' => [],
+                'Needs clarification' => [],
+                'Other changes' => [],
+            ];
+
+            foreach ($visible_tasks as $task) {
+                $task = self::normalize_task_for_digest($task);
+                $status = (string) ($task['status'] ?? '');
+                $is_action_owner = (int) ($task['action_owner_id'] ?? 0) === $user_id;
+
+                if ($status === 'delivered') {
+                    $groups['Delivered'][] = $task;
+                } elseif ($status === 'not_approved') {
+                    $groups['Needs clarification'][] = $task;
+                } elseif ($is_action_owner && in_array($status, ['pending_approval', 'approved', 'in_progress', 'revision_requested', 'pending_review'], true)) {
+                    $groups['Awaiting you'][] = $task;
+                } else {
+                    $groups['Other changes'][] = $task;
+                }
+            }
+
+            $body = self::build_digest_body($user, $groups);
+            if ($body === '') {
+                update_user_meta($user_id, 'wp_pq_client_digest_last_sent_at', $now);
+                continue;
+            }
+
+            wp_mail(
+                $user->user_email,
+                'Priority Portal daily digest',
+                $body
+            );
+
+            update_user_meta($user_id, 'wp_pq_client_digest_last_sent_at', $now);
+        }
+    }
+
+    private static function normalize_task_for_digest(array $task): array
+    {
+        $submitter = isset($task['submitter_id']) ? get_user_by('ID', (int) $task['submitter_id']) : null;
+        $task['submitter_name'] = $submitter ? (string) $submitter->display_name : '';
+        return $task;
+    }
+
+    private static function build_digest_body(WP_User $user, array $groups): string
+    {
+        $lines = [];
+        $lines[] = 'Here is your Priority Portal daily digest.';
+        $lines[] = '';
+
+        foreach ($groups as $label => $tasks) {
+            if (empty($tasks)) {
+                continue;
+            }
+
+            $lines[] = $label;
+            $lines[] = str_repeat('-', strlen($label));
+            foreach ($tasks as $task) {
+                $task_title = (string) ($task['title'] ?? 'Task');
+                $job = (string) ($task['bucket_name'] ?? '');
+                $status = (string) ($task['status'] ?? '');
+                $deadline = (string) ($task['requested_deadline'] ?: $task['due_at'] ?: '');
+                $line = '* ' . $task_title;
+                if ($job !== '') {
+                    $line .= ' [' . $job . ']';
+                }
+                if ($status !== '') {
+                    $line .= ' — ' . ucwords(str_replace('_', ' ', $status));
+                }
+                if ($deadline !== '') {
+                    $line .= ' — deadline ' . wp_date('M j, Y g:i a', strtotime($deadline . ' UTC'));
+                }
+                $lines[] = $line;
+            }
+            $lines[] = '';
+        }
+
+        return count($lines) > 2 ? implode("\n", $lines) : '';
     }
 }

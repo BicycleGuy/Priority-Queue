@@ -58,7 +58,20 @@
       description: 'Day-300 storage reminder',
       events: ['retention_day_300'],
     },
+    {
+      key: 'client_updates',
+      label: 'Client updates',
+      description: 'Immediate status updates and the daily digest',
+      events: ['client_status_updates', 'client_daily_digest'],
+    },
   ];
+
+  function activePrefGroups() {
+    if (!window.wpPqConfig.canViewAll && prefPanel) {
+      return prefGroups.filter((group) => group.key === 'client_updates');
+    }
+    return prefGroups;
+  }
 
   const taskList = document.getElementById('wp-pq-task-list');
   const boardEl = document.getElementById('wp-pq-board');
@@ -70,6 +83,8 @@
   const bucketFilterEl = document.getElementById('wp-pq-bucket-filter');
   const batchApproveBtn = document.getElementById('wp-pq-batch-approve');
   const batchStatementBtn = document.getElementById('wp-pq-batch-statement');
+  const jobNavWrap = document.getElementById('wp-pq-job-nav-wrap');
+  const jobNavEl = document.getElementById('wp-pq-job-nav');
   const createForm = document.getElementById('wp-pq-create-form');
   const createPanel = document.getElementById('wp-pq-create-panel');
   const openCreateBtn = document.getElementById('wp-pq-open-create');
@@ -145,6 +160,10 @@
   const moveSummaryEl = document.getElementById('wp-pq-move-summary');
   const applyMoveBtn = document.getElementById('wp-pq-apply-move');
   const moveMeetingOption = document.getElementById('wp-pq-move-meeting-option');
+  const moveEmailOption = document.getElementById('wp-pq-move-email-option');
+  const savedViewList = document.getElementById('wp-pq-saved-view-list');
+  const binderClientContext = document.getElementById('wp-pq-binder-client-context');
+  const binderJobContext = document.getElementById('wp-pq-binder-job-context');
 
   let selectedTaskId = null;
   let tasksCache = [];
@@ -162,7 +181,9 @@
   let filterState = { clientUserId: 0, billingBucketId: 0 };
   let filterOptions = { canViewAll: !!window.wpPqConfig.canViewAll, clients: [], buckets: [] };
   let createFormState = { clientUserId: 0, billingBucketId: 0 };
+  let savedView = 'all';
   let workersCache = [];
+  let workersCacheKey = '';
   let boardSortInstances = [];
 
   async function api(path, options) {
@@ -360,7 +381,7 @@
   function currentTaskQuery() {
     const params = new URLSearchParams();
     if (filterState.clientUserId > 0) {
-      params.set('client_user_id', String(filterState.clientUserId));
+      params.set('client_id', String(filterState.clientUserId));
     }
     if (filterState.billingBucketId > 0) {
       params.set('billing_bucket_id', String(filterState.billingBucketId));
@@ -384,7 +405,7 @@
   function visibleBuckets() {
     if (!Array.isArray(filterOptions.buckets)) return [];
     if (!filterState.clientUserId) return filterOptions.buckets;
-    return filterOptions.buckets.filter((bucket) => parseInt(bucket.client_user_id, 10) === filterState.clientUserId);
+    return filterOptions.buckets.filter((bucket) => parseInt(bucket.client_id, 10) === filterState.clientUserId);
   }
 
   function syncFilterControls() {
@@ -410,7 +431,7 @@
       const shouldShowBuckets = bucketOptions.length > 1 || filterState.billingBucketId > 0 || (!canViewAll && bucketOptions.length > 0);
       bucketFilterWrap.hidden = !shouldShowBuckets;
       bucketFilterEl.innerHTML = '<option value="0">' + (canViewAll && !filterState.clientUserId ? 'All jobs' : 'All jobs') + '</option>' + bucketOptions.map((bucket) => (
-        '<option value="' + escapeHtml(bucket.id) + '">' + escapeHtml(bucket.label || bucket.bucket_name || 'Job Bucket') + '</option>'
+        '<option value="' + escapeHtml(bucket.id) + '">' + escapeHtml(bucket.label || bucket.bucket_name || 'Job') + '</option>'
       )).join('');
 
       const bucketIsValid = bucketOptions.some((bucket) => parseInt(bucket.id, 10) === filterState.billingBucketId);
@@ -421,6 +442,7 @@
     }
 
     syncCreateFormContext();
+    renderJobNav();
   }
 
   function currentCreateClientId() {
@@ -449,7 +471,7 @@
     const createClientId = currentCreateClientId();
     const selectedClient = clientOptions.find((client) => parseInt(client.id, 10) === createClientId) || null;
     const bucketOptions = (Array.isArray(filterOptions.buckets) ? filterOptions.buckets : []).filter((bucket) => (
-      createClientId > 0 ? parseInt(bucket.client_user_id, 10) === createClientId : !canViewAll
+      createClientId > 0 ? parseInt(bucket.client_id, 10) === createClientId : !canViewAll
     ));
 
     if (window.wpPqConfig.canViewAll && createClientId <= 0) {
@@ -466,7 +488,7 @@
     const createOptionValue = -1;
     createBucketEl.innerHTML = '<option value="0">' + (bucketOptions.length ? 'Select job' : 'Choose a job') + '</option>' +
       bucketOptions.map((bucket) => (
-        '<option value="' + escapeHtml(bucket.id) + '">' + escapeHtml(bucket.label || bucket.bucket_name || 'Job Bucket') + '</option>'
+        '<option value="' + escapeHtml(bucket.id) + '">' + escapeHtml(bucket.label || bucket.bucket_name || 'Job') + '</option>'
       )).join('') +
       (allowInlineCreate ? '<option value="' + createOptionValue + '">' + (bucketOptions.length ? '+ Create new job' : 'Create the first job') + '</option>' : '');
 
@@ -521,21 +543,89 @@
 
   function renderTaskCollections() {
     pruneBatchSelection();
+    const visibleTasks = getVisibleTasks();
 
     if (boardEl) {
-      renderBoard(tasksCache);
-      updateBoardSummary(tasksCache);
+      renderBoard(visibleTasks);
+      updateBoardSummary(visibleTasks);
       updateBatchApproveButton();
       updateBatchButton();
       initBoardSort();
     } else {
-      renderTaskList(tasksCache);
-      if (selectedTaskId === null && tasksCache[0]) {
-        selectedTaskId = tasksCache[0].id;
+      renderTaskList(visibleTasks);
+      if (selectedTaskId === null && visibleTasks[0]) {
+        selectedTaskId = visibleTasks[0].id;
       }
     }
 
+    updateSavedViewUi(visibleTasks);
     highlightSelected();
+  }
+
+  function getVisibleTasks() {
+    if (savedView === 'awaiting_me') {
+      return tasksCache.filter((task) => parseInt(task.action_owner_id || 0, 10) === parseInt(window.wpPqConfig.currentUserId || 0, 10));
+    }
+    if (savedView === 'awaiting_client') {
+      return tasksCache.filter((task) => !!task.action_owner_is_client && String(task.status || '') !== 'delivered');
+    }
+    if (savedView === 'delivered') {
+      return tasksCache.filter((task) => String(task.status || '') === 'delivered');
+    }
+    if (savedView === 'unbilled') {
+      return tasksCache.filter((task) => String(task.status || '') === 'delivered' && !!task.is_billable && String(task.billing_status || '') === 'unbilled');
+    }
+    return tasksCache.slice();
+  }
+
+  function updateSavedViewUi(visibleTasks) {
+    if (!savedViewList) return;
+    savedViewList.querySelectorAll('[data-saved-view]').forEach((button) => {
+      button.classList.toggle('is-active', button.dataset.savedView === savedView);
+    });
+
+    const selectedClient = (filterOptions.clients || []).find((client) => parseInt(client.id, 10) === filterState.clientUserId);
+    const selectedBucket = (filterOptions.buckets || []).find((bucket) => parseInt(bucket.id, 10) === filterState.billingBucketId);
+    if (binderClientContext) {
+      binderClientContext.textContent = selectedClient
+        ? (selectedClient.name || selectedClient.label || 'Selected client')
+        : (window.wpPqConfig.canViewAll ? 'All clients' : 'Your client workspace');
+    }
+    if (binderJobContext) {
+      const countLabel = (visibleTasks || []).length + ' visible tasks';
+      binderJobContext.textContent = selectedBucket
+        ? ((selectedBucket.label || selectedBucket.bucket_name || 'Selected job') + ' · ' + countLabel)
+        : ('All jobs · ' + countLabel);
+    }
+  }
+
+  function renderJobNav() {
+    if (!jobNavWrap || !jobNavEl) return;
+
+    const bucketOptions = visibleBuckets();
+    const canViewAll = !!filterOptions.canViewAll;
+    const shouldShow = bucketOptions.length > 0 && (!canViewAll || filterState.clientUserId > 0 || bucketOptions.length > 1);
+    jobNavWrap.hidden = !shouldShow;
+
+    if (!shouldShow) {
+      jobNavEl.innerHTML = '';
+      return;
+    }
+
+    const buttons = [
+      '<button class="button ' + (filterState.billingBucketId === 0 ? 'is-active' : '') + '" type="button" data-job-id="0">All jobs</button>',
+    ];
+
+    bucketOptions.forEach((bucket) => {
+      const bucketId = parseInt(bucket.id, 10) || 0;
+      buttons.push(
+        '<button class="button ' + (bucketId === filterState.billingBucketId ? 'is-active' : '') + '" type="button" data-job-id="' + escapeHtml(bucketId) + '">' +
+          escapeHtml(bucket.label || bucket.bucket_name || 'Job') +
+        '</button>'
+      );
+    });
+
+    jobNavEl.innerHTML = buttons.join('');
   }
 
   async function syncTaskWorkspace(options) {
@@ -656,13 +746,13 @@
 
   function taskActorLabel(task) {
     if (task.action_owner_name) return 'Awaiting ' + task.action_owner_name;
-    if (task.client_name && task.status === 'not_approved') return 'Awaiting ' + task.client_name;
+    if (task.client_account_name && task.status === 'not_approved') return 'Awaiting ' + task.client_account_name;
     return 'Awaiting assignment';
   }
 
   function assignmentFacts(task) {
     const requester = task.submitter_name || 'Unspecified';
-    const client = task.client_name || requester;
+    const client = task.client_account_name || task.client_name || requester;
     const owner = task.action_owner_name || 'Unassigned';
     return renderFactList([
       { label: 'Requester', value: requester },
@@ -671,11 +761,26 @@
     ], 'wp-pq-responsibility-facts');
   }
 
-  async function loadWorkers() {
+  async function loadWorkers(task) {
     if (!window.wpPqConfig.canAssign) return [];
-    if (workersCache.length) return workersCache;
-    const data = await api('workers', { method: 'GET' });
+
+    const taskId = task && task.id ? parseInt(task.id, 10) || 0 : 0;
+    const clientId = task && task.client_id ? parseInt(task.client_id, 10) || 0 : (filterState.clientUserId || currentCreateClientId() || 0);
+    const billingBucketId = task && task.billing_bucket_id ? parseInt(task.billing_bucket_id, 10) || 0 : (filterState.billingBucketId || 0);
+    const params = new URLSearchParams();
+    if (taskId > 0) {
+      params.set('task_id', String(taskId));
+    } else {
+      if (clientId > 0) params.set('client_id', String(clientId));
+      if (billingBucketId > 0) params.set('billing_bucket_id', String(billingBucketId));
+    }
+
+    const cacheKey = params.toString() || 'global';
+    if (workersCache.length && workersCacheKey === cacheKey) return workersCache;
+
+    const data = await api('workers' + (cacheKey ? ('?' + cacheKey) : ''), { method: 'GET' });
     workersCache = Array.isArray(data.workers) ? data.workers : [];
+    workersCacheKey = cacheKey;
     return workersCache;
   }
 
@@ -690,7 +795,10 @@
     assignmentFactsEl.innerHTML = assignmentFacts(task);
 
     const options = ['<option value="0">Unassigned</option>'].concat(
-      workersCache.map((worker) => '<option value="' + escapeHtml(worker.id) + '">' + escapeHtml(worker.name + ' (' + worker.email + ')') + '</option>')
+      workersCache.map((worker) => {
+        const detail = worker.scope_label || worker.email || '';
+        return '<option value="' + escapeHtml(worker.id) + '">' + escapeHtml(worker.name + (detail ? ' · ' + detail : '')) + '</option>';
+      })
     );
     assignmentSelectEl.innerHTML = options.join('');
     assignmentSelectEl.value = String(parseInt(task.action_owner_id || 0, 10) || 0);
@@ -815,8 +923,8 @@
       '<div class="wp-pq-task-next-step">' + escapeHtml(nextStepLabel(task)) + '</div>' +
       '<div class="wp-pq-task-footer">' +
       '<span>' + escapeHtml(taskActorLabel(task)) + '</span>' +
-      (window.wpPqConfig.canViewAll && (task.client_name || task.submitter_name)
-        ? '<span>' + escapeHtml(task.client_name || task.submitter_name) + '</span>'
+      (window.wpPqConfig.canViewAll && (task.client_account_name || task.client_name || task.submitter_name)
+        ? '<span>' + escapeHtml(task.client_account_name || task.client_name || task.submitter_name) + '</span>'
         : (actionOwner ? '<span>' + escapeHtml(actionOwner) + '</span>' : '')) +
       '</div>';
 
@@ -1191,12 +1299,17 @@
     const keepPriority = moveForm ? moveForm.querySelector('input[name="priority_direction"][value="keep"]') : null;
     const swapDueDates = moveForm ? moveForm.querySelector('input[name="swap_due_dates"]') : null;
     const requestMeeting = moveForm ? moveForm.querySelector('input[name="request_meeting"]') : null;
+    const sendUpdateEmail = moveForm ? moveForm.querySelector('input[name="send_update_email"]') : null;
     if (keepPriority) keepPriority.checked = true;
     if (swapDueDates) swapDueDates.checked = false;
     if (swapDueDates) swapDueDates.disabled = !pendingMove || !pendingMove.targetTaskId;
     if (requestMeeting) requestMeeting.checked = false;
+    if (sendUpdateEmail) sendUpdateEmail.checked = !!window.wpPqConfig.canViewAll;
     if (moveMeetingOption) {
       moveMeetingOption.hidden = targetStatus !== 'not_approved';
+    }
+    if (moveEmailOption) {
+      moveEmailOption.hidden = !window.wpPqConfig.canViewAll || !movedTask || !parseInt(movedTask.client_id || 0, 10);
     }
 
     moveModal.hidden = false;
@@ -1286,7 +1399,7 @@
       meetingPanel.hidden = false;
     }
     if (window.wpPqConfig.canAssign) {
-      await loadWorkers();
+      await loadWorkers(task);
       ensureAssigneePresent(task);
       syncAssignmentPanel(task);
     }
@@ -1408,10 +1521,10 @@
       const selectedBucketId = parseInt(formData.get('billing_bucket_id') || '0', 10) || 0;
       const newBucketName = (formData.get('new_bucket_name') || '').toString().trim();
       const visibleCreateBuckets = (Array.isArray(filterOptions.buckets) ? filterOptions.buckets : []).filter((bucket) => (
-        createClientId > 0 ? parseInt(bucket.client_user_id, 10) === createClientId : true
+        createClientId > 0 ? parseInt(bucket.client_id, 10) === createClientId : true
       ));
       if (window.wpPqConfig.canApprove && createClientId > 0 && (selectedBucketId === -1 || visibleCreateBuckets.length === 0) && !newBucketName) {
-        alert('Name the first job bucket for this client before submitting the task.');
+        alert('Name the first job for this client before submitting the task.');
         return;
       }
       const body = {
@@ -1423,7 +1536,7 @@
         needs_meeting: formData.get('needs_meeting') === 'on',
         is_billable: !window.wpPqConfig.canApprove || formData.get('is_billable') === 'on',
         owner_ids: parseOwnerIds(formData.get('owner_ids')),
-        client_user_id: createClientId || 0,
+        client_id: createClientId || 0,
         billing_bucket_id: selectedBucketId > 0 ? selectedBucketId : 0,
         new_bucket_name: newBucketName,
       };
@@ -2159,7 +2272,7 @@
     prefsLoaded = true;
     prefList.innerHTML = '';
 
-    prefGroups.forEach((group) => {
+    activePrefGroups().forEach((group) => {
       const enabled = group.events.some((eventKey) => !!prefs[eventKey]);
       const row = document.createElement('label');
       row.className = 'wp-pq-pref-card';
@@ -2174,7 +2287,7 @@
     if (!prefSaveBtn || !prefList) return;
     prefSaveBtn.addEventListener('click', async () => {
       const prefs = {};
-      prefGroups.forEach((group) => {
+      activePrefGroups().forEach((group) => {
         const checkbox = prefList ? prefList.querySelector('[data-pref-group="' + group.key + '"]') : null;
         group.events.forEach((eventKey) => {
           prefs[eventKey] = !!(checkbox && checkbox.checked);
@@ -2188,6 +2301,32 @@
       } catch (err) {
         alert(err.message);
       }
+    });
+  }
+
+  function wireSavedViews() {
+    if (!savedViewList) return;
+    savedViewList.addEventListener('click', async (e) => {
+      const button = e.target.closest('[data-saved-view]');
+      if (!button) return;
+      e.preventDefault();
+      savedView = button.dataset.savedView || 'all';
+      await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar' });
+    });
+  }
+
+  function wireJobNav() {
+    if (!jobNavEl) return;
+    jobNavEl.addEventListener('click', async (e) => {
+      const button = e.target.closest('[data-job-id]');
+      if (!button) return;
+      e.preventDefault();
+      setFilterState({
+        clientUserId: filterState.clientUserId,
+        billingBucketId: parseInt(button.dataset.jobId || '0', 10) || 0,
+      });
+      syncFilterControls();
+      await loadTasks();
     });
   }
 
@@ -2310,6 +2449,7 @@
       const priorityDirection = (formData.get('priority_direction') || 'keep').toString();
       const swapDueDates = formData.get('swap_due_dates') === '1';
       const requestMeeting = formData.get('request_meeting') === '1';
+      const sendUpdateEmail = formData.get('send_update_email') === '1';
 
       try {
         selectedTaskId = pendingMove ? pendingMove.taskId : pendingStatusAction.taskId;
@@ -2326,6 +2466,7 @@
               priority_direction: priorityDirection,
               swap_due_dates: swapDueDates,
               needs_meeting: requestMeeting,
+              send_update_email: sendUpdateEmail,
             }),
           });
         } else {
@@ -2334,6 +2475,7 @@
             body: JSON.stringify({
               status: pendingStatusAction.status,
               needs_meeting: requestMeeting,
+              send_update_email: sendUpdateEmail,
             }),
           });
         }
@@ -2460,6 +2602,8 @@
   wireBatching();
   wirePrefs();
   wireInbox();
+  wireSavedViews();
+  wireJobNav();
   wireStatusActions();
   wireDrawerControls();
   wireMoveModal();
