@@ -20,10 +20,14 @@ class WP_PQ_Admin
         add_action('admin_post_wp_pq_create_work_log', [self::class, 'handle_create_work_log']);
         add_action('admin_post_wp_pq_export_work_log', [self::class, 'handle_export_work_log']);
         add_action('admin_post_wp_pq_print_work_log', [self::class, 'handle_print_work_log']);
+        add_action('admin_post_wp_pq_update_work_log', [self::class, 'handle_update_work_log']);
         add_action('admin_post_wp_pq_create_statement', [self::class, 'handle_create_statement']);
         add_action('admin_post_wp_pq_export_statement', [self::class, 'handle_export_statement']);
         add_action('admin_post_wp_pq_print_statement', [self::class, 'handle_print_statement']);
         add_action('admin_post_wp_pq_update_statement', [self::class, 'handle_update_statement']);
+        add_action('admin_post_wp_pq_ai_parse', [self::class, 'handle_ai_parse']);
+        add_action('admin_post_wp_pq_ai_import', [self::class, 'handle_ai_import']);
+        add_action('admin_post_wp_pq_ai_clear_preview', [self::class, 'handle_ai_clear_preview']);
         add_action('admin_enqueue_scripts', [self::class, 'enqueue_assets']);
         add_filter('plugin_action_links_' . plugin_basename(WP_PQ_PLUGIN_FILE), [self::class, 'plugin_action_links']);
     }
@@ -72,11 +76,29 @@ class WP_PQ_Admin
 
         add_submenu_page(
             'wp-pq-queue',
+            'Priority Queue Work Statements',
+            'Work Statements',
+            WP_PQ_Roles::CAP_APPROVE,
+            'wp-pq-work-logs',
+            [self::class, 'render_work_logs_page']
+        );
+
+        add_submenu_page(
+            'wp-pq-queue',
             'Priority Queue Statements',
             'Statements',
             WP_PQ_Roles::CAP_APPROVE,
             'wp-pq-statements',
             [self::class, 'render_statements_page']
+        );
+
+        add_submenu_page(
+            'wp-pq-queue',
+            'Priority Queue AI Import',
+            'AI Import',
+            WP_PQ_Roles::CAP_APPROVE,
+            'wp-pq-ai-import',
+            [self::class, 'render_ai_import_page']
         );
 
         add_submenu_page(
@@ -91,12 +113,12 @@ class WP_PQ_Admin
 
     public static function enqueue_assets(string $hook): void
     {
-        if ($hook !== 'toplevel_page_wp-pq-queue' && strpos($hook, 'wp-pq-settings') === false && strpos($hook, 'wp-pq-statements') === false && strpos($hook, 'wp-pq-rollups') === false && strpos($hook, 'wp-pq-client-directory') === false) {
+        if ($hook !== 'toplevel_page_wp-pq-queue' && strpos($hook, 'wp-pq-settings') === false && strpos($hook, 'wp-pq-statements') === false && strpos($hook, 'wp-pq-work-logs') === false && strpos($hook, 'wp-pq-rollups') === false && strpos($hook, 'wp-pq-client-directory') === false && strpos($hook, 'wp-pq-ai-import') === false) {
             return;
         }
 
         wp_enqueue_style('wp-pq-admin', WP_PQ_PLUGIN_URL . 'assets/css/admin-queue.css', [], WP_PQ_VERSION);
-        if (strpos($hook, 'wp-pq-statements') !== false || strpos($hook, 'wp-pq-rollups') !== false || strpos($hook, 'wp-pq-client-directory') !== false) {
+        if (strpos($hook, 'wp-pq-statements') !== false || strpos($hook, 'wp-pq-work-logs') !== false || strpos($hook, 'wp-pq-rollups') !== false || strpos($hook, 'wp-pq-client-directory') !== false || strpos($hook, 'wp-pq-ai-import') !== false) {
             return;
         }
 
@@ -121,6 +143,8 @@ class WP_PQ_Admin
         register_setting('wp_pq_settings_group', 'wp_pq_google_client_secret', ['sanitize_callback' => 'sanitize_text_field']);
         register_setting('wp_pq_settings_group', 'wp_pq_google_redirect_uri', ['sanitize_callback' => 'esc_url_raw']);
         register_setting('wp_pq_settings_group', 'wp_pq_google_scopes', ['sanitize_callback' => 'sanitize_text_field']);
+        register_setting('wp_pq_settings_group', 'wp_pq_openai_api_key', ['sanitize_callback' => 'sanitize_text_field']);
+        register_setting('wp_pq_settings_group', 'wp_pq_openai_model', ['sanitize_callback' => 'sanitize_text_field']);
     }
 
     public static function plugin_action_links(array $links): array
@@ -129,7 +153,9 @@ class WP_PQ_Admin
             $links,
             '<a href="' . esc_url(admin_url('admin.php?page=wp-pq-client-directory')) . '">Clients</a>',
             '<a href="' . esc_url(admin_url('admin.php?page=wp-pq-rollups')) . '">Billing Rollup</a>',
+            '<a href="' . esc_url(admin_url('admin.php?page=wp-pq-work-logs')) . '">Work Statements</a>',
             '<a href="' . esc_url(admin_url('admin.php?page=wp-pq-statements')) . '">Statements</a>',
+            '<a href="' . esc_url(admin_url('admin.php?page=wp-pq-ai-import')) . '">AI Import</a>',
             '<a href="' . esc_url(admin_url('admin.php?page=wp-pq-settings')) . '">Settings</a>'
         );
         return $links;
@@ -196,7 +222,7 @@ class WP_PQ_Admin
 
         echo '<div class="wrap wp-pq-wrap">';
         echo '<h1>Clients</h1>';
-        echo '<p>Create client accounts, link existing WordPress users as client members, manage jobs, and jump straight into that client\'s work logs and statements.</p>';
+        echo '<p>Create client accounts, link existing WordPress users as client members, manage jobs, and jump straight into that client\'s work statements and billing statements.</p>';
         echo self::admin_section_nav('clients');
 
         if (isset($_GET['wp_pq_notice'])) {
@@ -257,7 +283,7 @@ class WP_PQ_Admin
                 $members = self::get_client_member_rows((int) $client['id']);
                 echo '<section class="wp-pq-panel wp-pq-rollup-group">';
                 echo '<h2>' . esc_html((string) $client['name']) . '</h2>';
-                echo '<p class="wp-pq-panel-note">Delivered tasks: ' . (int) $client['delivered_count'] . ' · Unbilled: ' . (int) $client['unbilled_count'] . ' · Work logs: ' . (int) $client['work_log_count'] . ' · Statements: ' . (int) $client['statement_count'] . '.</p>';
+                echo '<p class="wp-pq-panel-note">Delivered tasks: ' . (int) $client['delivered_count'] . ' · Unbilled: ' . (int) $client['unbilled_count'] . ' · Work statements: ' . (int) $client['work_log_count'] . ' · Statements: ' . (int) $client['statement_count'] . '.</p>';
                 echo '<p class="wp-pq-panel-note">Primary contact: ' . esc_html((string) ($client['email'] ?: 'Not set')) . '</p>';
                 if (! empty($members)) {
                     echo '<h3>Members</h3>';
@@ -324,10 +350,11 @@ class WP_PQ_Admin
                 }
                 echo '<div class="wp-pq-inline-action-form">';
                 echo '  <a class="button" href="' . esc_url($rollup_url) . '">View Billing Rollup</a>';
+                echo '  <a class="button" href="' . esc_url(add_query_arg(['page' => 'wp-pq-work-logs', 'client_id' => (int) $client['id']], admin_url('admin.php'))) . '">View Work Statements</a>';
                 echo '  <a class="button" href="' . esc_url($statement_url) . '">View Statements</a>';
                 echo '</div>';
                 if (! empty($client['recent_work_logs'])) {
-                    echo '<h3>Recent Work Logs</h3>';
+                    echo '<h3>Recent Work Statements</h3>';
                     echo '<table class="widefat striped wp-pq-admin-table"><thead><tr><th>Code</th><th>Bucket</th><th>Range</th><th>Tasks</th></tr></thead><tbody>';
                     foreach ($client['recent_work_logs'] as $work_log) {
                         echo '<tr><td>' . esc_html((string) $work_log['work_log_code']) . '</td><td>' . esc_html(self::bucket_label_from_row($work_log)) . '</td><td>' . esc_html(self::format_date_range((string) $work_log['range_start'], (string) $work_log['range_end'])) . '</td><td>' . (int) $work_log['task_count'] . '</td></tr>';
@@ -362,7 +389,7 @@ class WP_PQ_Admin
 
         echo '<div class="wrap wp-pq-wrap wp-pq-settings-page">';
         echo '<h1>Priority Queue Settings</h1>';
-        echo '<p>Manage workflow email preferences and Google Calendar / Meet integration here.</p>';
+        echo '<p>Manage workflow email preferences, Google Calendar / Meet integration, and AI document import settings here.</p>';
         echo self::admin_section_nav('settings');
 
         echo '<div class="wp-pq-grid wp-pq-settings-grid">';
@@ -391,6 +418,24 @@ class WP_PQ_Admin
         echo '      <p><strong>Set this redirect URI in Google Cloud:</strong> ' . esc_html($redirect_uri) . '</p>';
         echo '      <p><a href="' . esc_url($oauth_url) . '" class="button">Connect Google Calendar</a></p>';
         echo '      <p><a href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com" target="_blank" rel="noopener">Open Google Cloud Console</a></p>';
+        echo '    </div>';
+        echo '  </section>';
+
+        echo '  <section class="wp-pq-panel wp-pq-settings-panel">';
+        echo '    <h2>OpenAI Document Ingester</h2>';
+        echo '    <p class="wp-pq-panel-note">Add your OpenAI API key and model so Priority Queue can turn pasted lists, CSVs, and PDFs into draft tasks for review before import.</p>';
+        echo '    <form method="post" action="options.php">';
+        settings_fields('wp_pq_settings_group');
+        echo '      <label>OpenAI API key <input type="password" name="wp_pq_openai_api_key" value="' . esc_attr((string) get_option('wp_pq_openai_api_key', '')) . '" autocomplete="off"></label>';
+        echo '      <label>Model <input type="text" name="wp_pq_openai_model" value="' . esc_attr((string) get_option('wp_pq_openai_model', 'gpt-4o-mini')) . '" placeholder="gpt-4o-mini"></label>';
+        echo '      <div class="wp-pq-create-actions">';
+        echo '        <button class="button button-primary" type="submit">Save OpenAI Settings</button>';
+        echo '        <a class="button" href="' . esc_url(admin_url('admin.php?page=wp-pq-ai-import')) . '">Open AI Import</a>';
+        echo '      </div>';
+        echo '    </form>';
+        echo '    <div class="wp-pq-admin-callout">';
+        echo '      <p><strong>Importer flow:</strong> Upload or paste a list, review the parsed tasks, then import them into the live queue.</p>';
+        echo '      <p><strong>Recommended default:</strong> <code>gpt-4o-mini</code> for file-friendly parsing. You can override it if you prefer another supported OpenAI model.</p>';
         echo '    </div>';
         echo '  </section>';
         echo '</div>';
@@ -425,7 +470,7 @@ class WP_PQ_Admin
         }
         echo '<div class="wrap wp-pq-wrap">';
         echo '<h1>Billing Rollup</h1>';
-        echo '<p>Review delivered work by date range, sort it into client jobs, then create either a work log or a billing statement.</p>';
+        echo '<p>Review delivered work by date range, sort it into client jobs, then create either a work statement or a billing statement.</p>';
         echo self::admin_section_nav('rollups');
 
         if (isset($_GET['wp_pq_notice'])) {
@@ -527,12 +572,20 @@ class WP_PQ_Admin
         echo '  <section class="wp-pq-panel">';
         echo '    <h2>Existing Output</h2>';
         echo '    <p class="wp-pq-panel-note">Documents created from this date range.</p>';
-        echo '    <h3>Work Logs</h3>';
+        echo '    <h3>Work Statements</h3>';
         if (empty($work_logs)) {
-            echo '<p class="wp-pq-empty-state">No work logs in this range yet.</p>';
+            echo '<p class="wp-pq-empty-state">No work statements in this range yet.</p>';
         } else {
             echo '<table class="widefat striped wp-pq-admin-table"><thead><tr><th>Code</th><th>Client</th><th>Bucket</th><th>Tasks</th><th>Actions</th></tr></thead><tbody>';
             foreach ($work_logs as $work_log) {
+                $view_url = add_query_arg([
+                    'page' => 'wp-pq-work-logs',
+                    'month' => $range['month'],
+                    'start_date' => $range['custom_start'],
+                    'end_date' => $range['custom_end'],
+                    'client_id' => (int) ($work_log['client_id'] ?? 0),
+                    'work_log_id' => (int) $work_log['id'],
+                ], admin_url('admin.php'));
                 $export_url = wp_nonce_url(
                     add_query_arg([
                         'action' => 'wp_pq_export_work_log',
@@ -552,7 +605,7 @@ class WP_PQ_Admin
                 echo '<td>' . esc_html(self::client_label_from_row($work_log)) . '</td>';
                 echo '<td>' . esc_html(self::bucket_label_from_row($work_log)) . '</td>';
                 echo '<td>' . (int) $work_log['task_count'] . '</td>';
-                echo '<td><a class="button" target="_blank" href="' . esc_url($print_url) . '">Print / PDF</a> <a class="button" href="' . esc_url($export_url) . '">CSV</a></td>';
+                echo '<td><a class="button" href="' . esc_url($view_url) . '">View</a> <a class="button" target="_blank" href="' . esc_url($print_url) . '">Print / PDF</a> <a class="button" href="' . esc_url($export_url) . '">CSV</a></td>';
                 echo '</tr>';
             }
             echo '</tbody></table>';
@@ -598,7 +651,7 @@ class WP_PQ_Admin
                 echo '<h2>' . esc_html((string) $group['client_name']) . '</h2>';
                 echo '<p class="wp-pq-panel-note"><strong>Bucket:</strong> ' . esc_html((string) $group['bucket_name']) . '</p>';
                 echo '<p class="wp-pq-panel-note">' . count($group['tasks']) . ' delivered task(s) in range. Work-log eligible: ' . (int) $group['work_log_ready_count'] . '. Statement eligible: ' . (int) $group['statement_ready_count'] . '.</p>';
-                echo '<table class="widefat striped wp-pq-admin-table"><thead><tr><th>Task</th><th>Delivered</th><th>Work Log</th><th>Statement</th><th>Bucket</th></tr></thead><tbody>';
+                echo '<table class="widefat striped wp-pq-admin-table"><thead><tr><th>Task</th><th>Delivered</th><th>Work Statement</th><th>Statement</th><th>Bucket</th></tr></thead><tbody>';
                 foreach ($group['tasks'] as $task) {
                     echo '<tr>';
                     echo '<td><strong>' . esc_html((string) $task['title']) . '</strong><br><span class="description">#' . (int) $task['id'] . ' · ' . esc_html((string) $task['priority']) . '</span></td>';
@@ -636,7 +689,7 @@ class WP_PQ_Admin
                     foreach ($group['work_log_task_ids'] as $task_id) {
                         echo '<input type="hidden" name="task_ids[]" value="' . (int) $task_id . '">';
                     }
-                    echo '<button class="button" type="submit">Create Work Log (' . (int) $group['work_log_ready_count'] . ')</button>';
+                    echo '<button class="button" type="submit">Create Work Statement (' . (int) $group['work_log_ready_count'] . ')</button>';
                     echo '</form>';
                 }
 
@@ -657,6 +710,277 @@ class WP_PQ_Admin
                 echo '</section>';
             }
         }
+        echo '</div>';
+        echo self::client_picker_script();
+    }
+
+    public static function render_work_logs_page(): void
+    {
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            wp_die('Forbidden');
+        }
+
+        $range = self::get_rollup_range();
+        $selected_client_id = isset($_GET['client_id']) ? (int) $_GET['client_id'] : (isset($_GET['client_user_id']) ? (int) $_GET['client_user_id'] : 0);
+        $selected_work_log_id = isset($_GET['work_log_id']) ? (int) $_GET['work_log_id'] : 0;
+        $work_log_summaries = self::get_work_log_summaries($range['start'], $range['end']);
+        $work_log_detail = $selected_work_log_id > 0 ? self::get_work_log_detail($selected_work_log_id) : null;
+        $clients = self::get_billing_clients();
+
+        if ($selected_client_id > 0) {
+            $work_log_summaries = array_values(array_filter($work_log_summaries, static function (array $log) use ($selected_client_id): bool {
+                return (int) ($log['client_id'] ?? 0) === $selected_client_id;
+            }));
+            if ($work_log_detail && (int) ($work_log_detail['client_id'] ?? 0) !== $selected_client_id) {
+                $work_log_detail = null;
+            }
+        }
+
+        echo '<div class="wrap wp-pq-wrap">';
+        echo '<h1>Work Statements</h1>';
+        echo '<p>Review non-invoice work statements by range, adjust notes, and export a clean PDF or CSV for client-facing delivery.</p>';
+        echo self::admin_section_nav('work_logs');
+
+        if (isset($_GET['wp_pq_notice'])) {
+            $notice = sanitize_key((string) $_GET['wp_pq_notice']);
+            $message = isset($_GET['message']) ? sanitize_text_field(wp_unslash((string) $_GET['message'])) : '';
+            $class = in_array($notice, ['work_log_created', 'work_log_updated'], true) ? 'notice-success' : 'notice-error';
+            echo '<div class="notice ' . esc_attr($class) . '"><p>' . esc_html($message ?: 'Work statement updated.') . '</p></div>';
+        }
+
+        echo self::render_client_datalist($clients, 'wp-pq-client-options');
+        echo '<div class="wp-pq-panel wp-pq-filter-bar">';
+        echo '  <form method="get" class="wp-pq-period-form">';
+        echo '    <input type="hidden" name="page" value="wp-pq-work-logs">';
+        echo '    <label>Month';
+        echo '      <input type="month" name="month" value="' . esc_attr($range['month']) . '">';
+        echo '    </label>';
+        echo '    <label>Custom Start';
+        echo '      <input type="date" name="start_date" value="' . esc_attr($range['custom_start']) . '">';
+        echo '    </label>';
+        echo '    <label>Custom End';
+        echo '      <input type="date" name="end_date" value="' . esc_attr($range['custom_end']) . '">';
+        echo '    </label>';
+        echo self::render_client_picker('work-log-client-filter', 'client_id', $clients, $selected_client_id, 'Client', 'Type a client name or email');
+        echo '    <button class="button" type="submit">Filter Work Statements</button>';
+        echo '  </form>';
+        echo '  <p class="wp-pq-panel-note">Current range: ' . esc_html($range['label']) . '</p>';
+        echo '</div>';
+
+        echo '<div class="wp-pq-billing-grid">';
+        echo '  <section class="wp-pq-panel">';
+        echo '    <h2>Work Statement History</h2>';
+        echo '    <p class="wp-pq-panel-note">Each work statement is a dated roll-up of delivered tasks that should not yet become a billing statement.</p>';
+
+        if (empty($work_log_summaries)) {
+            echo '<p class="wp-pq-empty-state">No work statements have been created in this range yet.</p>';
+        } else {
+            echo '<table class="widefat striped wp-pq-admin-table"><thead><tr><th>Code</th><th>Client</th><th>Job</th><th>Range</th><th>Tasks</th><th>Actions</th></tr></thead><tbody>';
+            foreach ($work_log_summaries as $work_log) {
+                $view_url = add_query_arg([
+                    'page' => 'wp-pq-work-logs',
+                    'month' => $range['month'],
+                    'start_date' => $range['custom_start'],
+                    'end_date' => $range['custom_end'],
+                    'client_id' => $selected_client_id,
+                    'work_log_id' => (int) $work_log['id'],
+                ], admin_url('admin.php'));
+                $print_url = wp_nonce_url(
+                    add_query_arg([
+                        'action' => 'wp_pq_print_work_log',
+                        'work_log_id' => (int) $work_log['id'],
+                    ], admin_url('admin-post.php')),
+                    'wp_pq_print_work_log_' . (int) $work_log['id']
+                );
+                $export_url = wp_nonce_url(
+                    add_query_arg([
+                        'action' => 'wp_pq_export_work_log',
+                        'work_log_id' => (int) $work_log['id'],
+                    ], admin_url('admin-post.php')),
+                    'wp_pq_export_work_log_' . (int) $work_log['id']
+                );
+                echo '<tr>';
+                echo '<td><strong>' . esc_html((string) $work_log['work_log_code']) . '</strong></td>';
+                echo '<td>' . esc_html(self::client_label_from_row($work_log)) . '</td>';
+                echo '<td>' . esc_html(self::bucket_label_from_row($work_log)) . '</td>';
+                echo '<td>' . esc_html(self::format_date_range((string) $work_log['range_start'], (string) $work_log['range_end'])) . '</td>';
+                echo '<td>' . (int) $work_log['task_count'] . '</td>';
+                echo '<td><a class="button" href="' . esc_url($view_url) . '">View</a> <a class="button" target="_blank" href="' . esc_url($print_url) . '">Print / PDF</a> <a class="button" href="' . esc_url($export_url) . '">CSV</a></td>';
+                echo '</tr>';
+            }
+            echo '</tbody></table>';
+        }
+        echo '  </section>';
+
+        echo '  <section class="wp-pq-panel">';
+        echo '    <h2>How To Use Work Statements</h2>';
+        echo '    <p class="wp-pq-panel-note">Use a work statement when you want a polished document of delivered work without moving those tasks into invoice batching yet. Billing statements remain the place for currency, totals, and due dates.</p>';
+        echo '    <div class="wp-pq-admin-callout">';
+        echo '      <p><strong>Good fit:</strong> progress recaps, client-facing delivery summaries, or internal confirmation of completed work.</p>';
+        echo '      <p><strong>Not a fit:</strong> final billing documents that should be sent for payment.</p>';
+        echo '    </div>';
+        echo '  </section>';
+        echo '</div>';
+
+        if ($work_log_detail) {
+            echo '<section class="wp-pq-panel wp-pq-statement-detail">';
+            echo '  <h2>Work Statement ' . esc_html((string) $work_log_detail['work_log_code']) . '</h2>';
+            echo '  <p class="wp-pq-panel-note">Created ' . esc_html(self::format_admin_datetime((string) $work_log_detail['created_at'])) . ' for ' . esc_html(self::client_label_from_row($work_log_detail)) . ' in ' . esc_html(self::bucket_label_from_row($work_log_detail)) . '.</p>';
+            echo '  <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-bucket-form">';
+            wp_nonce_field('wp_pq_update_work_log_' . (int) $work_log_detail['id']);
+            echo '    <input type="hidden" name="action" value="wp_pq_update_work_log">';
+            echo '    <input type="hidden" name="work_log_id" value="' . (int) $work_log_detail['id'] . '">';
+            echo '    <input type="hidden" name="month" value="' . esc_attr($range['month']) . '">';
+            echo '    <input type="hidden" name="start_date" value="' . esc_attr($range['custom_start']) . '">';
+            echo '    <input type="hidden" name="end_date" value="' . esc_attr($range['custom_end']) . '">';
+            echo '    <input type="hidden" name="client_id" value="' . (int) $selected_client_id . '">';
+            echo '    <label>Work statement notes <textarea name="notes" rows="4" placeholder="Optional client-facing notes for this work statement.">' . esc_textarea((string) ($work_log_detail['notes'] ?? '')) . '</textarea></label>';
+            echo '    <div class="wp-pq-inline-action-form">';
+            echo '      <button class="button button-primary" type="submit">Save Work Statement</button>';
+            echo '      <a class="button" target="_blank" href="' . esc_url(wp_nonce_url(add_query_arg([
+                'action' => 'wp_pq_print_work_log',
+                'work_log_id' => (int) $work_log_detail['id'],
+            ], admin_url('admin-post.php')), 'wp_pq_print_work_log_' . (int) $work_log_detail['id'])) . '">Print / PDF</a>';
+            echo '      <a class="button" href="' . esc_url(wp_nonce_url(add_query_arg([
+                'action' => 'wp_pq_export_work_log',
+                'work_log_id' => (int) $work_log_detail['id'],
+            ], admin_url('admin-post.php')), 'wp_pq_export_work_log_' . (int) $work_log_detail['id'])) . '">CSV</a>';
+            echo '    </div>';
+            echo '  </form>';
+            echo '  <table class="widefat striped wp-pq-admin-table">';
+            echo '    <thead><tr><th>Task</th><th>Delivered</th><th>Priority</th><th>Billing status</th></tr></thead>';
+            echo '    <tbody>';
+            foreach ($work_log_detail['tasks'] as $task) {
+                echo '<tr>';
+                echo '<td><strong>' . esc_html((string) $task['title']) . '</strong><br><span class="description">#' . (int) $task['id'] . '</span></td>';
+                echo '<td>' . esc_html(self::format_admin_datetime((string) $task['delivered_at'])) . '</td>';
+                echo '<td>' . esc_html(ucfirst((string) $task['priority'])) . '</td>';
+                echo '<td>' . esc_html(self::humanize_label((string) ($task['billing_status'] ?? 'unbilled'))) . '</td>';
+                echo '</tr>';
+            }
+            echo '    </tbody>';
+            echo '  </table>';
+            echo '</section>';
+        }
+
+        echo '</div>';
+        echo self::client_picker_script();
+    }
+
+    public static function render_ai_import_page(): void
+    {
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            wp_die('Forbidden');
+        }
+
+        $clients = self::get_billing_clients();
+        $selected_client_id = isset($_GET['client_id']) ? (int) $_GET['client_id'] : 0;
+        $preview = self::get_ai_import_preview();
+        if ($preview && $selected_client_id <= 0) {
+            $selected_client_id = (int) ($preview['client_id'] ?? 0);
+        }
+        $client = $selected_client_id > 0 ? self::find_client_by_id($clients, $selected_client_id) : null;
+        $jobs = $selected_client_id > 0 ? self::get_client_bucket_rows($selected_client_id) : [];
+        $openai_key = trim((string) get_option('wp_pq_openai_api_key', ''));
+
+        echo '<div class="wrap wp-pq-wrap">';
+        echo '<h1>AI Import</h1>';
+        echo '<p>Paste a messy task list or upload a document, review the parsed draft, then import it into the live queue with the right client and job context.</p>';
+        echo self::admin_section_nav('ai_import');
+
+        if (isset($_GET['wp_pq_notice'])) {
+            $notice = sanitize_key((string) $_GET['wp_pq_notice']);
+            $message = isset($_GET['message']) ? sanitize_text_field(wp_unslash((string) $_GET['message'])) : '';
+            $class = in_array($notice, ['ai_import_parsed', 'ai_import_done'], true) ? 'notice-success' : 'notice-error';
+            echo '<div class="notice ' . esc_attr($class) . '"><p>' . esc_html($message) . '</p></div>';
+        }
+
+        echo self::render_client_datalist($clients, 'wp-pq-client-options');
+        echo '<div class="wp-pq-billing-grid">';
+        echo '  <section class="wp-pq-panel">';
+        echo '    <h2>Parse Source Document</h2>';
+        if ($openai_key === '') {
+            echo '    <div class="wp-pq-admin-callout"><p>Add your OpenAI API key in <a href="' . esc_url(admin_url('admin.php?page=wp-pq-settings')) . '">Settings</a> before using the ingester.</p></div>';
+        }
+        echo '    <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" enctype="multipart/form-data" class="wp-pq-ai-form">';
+        wp_nonce_field('wp_pq_ai_parse');
+        echo '      <input type="hidden" name="action" value="wp_pq_ai_parse">';
+        echo self::render_client_picker('ai-import-client', 'client_id', $clients, $selected_client_id, 'Client', 'Type a client name or email', true);
+        echo '      <label>Paste task list text';
+        echo '        <textarea name="source_text" rows="12" placeholder="Paste notes, bullets, email copy, or a rough master list here."></textarea>';
+        echo '      </label>';
+        echo '      <label>Or upload a document';
+        echo '        <input type="file" name="source_file" accept=".txt,.md,.csv,.json,.pdf">';
+        echo '      </label>';
+        echo '      <div class="wp-pq-create-actions">';
+        echo '        <button class="button button-primary" type="submit"' . ($openai_key === '' ? ' disabled' : '') . '>Parse With OpenAI</button>';
+        echo '      </div>';
+        echo '    </form>';
+        echo '  </section>';
+
+        echo '  <section class="wp-pq-panel">';
+        echo '    <h2>Importer Rules</h2>';
+        echo '    <div class="wp-pq-admin-callout">';
+        echo '      <p><strong>Flow:</strong> parse → preview → commit.</p>';
+        echo '      <p><strong>Jobs:</strong> existing job names are reused when possible; missing ones are created on import.</p>';
+        echo '      <p><strong>Requester:</strong> imported tasks are attributed to the client primary contact, not to you as PM.</p>';
+        echo '      <p><strong>Status:</strong> imported tasks default to pending approval unless the source clearly marks them complete.</p>';
+        echo '    </div>';
+        if ($client) {
+            echo '<p class="wp-pq-panel-note"><strong>Selected client:</strong> ' . esc_html((string) $client['label']) . '</p>';
+        }
+        if (! empty($jobs)) {
+            echo '<div class="wp-pq-chip-row">';
+            foreach ($jobs as $job) {
+                echo '<span class="wp-pq-detail-pill">' . esc_html(self::bucket_label_from_row($job)) . '</span>';
+            }
+            echo '</div>';
+        }
+        echo '  </section>';
+        echo '</div>';
+
+        if ($preview) {
+            echo '<section class="wp-pq-panel wp-pq-ai-preview">';
+            echo '  <h2>Preview Import</h2>';
+            echo '  <p class="wp-pq-panel-note">' . esc_html((string) ($preview['summary'] ?? 'Parsed task list.')) . '</p>';
+            echo '  <p class="wp-pq-panel-note">Client: ' . esc_html((string) ($preview['client_label'] ?? 'Client')) . ' · Source: ' . esc_html((string) ($preview['source_name'] ?? 'Pasted text')) . ' · Tasks: ' . (int) count((array) ($preview['tasks'] ?? [])) . '</p>';
+            echo '  <table class="widefat striped wp-pq-admin-table">';
+            echo '    <thead><tr><th>Task</th><th>Job</th><th>Priority</th><th>Owner Hint</th><th>Billable</th><th>Status</th></tr></thead>';
+            echo '    <tbody>';
+            foreach ((array) ($preview['tasks'] ?? []) as $task) {
+                $job_name = (string) ($task['job_name'] ?? '');
+                $job_label = $job_name !== '' ? $job_name : 'Default job';
+                if (! empty($task['job_exists'])) {
+                    $job_label .= ' (existing)';
+                } elseif ($job_name !== '') {
+                    $job_label .= ' (new)';
+                }
+                echo '<tr>';
+                echo '<td><strong>' . esc_html((string) ($task['title'] ?? 'Task')) . '</strong><br><span class="description">' . esc_html(wp_trim_words((string) ($task['description'] ?? ''), 18)) . '</span></td>';
+                echo '<td>' . esc_html($job_label) . '</td>';
+                echo '<td>' . esc_html(ucfirst((string) ($task['priority'] ?? 'normal'))) . '</td>';
+                echo '<td>' . esc_html((string) ($task['action_owner_hint'] ?? '')) . '</td>';
+                echo '<td>' . esc_html(self::humanize_label((string) self::render_ai_billable_label($task['is_billable'] ?? null))) . '</td>';
+                echo '<td>' . esc_html(self::humanize_label((string) ($task['status_hint'] ?? 'pending_approval'))) . '</td>';
+                echo '</tr>';
+            }
+            echo '    </tbody>';
+            echo '  </table>';
+            echo '  <div class="wp-pq-inline-action-form">';
+            echo '    <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+            wp_nonce_field('wp_pq_ai_import');
+            echo '      <input type="hidden" name="action" value="wp_pq_ai_import">';
+            echo '      <button class="button button-primary" type="submit">Import Parsed Tasks</button>';
+            echo '    </form>';
+            echo '    <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+            wp_nonce_field('wp_pq_ai_clear_preview');
+            echo '      <input type="hidden" name="action" value="wp_pq_ai_clear_preview">';
+            echo '      <button class="button" type="submit">Discard Preview</button>';
+            echo '    </form>';
+            echo '  </div>';
+            echo '</section>';
+        }
+
         echo '</div>';
         echo self::client_picker_script();
     }
@@ -1094,7 +1418,34 @@ class WP_PQ_Admin
             exit;
         }
 
-        wp_safe_redirect(self::admin_redirect_url('wp-pq-rollups', 'work_log_created', sprintf('Work log %s created with %d task%s.', $result['code'], (int) $result['task_count'], ((int) $result['task_count'] === 1 ? '' : 's'))));
+        wp_safe_redirect(self::admin_redirect_url('wp-pq-rollups', 'work_log_created', sprintf('Work statement %s created with %d task%s.', $result['code'], (int) $result['task_count'], ((int) $result['task_count'] === 1 ? '' : 's'))));
+        exit;
+    }
+
+    public static function handle_update_work_log(): void
+    {
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            wp_die('Forbidden');
+        }
+
+        $work_log_id = isset($_POST['work_log_id']) ? (int) $_POST['work_log_id'] : 0;
+        check_admin_referer('wp_pq_update_work_log_' . $work_log_id);
+
+        if ($work_log_id <= 0) {
+            wp_safe_redirect(self::admin_redirect_url('wp-pq-work-logs', 'work_log_error', 'Work statement not found.'));
+            exit;
+        }
+
+        global $wpdb;
+        $notes = sanitize_textarea_field(wp_unslash((string) ($_POST['notes'] ?? '')));
+        $wpdb->update($wpdb->prefix . 'pq_work_logs', [
+            'notes' => $notes,
+        ], ['id' => $work_log_id]);
+
+        wp_safe_redirect(self::admin_redirect_url('wp-pq-work-logs', 'work_log_updated', 'Work statement details updated.', self::get_rollup_range_from_request($_POST), [
+            'client_id' => isset($_POST['client_id']) ? (int) $_POST['client_id'] : 0,
+            'work_log_id' => $work_log_id,
+        ]));
         exit;
     }
 
@@ -1170,6 +1521,145 @@ class WP_PQ_Admin
         exit;
     }
 
+    public static function handle_ai_parse(): void
+    {
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            wp_die('Forbidden');
+        }
+
+        check_admin_referer('wp_pq_ai_parse');
+        $client_id = isset($_POST['client_id']) ? (int) $_POST['client_id'] : 0;
+        if ($client_id <= 0) {
+            wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_error', 'Choose a client before parsing.'));
+            exit;
+        }
+
+        $source_text = trim((string) wp_unslash($_POST['source_text'] ?? ''));
+        $upload = $_FILES['source_file'] ?? null;
+        $file_path = '';
+        $file_name = '';
+        $mime_type = '';
+        if (is_array($upload) && ! empty($upload['tmp_name']) && (int) ($upload['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+            $file_path = (string) $upload['tmp_name'];
+            $file_name = sanitize_file_name((string) ($upload['name'] ?? 'document'));
+            $mime_type = sanitize_mime_type((string) ($upload['type'] ?? ''));
+        }
+
+        $client_name = WP_PQ_DB::get_client_name($client_id);
+        $jobs = array_map(static fn(array $job): string => (string) ($job['bucket_name'] ?? ''), self::get_client_bucket_rows($client_id));
+        $parsed = WP_PQ_AI_Importer::parse_document([
+            'api_key' => (string) get_option('wp_pq_openai_api_key', ''),
+            'model' => (string) get_option('wp_pq_openai_model', 'gpt-4o-mini'),
+            'client_name' => $client_name,
+            'known_jobs' => $jobs,
+            'source_text' => $source_text,
+            'file_path' => $file_path,
+            'file_name' => $file_name,
+            'mime_type' => $mime_type,
+        ]);
+
+        if (is_wp_error($parsed)) {
+            wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_error', $parsed->get_error_message(), [], ['client_id' => $client_id]));
+            exit;
+        }
+        if (empty($parsed['tasks'])) {
+            wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_error', 'OpenAI did not find any importable tasks in that source.', [], ['client_id' => $client_id]));
+            exit;
+        }
+
+        $preview = [
+            'client_id' => $client_id,
+            'client_label' => $client_name,
+            'source_name' => $file_name !== '' ? $file_name : 'Pasted text',
+            'summary' => (string) ($parsed['summary'] ?? 'Parsed task list'),
+            'tasks' => (array) ($parsed['tasks'] ?? []),
+            'created_at' => current_time('mysql', true),
+        ];
+        self::store_ai_import_preview($preview);
+
+        wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_parsed', sprintf('Parsed %d task%s. Review them before import.', count($preview['tasks']), count($preview['tasks']) === 1 ? '' : 's'), [], ['client_id' => $client_id]));
+        exit;
+    }
+
+    public static function handle_ai_import(): void
+    {
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            wp_die('Forbidden');
+        }
+
+        check_admin_referer('wp_pq_ai_import');
+        $preview = self::get_ai_import_preview();
+        if (! $preview || empty($preview['tasks'])) {
+            wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_error', 'There is no parsed preview ready to import.'));
+            exit;
+        }
+
+        $client_id = (int) ($preview['client_id'] ?? 0);
+        $submitter_id = WP_PQ_DB::get_primary_contact_user_id($client_id);
+        $imported = 0;
+        $errors = [];
+
+        foreach ((array) $preview['tasks'] as $task) {
+            $job_name = trim((string) ($task['job_name'] ?? ''));
+            $bucket_id = $job_name !== '' ? self::create_bucket_for_client($client_id, $job_name) : WP_PQ_DB::get_or_create_default_billing_bucket_id($client_id);
+            $action_owner_id = self::resolve_import_user_id((string) ($task['action_owner_hint'] ?? ''), $client_id);
+            $request = new WP_REST_Request('POST', '/pq/v1/tasks');
+            $request->set_param('title', (string) ($task['title'] ?? ''));
+            $request->set_param('description', (string) ($task['description'] ?? ''));
+            $request->set_param('priority', (string) ($task['priority'] ?? 'normal'));
+            $request->set_param('requested_deadline', self::normalize_import_deadline((string) ($task['requested_deadline'] ?? '')));
+            $request->set_param('needs_meeting', ! empty($task['needs_meeting']));
+            $request->set_param('client_id', $client_id);
+            $request->set_param('submitter_id', $submitter_id);
+            $request->set_param('billing_bucket_id', $bucket_id);
+            if ($action_owner_id > 0) {
+                $request->set_param('owner_ids', [$action_owner_id]);
+            }
+            if (($task['is_billable'] ?? null) !== null) {
+                $request->set_param('is_billable', ! empty($task['is_billable']));
+            }
+
+            $response = WP_PQ_API::create_task($request);
+            if ($response->get_status() >= 400) {
+                $data = (array) $response->get_data();
+                $errors[] = (string) ($data['message'] ?? 'Task import failed.');
+                continue;
+            }
+
+            $task_id = (int) (($response->get_data()['task_id'] ?? 0));
+            $status_hint = sanitize_key((string) ($task['status_hint'] ?? 'pending_approval'));
+            if ($task_id > 0 && in_array($status_hint, ['pending_review', 'delivered'], true)) {
+                global $wpdb;
+                $wpdb->update($wpdb->prefix . 'pq_tasks', [
+                    'status' => $status_hint,
+                    'delivered_at' => $status_hint === 'delivered' ? current_time('mysql', true) : null,
+                    'updated_at' => current_time('mysql', true),
+                ], ['id' => $task_id]);
+            }
+            $imported++;
+        }
+
+        self::clear_ai_import_preview();
+        $message = sprintf('Imported %d task%s.', $imported, $imported === 1 ? '' : 's');
+        if (! empty($errors)) {
+            $message .= ' ' . count($errors) . ' item(s) could not be imported.';
+        }
+        wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_done', $message, [], ['client_id' => $client_id]));
+        exit;
+    }
+
+    public static function handle_ai_clear_preview(): void
+    {
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            wp_die('Forbidden');
+        }
+
+        check_admin_referer('wp_pq_ai_clear_preview');
+        self::clear_ai_import_preview();
+        wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_parsed', 'Preview discarded.'));
+        exit;
+    }
+
     public static function handle_export_work_log(): void
     {
         if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
@@ -1188,7 +1678,7 @@ class WP_PQ_Admin
         header('Content-Disposition: attachment; filename=' . sanitize_file_name($work_log['work_log_code'] . '.csv'));
 
         $out = fopen('php://output', 'w');
-        fputcsv($out, ['Work Log Code', 'Client', 'Bucket', 'Range Start', 'Range End', 'Task ID', 'Task Title', 'Delivered At', 'Priority']);
+        fputcsv($out, ['Work Statement Code', 'Client', 'Bucket', 'Range Start', 'Range End', 'Task ID', 'Task Title', 'Delivered At', 'Priority']);
         foreach ($work_log['tasks'] as $task) {
             fputcsv($out, [
                 $work_log['work_log_code'],
@@ -1219,7 +1709,7 @@ class WP_PQ_Admin
             wp_die('Work log not found.');
         }
 
-        self::render_print_document('Work Log', [
+        self::render_print_document('Work Statement', [
             'code' => (string) $work_log['work_log_code'],
             'client' => self::client_label_from_row($work_log),
             'bucket' => self::bucket_label_from_row($work_log),
@@ -1303,7 +1793,9 @@ class WP_PQ_Admin
 
         if (current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
             $items['rollups'] = ['label' => 'Billing Rollup', 'url' => admin_url('admin.php?page=wp-pq-rollups')];
+            $items['work_logs'] = ['label' => 'Work Statements', 'url' => admin_url('admin.php?page=wp-pq-work-logs')];
             $items['statements'] = ['label' => 'Statements', 'url' => admin_url('admin.php?page=wp-pq-statements')];
+            $items['ai_import'] = ['label' => 'AI Import', 'url' => admin_url('admin.php?page=wp-pq-ai-import')];
             $items['settings'] = ['label' => 'Settings', 'url' => admin_url('admin.php?page=wp-pq-settings')];
         }
 
@@ -1433,6 +1925,20 @@ class WP_PQ_Admin
         }
 
         return $rows;
+    }
+
+    private static function get_client_bucket_rows(int $client_id): array
+    {
+        global $wpdb;
+
+        if ($client_id <= 0) {
+            return [];
+        }
+
+        return $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}pq_billing_buckets WHERE client_id = %d ORDER BY is_default DESC, bucket_name ASC, id ASC",
+            $client_id
+        ), ARRAY_A);
     }
 
     private static function get_client_directory_rows(): array
@@ -1819,6 +2325,94 @@ class WP_PQ_Admin
         return '<label>' . esc_html($label)
             . '<input type="text" class="wp-pq-client-picker" id="' . esc_attr($base_id) . '-search" data-hidden-target="' . esc_attr($base_id) . '-value" list="wp-pq-client-options" value="' . esc_attr((string) ($selected['label'] ?? '')) . '" placeholder="' . esc_attr($placeholder) . '"' . $required_attr . '>'
             . '<input type="hidden" id="' . esc_attr($base_id) . '-value" name="' . esc_attr($hidden_name) . '" value="' . (int) $selected_id . '"></label>';
+    }
+
+    private static function render_ai_billable_label($value): string
+    {
+        if ($value === null || $value === '') {
+            return 'auto';
+        }
+
+        return ! empty($value) ? 'billable' : 'not billable';
+    }
+
+    private static function ai_import_preview_key(): string
+    {
+        return 'wp_pq_ai_import_preview_' . get_current_user_id();
+    }
+
+    private static function store_ai_import_preview(array $preview): void
+    {
+        set_transient(self::ai_import_preview_key(), $preview, HOUR_IN_SECONDS);
+    }
+
+    private static function get_ai_import_preview(): ?array
+    {
+        $preview = get_transient(self::ai_import_preview_key());
+        return is_array($preview) ? $preview : null;
+    }
+
+    private static function clear_ai_import_preview(): void
+    {
+        delete_transient(self::ai_import_preview_key());
+    }
+
+    private static function resolve_import_user_id(string $hint, int $client_id): int
+    {
+        $hint = trim(strtolower($hint));
+        if ($hint === '') {
+            return 0;
+        }
+
+        $client_user_ids = [];
+        foreach (WP_PQ_DB::get_client_memberships($client_id) as $membership) {
+            $client_user_ids[] = (int) ($membership['user_id'] ?? 0);
+        }
+        $internal_users = get_users([
+            'role__in' => ['administrator', 'pq_manager', 'pq_worker'],
+            'fields' => ['ID', 'display_name', 'user_email', 'user_login'],
+        ]);
+
+        $candidates = [];
+        foreach ($internal_users as $user) {
+            $candidates[(int) $user->ID] = $user;
+        }
+        foreach ($client_user_ids as $user_id) {
+            $user = get_user_by('ID', $user_id);
+            if ($user) {
+                $candidates[(int) $user->ID] = $user;
+            }
+        }
+
+        foreach ($candidates as $candidate) {
+            $haystacks = [
+                strtolower((string) $candidate->display_name),
+                strtolower((string) $candidate->user_login),
+                strtolower((string) $candidate->user_email),
+            ];
+            foreach ($haystacks as $value) {
+                if ($value !== '' && (str_contains($value, $hint) || str_contains($hint, $value))) {
+                    return (int) $candidate->ID;
+                }
+            }
+        }
+
+        return 0;
+    }
+
+    private static function normalize_import_deadline(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        $timestamp = strtotime($value);
+        if (! $timestamp) {
+            return '';
+        }
+
+        return gmdate('Y-m-d H:i:s', $timestamp);
     }
 
     private static function render_user_picker(string $base_id, string $hidden_name, array $users, int $selected_id, string $label, string $placeholder, bool $required = false, string $list_id = 'wp-pq-user-options'): string

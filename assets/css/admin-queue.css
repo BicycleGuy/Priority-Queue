@@ -145,7 +145,7 @@
 }
 
 .wp-pq-settings-grid {
-  grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 }
 
 .wp-pq-settings-panel {
@@ -273,6 +273,15 @@
 }
 
 .wp-pq-statement-detail {
+  margin-top: 18px;
+}
+
+.wp-pq-ai-form {
+  display: grid;
+  gap: 12px;
+}
+
+.wp-pq-ai-preview {
   margin-top: 18px;
 }
 

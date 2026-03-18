@@ -239,8 +239,13 @@ class WP_PQ_API
         }
 
         $allowed_assign = current_user_can(WP_PQ_Roles::CAP_ASSIGN);
+        $requested_submitter_id = (int) $request->get_param('submitter_id');
+        $submitter_id = $user_id;
+        if (current_user_can(WP_PQ_Roles::CAP_APPROVE) && $requested_submitter_id > 0 && get_user_by('ID', $requested_submitter_id)) {
+            $submitter_id = $requested_submitter_id;
+        }
         $owner_ids = array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('owner_ids')))));
-        $client_id = self::resolve_client_id($request, $user_id);
+        $client_id = self::resolve_client_id($request, $submitter_id);
         $client_user_id = self::resolve_client_primary_contact_id($client_id, $user_id);
         $billing_bucket_id = self::resolve_billing_bucket_id($request, $client_id);
         $new_bucket_name = sanitize_text_field((string) $request->get_param('new_bucket_name'));
@@ -261,9 +266,9 @@ class WP_PQ_API
             'queue_position' => $max_position + 1,
             'due_at' => self::sanitize_datetime($request->get_param('due_at')),
             'requested_deadline' => self::sanitize_datetime($request->get_param('requested_deadline')),
-            'submitter_id' => $user_id,
+            'submitter_id' => $submitter_id,
             'client_id' => $client_id > 0 ? $client_id : null,
-            'client_user_id' => $client_user_id > 0 ? $client_user_id : $user_id,
+            'client_user_id' => $client_user_id > 0 ? $client_user_id : $submitter_id,
             'action_owner_id' => $action_owner_id > 0 ? $action_owner_id : null,
             'is_billable' => $is_billable,
             'billing_bucket_id' => $billing_bucket_id > 0 ? $billing_bucket_id : null,
@@ -280,11 +285,11 @@ class WP_PQ_API
 
         $task_id = (int) $wpdb->insert_id;
         if ($client_id > 0) {
-            if ($user_id > 0 && self::user_has_role($user_id, 'pq_client')) {
-                WP_PQ_DB::ensure_client_member($client_id, $user_id, 'client_admin');
+            if ($submitter_id > 0 && self::user_has_role($submitter_id, 'pq_client')) {
+                WP_PQ_DB::ensure_client_member($client_id, $submitter_id, 'client_admin');
             }
-            if ($billing_bucket_id > 0 && $user_id > 0 && self::user_has_role($user_id, 'pq_client')) {
-                WP_PQ_DB::ensure_job_member($billing_bucket_id, $user_id);
+            if ($billing_bucket_id > 0 && $submitter_id > 0 && self::user_has_role($submitter_id, 'pq_client')) {
+                WP_PQ_DB::ensure_job_member($billing_bucket_id, $submitter_id);
             }
         }
         self::sync_task_calendar_event((array) self::get_task_row($task_id));
