@@ -59,7 +59,7 @@ class WP_PQ_Portal
         ob_start();
         echo '<div class="wp-pq-wrap wp-pq-portal">';
         echo '  <div class="wp-pq-app-shell">';
-        echo '    <aside class="wp-pq-panel wp-pq-binder">';
+        echo '    <aside class="wp-pq-binder">';
         echo '      <div class="wp-pq-binder-head">';
         echo '        <p class="wp-pq-kicker">Readspear Workflow</p>';
         echo '        <h2>Priority Portal</h2>';
@@ -169,7 +169,7 @@ class WP_PQ_Portal
         echo '    <button class="button button-primary" type="button" id="wp-pq-save-prefs">Save Preferences</button>';
         echo '  </section>';
 
-        echo '  <section class="wp-pq-panel wp-pq-board-shell">';
+        echo '  <section class="wp-pq-board-shell">';
         echo '    <div class="wp-pq-section-heading">';
         echo '      <div>';
         echo '        <h3>Task Board</h3>';

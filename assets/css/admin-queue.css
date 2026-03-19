@@ -71,6 +71,14 @@
   box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.22);
 }
 
+.wp-pq-portal .button,
+.wp-pq-portal .button.button-primary {
+  border-radius: 11px;
+  min-height: 38px;
+  padding: 8px 14px;
+  font-size: 13px;
+}
+
 .wp-pq-wrap input[type='text'],
 .wp-pq-wrap input[type='datetime-local'],
 .wp-pq-wrap input[type='file'],
@@ -583,9 +591,15 @@
 
 .wp-pq-app-shell {
   display: grid;
-  grid-template-columns: minmax(240px, 290px) minmax(0, 1fr);
-  gap: 18px;
-  align-items: start;
+  grid-template-columns: minmax(248px, 286px) minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
+  min-height: calc(100vh - 90px);
+  background: #fbfcfd;
+  border: 1px solid #dde4ee;
+  border-radius: 26px;
+  overflow: hidden;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.06);
 }
 
 .wp-pq-binder {
@@ -593,26 +607,35 @@
   top: 46px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 26px;
   align-content: start;
-  padding: 20px 18px;
-  min-height: calc(100vh - 56px);
+  padding: 24px 18px 18px;
+  min-height: calc(100vh - 90px);
+  background: #252a30;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: none;
 }
 
 .wp-pq-binder-head {
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 
 .wp-pq-binder-head h2 {
   font-size: clamp(1.7rem, 2.8vw, 2.2rem);
   line-height: 1.03;
   letter-spacing: -0.02em;
+  color: #f8fafc;
+}
+
+.wp-pq-binder .wp-pq-panel-note,
+.wp-pq-binder .wp-pq-kicker {
+  color: #9aa4b2;
 }
 
 .wp-pq-binder-section {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
 .wp-pq-binder-section-bottom {
@@ -621,7 +644,7 @@
 
 .wp-pq-binder-label {
   margin: 0;
-  color: var(--pq-muted);
+  color: #9aa4b2;
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -629,11 +652,27 @@
 }
 
 .wp-pq-binder-context {
-  padding-top: 4px;
-  color: var(--pq-ink);
+  padding-top: 2px;
+  color: #e8edf5;
   font-size: 12px;
-  font-weight: 600;
-  line-height: 1.35;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.wp-pq-binder .wp-pq-board-filters {
+  gap: 10px;
+}
+
+.wp-pq-binder .wp-pq-filter-control {
+  color: #9aa4b2;
+}
+
+.wp-pq-binder .wp-pq-filter-control select {
+  min-height: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #f8fafc;
 }
 
 .wp-pq-saved-view-list,
@@ -653,29 +692,30 @@
   justify-content: center;
   font-size: 16px !important;
   font-weight: 800 !important;
+  border-radius: 12px !important;
 }
 
 .wp-pq-alerts-link {
   width: 100%;
-  min-height: 34px !important;
+  min-height: 38px !important;
   justify-content: space-between;
-  padding: 6px 10px !important;
-  border: 1px solid var(--pq-border) !important;
-  border-radius: 14px !important;
-  background: #fff !important;
-  color: var(--pq-ink) !important;
+  padding: 8px 10px !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 10px !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  color: #f3f6fb !important;
   font-size: 13px !important;
   font-weight: 700 !important;
 }
 
 .wp-pq-alerts-link:hover {
-  background: var(--pq-soft) !important;
-  color: var(--pq-ink) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #fff !important;
 }
 
 .wp-pq-alerts-link.has-unread {
-  border-color: #e3c6c6 !important;
-  background: #fff8f8 !important;
+  border-color: rgba(185, 28, 28, 0.36) !important;
+  background: rgba(185, 28, 28, 0.18) !important;
 }
 
 .wp-pq-binder .wp-pq-inline-count {
@@ -685,15 +725,47 @@
   margin-left: 10px;
   padding: 0;
   border-radius: 999px;
-  background: #e7edf7;
-  color: var(--pq-ink);
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
   font-size: 10px;
   font-weight: 800;
 }
 
 .wp-pq-alerts-link.has-unread .wp-pq-inline-count {
-  background: #b91c1c;
-  color: #fff;
+  background: #fff;
+  color: #991b1b;
+}
+
+.wp-pq-view-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.wp-pq-view-toggle .button {
+  justify-content: center;
+  min-height: 34px !important;
+  border: 0 !important;
+  border-radius: 8px !important;
+  background: transparent !important;
+  color: #aeb8c7 !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+}
+
+.wp-pq-view-toggle .button:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #f8fafc !important;
+}
+
+.wp-pq-view-toggle .button.is-active,
+.wp-pq-view-toggle .button.button-primary {
+  background: #f2f5f9 !important;
+  color: var(--pq-ink) !important;
+  box-shadow: none !important;
 }
 
 .wp-pq-binder .wp-pq-filter-nav .button {
@@ -701,50 +773,54 @@
   justify-content: flex-start;
   min-height: 38px !important;
   padding: 8px 12px !important;
-  border: 1px solid var(--pq-border) !important;
-  border-radius: 13px !important;
-  background: #fff !important;
-  color: var(--pq-ink) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 10px !important;
+  background: transparent !important;
+  color: #dfe6ef !important;
   font-size: 14px !important;
-  font-weight: 700 !important;
+  font-weight: 600 !important;
   text-align: left;
+  box-shadow: none !important;
 }
 
 .wp-pq-binder .wp-pq-filter-nav .button:hover {
-  background: var(--pq-soft) !important;
-  color: var(--pq-ink) !important;
+  background: rgba(255, 255, 255, 0.07) !important;
+  color: #fff !important;
 }
 
 .wp-pq-binder .wp-pq-filter-nav .button.is-active,
 .wp-pq-binder .wp-pq-filter-nav .button.button-primary {
-  border-color: #c7d1df !important;
-  background: #e8eef8 !important;
-  color: var(--pq-ink) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  background: rgba(255, 255, 255, 0.14) !important;
+  color: #fff !important;
   box-shadow: none !important;
 }
 
 .wp-pq-binder-section-bottom > .button {
   width: 100%;
   justify-content: flex-start;
-  border: 1px solid var(--pq-border) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 10px !important;
   background: transparent !important;
-  color: var(--pq-muted) !important;
+  color: #b9c3d2 !important;
 }
 
 .wp-pq-binder-section-bottom > .button:hover {
-  background: var(--pq-soft) !important;
-  color: var(--pq-ink) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: #fff !important;
 }
 
 .wp-pq-workspace {
   display: grid;
-  gap: 14px;
+  gap: 18px;
   min-width: 0;
+  padding: 24px 28px 30px;
+  background: #fbfcfd;
 }
 
 .wp-pq-kicker {
   margin: 0 0 6px;
-  color: #8a97ad;
+  color: #9aa4b2;
   font-size: 0.68rem;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -824,9 +900,23 @@
 .wp-pq-board-shell {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 14px;
-  padding: 18px;
+  gap: 18px;
+  padding: 0;
   align-items: start;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.wp-pq-board-shell > .wp-pq-section-heading {
+  margin-bottom: 0;
+  padding: 2px 2px 12px;
+  border-bottom: 1px solid #e3e8f0;
+}
+
+.wp-pq-board-shell > .wp-pq-section-heading .wp-pq-panel-note {
+  max-width: 42rem;
 }
 
 .wp-pq-board-summary {
@@ -884,11 +974,11 @@
   width: 100%;
   appearance: none;
   -webkit-appearance: none;
-  border: 1px solid #d7e0ec;
-  border-radius: 13px;
-  background: #ecf2fb !important;
-  color: var(--pq-ink) !important;
-  padding: 6px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04) !important;
+  color: #f3f6fb !important;
+  padding: 8px 10px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -896,18 +986,18 @@
 }
 
 .wp-pq-summary-row:hover {
-  background: #e4edf9 !important;
-  color: var(--pq-ink) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #fff !important;
 }
 
 .wp-pq-summary-row.is-active {
-  border-color: #d3dbe7;
-  background: #e2ecf8 !important;
-  color: var(--pq-ink) !important;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.12) !important;
+  color: #fff !important;
 }
 
 .wp-pq-summary-row.is-warning {
-  border-color: #b91c1c;
+  border-color: rgba(185, 28, 28, 0.45);
   background: var(--pq-accent) !important;
   color: #fff !important;
 }
@@ -933,9 +1023,9 @@
   min-width: 22px;
   height: 22px;
   padding: 0 7px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.08);
-  color: var(--pq-ink) !important;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff !important;
   font-size: 11px;
   font-weight: 800;
 }
@@ -948,19 +1038,26 @@
 
 .wp-pq-binder-secondary-actions .button {
   width: 100%;
-  justify-content: center;
-  min-height: 34px !important;
-  background: #263348 !important;
+  justify-content: flex-start;
+  min-height: 38px !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 10px !important;
+  background: transparent !important;
+  color: #dfe6ef !important;
+}
+
+.wp-pq-binder-secondary-actions .button:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
   color: #fff !important;
 }
 
 .wp-pq-board {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: minmax(248px, 272px);
-  gap: 18px;
+  grid-auto-columns: minmax(254px, 290px);
+  gap: 22px;
   overflow-x: auto;
-  padding-bottom: 10px;
+  padding: 4px 2px 14px;
   align-items: start;
   scrollbar-width: thin;
 }
@@ -979,13 +1076,15 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 10px;
-  padding: 0 4px 2px;
+  margin-bottom: 12px;
+  padding: 0 0 8px;
+  border-bottom: 1px solid #e3e8f0;
 }
 
 .wp-pq-board-column-head h4 {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 0.88rem;
+  letter-spacing: 0.01em;
 }
 
 .wp-pq-board-column-head span {
@@ -993,9 +1092,10 @@
   align-items: center;
   justify-content: center;
   min-width: 24px;
-  height: 24px;
-  border-radius: 999px;
-  background: var(--pq-soft);
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 8px;
+  background: #eef2f7;
   border: 0;
   font-size: 10px;
   font-weight: 700;
