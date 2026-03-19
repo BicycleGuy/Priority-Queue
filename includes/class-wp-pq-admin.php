@@ -14,6 +14,7 @@ class WP_PQ_Admin
         add_action('admin_post_wp_pq_create_client', [self::class, 'handle_create_client']);
         add_action('admin_post_wp_pq_link_client', [self::class, 'handle_link_client']);
         add_action('admin_post_wp_pq_create_bucket', [self::class, 'handle_create_bucket']);
+        add_action('admin_post_wp_pq_delete_bucket', [self::class, 'handle_delete_bucket']);
         add_action('admin_post_wp_pq_add_client_member', [self::class, 'handle_add_client_member']);
         add_action('admin_post_wp_pq_assign_job_member', [self::class, 'handle_assign_job_member']);
         add_action('admin_post_wp_pq_assign_bucket', [self::class, 'handle_assign_bucket']);
@@ -26,6 +27,7 @@ class WP_PQ_Admin
         add_action('admin_post_wp_pq_print_statement', [self::class, 'handle_print_statement']);
         add_action('admin_post_wp_pq_update_statement', [self::class, 'handle_update_statement']);
         add_action('admin_post_wp_pq_ai_parse', [self::class, 'handle_ai_parse']);
+        add_action('admin_post_wp_pq_ai_revalidate', [self::class, 'handle_ai_revalidate']);
         add_action('admin_post_wp_pq_ai_import', [self::class, 'handle_ai_import']);
         add_action('admin_post_wp_pq_ai_clear_preview', [self::class, 'handle_ai_clear_preview']);
         add_action('admin_enqueue_scripts', [self::class, 'enqueue_assets']);
@@ -128,6 +130,7 @@ class WP_PQ_Admin
         wp_localize_script('wp-pq-admin', 'wpPqConfig', [
             'root' => esc_url_raw(rest_url('pq/v1/')),
             'coreRoot' => esc_url_raw(rest_url('wp/v2/')),
+            'adminUrl' => esc_url_raw(admin_url('admin.php')),
             'nonce' => wp_create_nonce('wp_rest'),
             'canApprove' => current_user_can(WP_PQ_Roles::CAP_APPROVE),
             'canAssign' => current_user_can(WP_PQ_Roles::CAP_ASSIGN),
@@ -499,75 +502,7 @@ class WP_PQ_Admin
         echo '</div>';
 
         echo '<div class="wp-pq-billing-grid">';
-        echo '  <section class="wp-pq-panel">';
-        echo '    <h2>Clients &amp; Jobs</h2>';
-        echo '    <p class="wp-pq-panel-note">Create a client, give them a first job, then sort delivered work into the right client job.</p>';
-        echo self::render_client_datalist($clients, 'wp-pq-client-options');
-        echo '    <div class="wp-pq-admin-stack">';
-        echo '      <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-bucket-form">';
-        wp_nonce_field('wp_pq_create_client');
-        echo '        <input type="hidden" name="action" value="wp_pq_create_client">';
-        echo '        <input type="hidden" name="redirect_page" value="wp-pq-rollups">';
-        echo '        <input type="hidden" name="month" value="' . esc_attr($range['month']) . '">';
-        echo '        <input type="hidden" name="start_date" value="' . esc_attr($range['custom_start']) . '">';
-        echo '        <input type="hidden" name="end_date" value="' . esc_attr($range['custom_end']) . '">';
-        echo '        <h3>Create Client</h3>';
-        echo '        <label>Client name <input type="text" name="client_name" placeholder="Read Spear" required></label>';
-        echo '        <label>Client email <input type="email" name="client_email" placeholder="client@example.com" required></label>';
-        echo '        <label>First job <input type="text" name="initial_bucket_name" placeholder="Client Name - Main" required></label>';
-        echo '        <button class="button button-primary" type="submit">Create Client</button>';
-        echo '      </form>';
-        echo '      <form method="get" class="wp-pq-bucket-form wp-pq-client-filter-form">';
-        echo '        <input type="hidden" name="page" value="wp-pq-rollups">';
-        echo '        <input type="hidden" name="month" value="' . esc_attr($range['month']) . '">';
-        echo '        <input type="hidden" name="start_date" value="' . esc_attr($range['custom_start']) . '">';
-        echo '        <input type="hidden" name="end_date" value="' . esc_attr($range['custom_end']) . '">';
-        echo '        <h3>Find Client</h3>';
-        echo self::render_client_picker('rollup-client-filter', 'client_id', $clients, $selected_client_id, 'Search client', 'Type a client name or email');
-        echo '        <div class="wp-pq-inline-action-form">';
-        echo '          <button class="button" type="submit">Show Client</button>';
-        if ($selected_client_id > 0) {
-            echo '      <a class="button" href="' . esc_url(add_query_arg([
-                'page' => 'wp-pq-rollups',
-                'month' => $range['month'],
-                'start_date' => $range['custom_start'],
-                'end_date' => $range['custom_end'],
-            ], admin_url('admin.php'))) . '">Clear</a>';
-        }
-        echo '        </div>';
-        echo '      </form>';
-        echo '    <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-bucket-form">';
-        wp_nonce_field('wp_pq_create_bucket');
-        echo '      <input type="hidden" name="action" value="wp_pq_create_bucket">';
-        echo '      <input type="hidden" name="redirect_page" value="wp-pq-rollups">';
-        echo '      <input type="hidden" name="month" value="' . esc_attr($range['month']) . '">';
-        echo '      <input type="hidden" name="start_date" value="' . esc_attr($range['custom_start']) . '">';
-        echo '      <input type="hidden" name="end_date" value="' . esc_attr($range['custom_end']) . '">';
-        echo '      <h3>Add Job</h3>';
-        echo self::render_client_picker('bucket-client-picker', 'client_id', $clients, $selected_client_id, 'Client', 'Type a client name or email', true);
-        echo '      <label>Job name <input type="text" name="bucket_name" placeholder="Website retainer" required></label>';
-        echo '      <button class="button button-primary" type="submit">Add Job</button>';
-        echo '    </form>';
-        echo '    </div>';
-
-        if (! empty($buckets_by_client)) {
-            echo '<div class="wp-pq-bucket-list">';
-            foreach ($buckets_by_client as $client_id => $client_buckets) {
-                if ($selected_client_id > 0 && $client_id !== $selected_client_id) {
-                    continue;
-                }
-                $client_name = self::client_label_from_row($client_buckets[0]);
-                echo '<div class="wp-pq-bucket-group">';
-                echo '<strong>' . esc_html((string) $client_name) . '</strong>';
-                echo '<div class="wp-pq-chip-row">';
-                foreach ($client_buckets as $bucket) {
-                    echo '<span class="wp-pq-detail-pill">' . esc_html(self::bucket_label_from_row($bucket)) . '</span>';
-                }
-                echo '</div></div>';
-            }
-            echo '</div>';
-        }
-        echo '  </section>';
+        echo self::render_rollup_client_jobs_panel($clients, $buckets_by_client, $selected_client_id, $range);
 
         echo '  <section class="wp-pq-panel">';
         echo '    <h2>Existing Output</h2>';
@@ -875,9 +810,15 @@ class WP_PQ_Admin
 
         $clients = self::get_billing_clients();
         $selected_client_id = isset($_GET['client_id']) ? (int) $_GET['client_id'] : 0;
+        $selected_bucket_id = isset($_GET['bucket_id']) ? (int) $_GET['bucket_id'] : 0;
         $preview = self::get_ai_import_preview();
-        if ($preview && $selected_client_id <= 0) {
-            $selected_client_id = (int) ($preview['client_id'] ?? 0);
+        if ($preview) {
+            if ($selected_client_id <= 0) {
+                $selected_client_id = (int) ($preview['client_id'] ?? 0);
+            }
+            if ($selected_bucket_id <= 0) {
+                $selected_bucket_id = (int) ($preview['billing_bucket_id'] ?? 0);
+            }
         }
         $client = $selected_client_id > 0 ? self::find_client_by_id($clients, $selected_client_id) : null;
         $jobs = $selected_client_id > 0 ? self::get_client_bucket_rows($selected_client_id) : [];
@@ -897,88 +838,12 @@ class WP_PQ_Admin
 
         echo self::render_client_datalist($clients, 'wp-pq-client-options');
         echo '<div class="wp-pq-billing-grid">';
-        echo '  <section class="wp-pq-panel">';
-        echo '    <h2>Parse Source Document</h2>';
-        if ($openai_key === '') {
-            echo '    <div class="wp-pq-admin-callout"><p>Add your OpenAI API key in <a href="' . esc_url(admin_url('admin.php?page=wp-pq-settings')) . '">Settings</a> before using the ingester.</p></div>';
-        }
-        echo '    <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" enctype="multipart/form-data" class="wp-pq-ai-form">';
-        wp_nonce_field('wp_pq_ai_parse');
-        echo '      <input type="hidden" name="action" value="wp_pq_ai_parse">';
-        echo self::render_client_picker('ai-import-client', 'client_id', $clients, $selected_client_id, 'Client', 'Type a client name or email', true);
-        echo '      <label>Paste task list text';
-        echo '        <textarea name="source_text" rows="12" placeholder="Paste notes, bullets, email copy, or a rough master list here."></textarea>';
-        echo '      </label>';
-        echo '      <label>Or upload a document';
-        echo '        <input type="file" name="source_file" accept=".txt,.md,.csv,.json,.pdf">';
-        echo '      </label>';
-        echo '      <div class="wp-pq-create-actions">';
-        echo '        <button class="button button-primary" type="submit"' . ($openai_key === '' ? ' disabled' : '') . '>Parse With OpenAI</button>';
-        echo '      </div>';
-        echo '    </form>';
-        echo '  </section>';
-
-        echo '  <section class="wp-pq-panel">';
-        echo '    <h2>Importer Rules</h2>';
-        echo '    <div class="wp-pq-admin-callout">';
-        echo '      <p><strong>Flow:</strong> parse → preview → commit.</p>';
-        echo '      <p><strong>Jobs:</strong> existing job names are reused when possible; missing ones are created on import.</p>';
-        echo '      <p><strong>Requester:</strong> imported tasks are attributed to the client primary contact, not to you as PM.</p>';
-        echo '      <p><strong>Status:</strong> imported tasks default to pending approval unless the source clearly marks them complete.</p>';
-        echo '    </div>';
-        if ($client) {
-            echo '<p class="wp-pq-panel-note"><strong>Selected client:</strong> ' . esc_html((string) $client['label']) . '</p>';
-        }
-        if (! empty($jobs)) {
-            echo '<div class="wp-pq-chip-row">';
-            foreach ($jobs as $job) {
-                echo '<span class="wp-pq-detail-pill">' . esc_html(self::bucket_label_from_row($job)) . '</span>';
-            }
-            echo '</div>';
-        }
-        echo '  </section>';
+        echo self::render_ai_parse_panel($clients, $jobs, $selected_client_id, $selected_bucket_id, $openai_key);
+        echo self::render_ai_rules_panel($client, $jobs, $selected_bucket_id);
         echo '</div>';
 
         if ($preview) {
-            echo '<section class="wp-pq-panel wp-pq-ai-preview">';
-            echo '  <h2>Preview Import</h2>';
-            echo '  <p class="wp-pq-panel-note">' . esc_html((string) ($preview['summary'] ?? 'Parsed task list.')) . '</p>';
-            echo '  <p class="wp-pq-panel-note">Client: ' . esc_html((string) ($preview['client_label'] ?? 'Client')) . ' · Source: ' . esc_html((string) ($preview['source_name'] ?? 'Pasted text')) . ' · Tasks: ' . (int) count((array) ($preview['tasks'] ?? [])) . '</p>';
-            echo '  <table class="widefat striped wp-pq-admin-table">';
-            echo '    <thead><tr><th>Task</th><th>Job</th><th>Priority</th><th>Owner Hint</th><th>Billable</th><th>Status</th></tr></thead>';
-            echo '    <tbody>';
-            foreach ((array) ($preview['tasks'] ?? []) as $task) {
-                $job_name = (string) ($task['job_name'] ?? '');
-                $job_label = $job_name !== '' ? $job_name : 'Default job';
-                if (! empty($task['job_exists'])) {
-                    $job_label .= ' (existing)';
-                } elseif ($job_name !== '') {
-                    $job_label .= ' (new)';
-                }
-                echo '<tr>';
-                echo '<td><strong>' . esc_html((string) ($task['title'] ?? 'Task')) . '</strong><br><span class="description">' . esc_html(wp_trim_words((string) ($task['description'] ?? ''), 18)) . '</span></td>';
-                echo '<td>' . esc_html($job_label) . '</td>';
-                echo '<td>' . esc_html(ucfirst((string) ($task['priority'] ?? 'normal'))) . '</td>';
-                echo '<td>' . esc_html((string) ($task['action_owner_hint'] ?? '')) . '</td>';
-                echo '<td>' . esc_html(self::humanize_label((string) self::render_ai_billable_label($task['is_billable'] ?? null))) . '</td>';
-                echo '<td>' . esc_html(self::humanize_label((string) ($task['status_hint'] ?? 'pending_approval'))) . '</td>';
-                echo '</tr>';
-            }
-            echo '    </tbody>';
-            echo '  </table>';
-            echo '  <div class="wp-pq-inline-action-form">';
-            echo '    <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-            wp_nonce_field('wp_pq_ai_import');
-            echo '      <input type="hidden" name="action" value="wp_pq_ai_import">';
-            echo '      <button class="button button-primary" type="submit">Import Parsed Tasks</button>';
-            echo '    </form>';
-            echo '    <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-            wp_nonce_field('wp_pq_ai_clear_preview');
-            echo '      <input type="hidden" name="action" value="wp_pq_ai_clear_preview">';
-            echo '      <button class="button" type="submit">Discard Preview</button>';
-            echo '    </form>';
-            echo '  </div>';
-            echo '</section>';
+            echo self::render_ai_preview_panel($preview, $clients);
         }
 
         echo '</div>';
@@ -1316,6 +1181,34 @@ class WP_PQ_Admin
         exit;
     }
 
+    public static function handle_delete_bucket(): void
+    {
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            wp_die('Forbidden');
+        }
+
+        $bucket_id = isset($_POST['bucket_id']) ? (int) $_POST['bucket_id'] : 0;
+        check_admin_referer('wp_pq_delete_bucket_' . $bucket_id);
+
+        $redirect_page = sanitize_key((string) ($_POST['redirect_page'] ?? 'wp-pq-rollups'));
+        $client_id = isset($_POST['client_id']) ? (int) $_POST['client_id'] : 0;
+        if ($bucket_id <= 0) {
+            wp_safe_redirect(self::admin_redirect_url($redirect_page, 'rollup_error', 'Choose a job to delete.', [], ['client_id' => $client_id]));
+            exit;
+        }
+
+        $counts = self::get_bucket_dependency_counts($bucket_id);
+        if (! self::bucket_can_be_deleted($counts)) {
+            wp_safe_redirect(self::admin_redirect_url($redirect_page, 'rollup_error', 'That job still has tasks, work statements, or statements attached to it.', [], ['client_id' => $client_id]));
+            exit;
+        }
+
+        global $wpdb;
+        $wpdb->delete($wpdb->prefix . 'pq_billing_buckets', ['id' => $bucket_id]);
+        wp_safe_redirect(self::admin_redirect_url($redirect_page, 'bucket_saved', 'Empty job deleted.', [], ['client_id' => $client_id]));
+        exit;
+    }
+
     public static function handle_add_client_member(): void
     {
         $client_id = isset($_POST['client_id']) ? (int) $_POST['client_id'] : 0;
@@ -1529,6 +1422,7 @@ class WP_PQ_Admin
 
         check_admin_referer('wp_pq_ai_parse');
         $client_id = isset($_POST['client_id']) ? (int) $_POST['client_id'] : 0;
+        $bucket_id = isset($_POST['billing_bucket_id']) ? (int) $_POST['billing_bucket_id'] : 0;
         if ($client_id <= 0) {
             wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_error', 'Choose a client before parsing.'));
             exit;
@@ -1559,25 +1453,57 @@ class WP_PQ_Admin
         ]);
 
         if (is_wp_error($parsed)) {
-            wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_error', $parsed->get_error_message(), [], ['client_id' => $client_id]));
+            wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_error', $parsed->get_error_message(), [], ['client_id' => $client_id, 'bucket_id' => $bucket_id]));
             exit;
         }
         if (empty($parsed['tasks'])) {
-            wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_error', 'OpenAI did not find any importable tasks in that source.', [], ['client_id' => $client_id]));
+            wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_error', 'OpenAI did not find any importable tasks in that source.', [], ['client_id' => $client_id, 'bucket_id' => $bucket_id]));
             exit;
         }
 
-        $preview = [
-            'client_id' => $client_id,
-            'client_label' => $client_name,
-            'source_name' => $file_name !== '' ? $file_name : 'Pasted text',
-            'summary' => (string) ($parsed['summary'] ?? 'Parsed task list'),
-            'tasks' => (array) ($parsed['tasks'] ?? []),
-            'created_at' => current_time('mysql', true),
-        ];
+        $preview = self::build_ai_import_preview(
+            (array) ($parsed['tasks'] ?? []),
+            $client_id,
+            $bucket_id,
+            $file_name !== '' ? $file_name : 'Pasted text',
+            (string) ($parsed['summary'] ?? 'Parsed task list')
+        );
         self::store_ai_import_preview($preview);
 
-        wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_parsed', sprintf('Parsed %d task%s. Review them before import.', count($preview['tasks']), count($preview['tasks']) === 1 ? '' : 's'), [], ['client_id' => $client_id]));
+        wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_parsed', sprintf('Parsed %d task%s. Review them before import.', count($preview['tasks']), count($preview['tasks']) === 1 ? '' : 's'), [], ['client_id' => $client_id, 'bucket_id' => $bucket_id]));
+        exit;
+    }
+
+    public static function handle_ai_revalidate(): void
+    {
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            wp_die('Forbidden');
+        }
+
+        check_admin_referer('wp_pq_ai_revalidate');
+        $preview = self::get_ai_import_preview();
+        if (! $preview || empty($preview['raw_tasks'])) {
+            wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_error', 'Parse a task list before trying to revalidate it.'));
+            exit;
+        }
+
+        $client_id = isset($_POST['client_id']) ? (int) $_POST['client_id'] : 0;
+        $bucket_id = isset($_POST['billing_bucket_id']) ? (int) $_POST['billing_bucket_id'] : 0;
+        if ($client_id <= 0) {
+            wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_error', 'Choose a client before revalidating the import preview.'));
+            exit;
+        }
+
+        $rebuilt = self::build_ai_import_preview(
+            (array) $preview['raw_tasks'],
+            $client_id,
+            $bucket_id,
+            (string) ($preview['source_name'] ?? 'Pasted text'),
+            (string) ($preview['summary'] ?? 'Parsed task list')
+        );
+        self::store_ai_import_preview($rebuilt);
+
+        wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_parsed', 'Preview context updated.', [], ['client_id' => $client_id, 'bucket_id' => $bucket_id]));
         exit;
     }
 
@@ -1594,24 +1520,39 @@ class WP_PQ_Admin
             exit;
         }
 
+        $posted_client_id = isset($_POST['client_id']) ? (int) $_POST['client_id'] : 0;
+        $posted_bucket_id = isset($_POST['billing_bucket_id']) ? (int) $_POST['billing_bucket_id'] : 0;
         $client_id = (int) ($preview['client_id'] ?? 0);
+        $bucket_id = (int) ($preview['billing_bucket_id'] ?? 0);
+        if ($posted_client_id !== $client_id || $posted_bucket_id !== $bucket_id) {
+            wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_error', 'The selected client/job context changed. Revalidate the preview before importing again.', [], ['client_id' => $client_id, 'bucket_id' => $bucket_id]));
+            exit;
+        }
+        if (! empty($preview['blocking_errors'])) {
+            wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_error', 'Fix the blocking import issues before importing.', [], ['client_id' => $client_id, 'bucket_id' => $bucket_id]));
+            exit;
+        }
+        if (! empty($preview['requires_job_confirmation']) && empty($_POST['confirm_new_jobs'])) {
+            wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_error', 'Confirm the new job creation before importing.', [], ['client_id' => $client_id, 'bucket_id' => $bucket_id]));
+            exit;
+        }
+
         $submitter_id = WP_PQ_DB::get_primary_contact_user_id($client_id);
         $imported = 0;
         $errors = [];
 
         foreach ((array) $preview['tasks'] as $task) {
-            $job_name = trim((string) ($task['job_name'] ?? ''));
-            $bucket_id = $job_name !== '' ? self::create_bucket_for_client($client_id, $job_name) : WP_PQ_DB::get_or_create_default_billing_bucket_id($client_id);
-            $action_owner_id = self::resolve_import_user_id((string) ($task['action_owner_hint'] ?? ''), $client_id);
+            $task_bucket_id = self::resolve_preview_bucket_id($task, $client_id, $bucket_id);
+            $action_owner_id = (int) ($task['resolved_owner_id'] ?? 0);
             $request = new WP_REST_Request('POST', '/pq/v1/tasks');
             $request->set_param('title', (string) ($task['title'] ?? ''));
             $request->set_param('description', (string) ($task['description'] ?? ''));
             $request->set_param('priority', (string) ($task['priority'] ?? 'normal'));
-            $request->set_param('requested_deadline', self::normalize_import_deadline((string) ($task['requested_deadline'] ?? '')));
+            $request->set_param('requested_deadline', (string) ($task['normalized_deadline'] ?? ''));
             $request->set_param('needs_meeting', ! empty($task['needs_meeting']));
             $request->set_param('client_id', $client_id);
             $request->set_param('submitter_id', $submitter_id);
-            $request->set_param('billing_bucket_id', $bucket_id);
+            $request->set_param('billing_bucket_id', $task_bucket_id);
             if ($action_owner_id > 0) {
                 $request->set_param('owner_ids', [$action_owner_id]);
             }
@@ -1644,7 +1585,7 @@ class WP_PQ_Admin
         if (! empty($errors)) {
             $message .= ' ' . count($errors) . ' item(s) could not be imported.';
         }
-        wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_done', $message, [], ['client_id' => $client_id]));
+        wp_safe_redirect(self::admin_redirect_url('wp-pq-ai-import', 'ai_import_done', $message, [], ['client_id' => $client_id, 'bucket_id' => $bucket_id]));
         exit;
     }
 
@@ -1939,6 +1880,474 @@ class WP_PQ_Admin
             "SELECT * FROM {$wpdb->prefix}pq_billing_buckets WHERE client_id = %d ORDER BY is_default DESC, bucket_name ASC, id ASC",
             $client_id
         ), ARRAY_A);
+    }
+
+    private static function render_rollup_client_jobs_panel(array $clients, array $buckets_by_client, int $selected_client_id, array $range): string
+    {
+        $selected_jobs = $selected_client_id > 0 ? ($buckets_by_client[$selected_client_id] ?? []) : [];
+        $html = '<section class="wp-pq-panel">';
+        $html .= '<h2>Clients &amp; Jobs</h2>';
+        $html .= '<p class="wp-pq-panel-note">Jobs are always selected or explicitly created. They are never inferred from free text on this screen.</p>';
+        $html .= self::render_client_datalist($clients, 'wp-pq-client-options');
+        $html .= '<div class="wp-pq-admin-stack">';
+        $html .= self::render_rollup_create_client_form($range);
+        $html .= self::render_rollup_client_filter_form($clients, $selected_client_id, $range);
+        $html .= self::render_rollup_job_controls($clients, $selected_client_id, $selected_jobs, $range);
+        $html .= '</div>';
+        $html .= self::render_rollup_job_list($selected_client_id, $selected_jobs, $range);
+        $html .= '</section>';
+        return $html;
+    }
+
+    private static function render_rollup_create_client_form(array $range): string
+    {
+        ob_start();
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-bucket-form">';
+        wp_nonce_field('wp_pq_create_client');
+        echo '<input type="hidden" name="action" value="wp_pq_create_client">';
+        echo '<input type="hidden" name="redirect_page" value="wp-pq-rollups">';
+        echo '<input type="hidden" name="month" value="' . esc_attr($range['month']) . '">';
+        echo '<input type="hidden" name="start_date" value="' . esc_attr($range['custom_start']) . '">';
+        echo '<input type="hidden" name="end_date" value="' . esc_attr($range['custom_end']) . '">';
+        echo '<h3>Create Client</h3>';
+        echo '<label>Client name <input type="text" name="client_name" placeholder="Read Spear" required></label>';
+        echo '<label>Client email <input type="email" name="client_email" placeholder="client@example.com" required></label>';
+        echo '<label>First job <input type="text" name="initial_bucket_name" placeholder="Client Name - Main" required></label>';
+        echo '<button class="button button-primary" type="submit">Create Client</button>';
+        echo '</form>';
+        return (string) ob_get_clean();
+    }
+
+    private static function render_rollup_client_filter_form(array $clients, int $selected_client_id, array $range): string
+    {
+        $clear_url = add_query_arg([
+            'page' => 'wp-pq-rollups',
+            'month' => $range['month'],
+            'start_date' => $range['custom_start'],
+            'end_date' => $range['custom_end'],
+        ], admin_url('admin.php'));
+
+        ob_start();
+        echo '<form method="get" class="wp-pq-bucket-form wp-pq-client-filter-form">';
+        echo '<input type="hidden" name="page" value="wp-pq-rollups">';
+        echo '<input type="hidden" name="month" value="' . esc_attr($range['month']) . '">';
+        echo '<input type="hidden" name="start_date" value="' . esc_attr($range['custom_start']) . '">';
+        echo '<input type="hidden" name="end_date" value="' . esc_attr($range['custom_end']) . '">';
+        echo '<h3>Find Client</h3>';
+        echo self::render_client_picker('rollup-client-filter', 'client_id', $clients, $selected_client_id, 'Search client', 'Type a client name or email');
+        echo '<div class="wp-pq-inline-action-form">';
+        echo '<button class="button" type="submit">Show Client</button>';
+        if ($selected_client_id > 0) {
+            echo '<a class="button" href="' . esc_url($clear_url) . '">Clear</a>';
+        }
+        echo '</div>';
+        echo '</form>';
+        return (string) ob_get_clean();
+    }
+
+    private static function render_rollup_job_controls(array $clients, int $selected_client_id, array $jobs, array $range): string
+    {
+        $selected_client = $selected_client_id > 0 ? self::find_client_by_id($clients, $selected_client_id) : null;
+        $job_options = self::render_bucket_select('existing_bucket_id', $jobs, 0, 'Existing job', 'Select a job');
+        $modal_id = 'wp-pq-create-job-modal';
+
+        ob_start();
+        echo '<section class="wp-pq-admin-subpanel">';
+        echo '<h3>Manage Jobs</h3>';
+        if (! $selected_client) {
+            echo '<p class="wp-pq-panel-note">Pick a client first, then select an existing job or create a new one explicitly.</p>';
+        } else {
+            echo '<p class="wp-pq-panel-note"><strong>Client:</strong> ' . esc_html((string) $selected_client['label']) . '</p>';
+            echo '<p class="wp-pq-panel-note">Existing jobs are listed here for selection and confirmation. Delivered-task reassignment stays lower on the page.</p>';
+            echo $job_options;
+            echo '<div class="wp-pq-inline-action-form">';
+            echo '<button class="button button-primary" type="button" data-pq-open-modal="' . esc_attr($modal_id) . '">Create Job</button>';
+            echo '</div>';
+            echo self::render_create_job_modal($modal_id, $clients, $selected_client_id, $range);
+        }
+        echo '</section>';
+        return (string) ob_get_clean();
+    }
+
+    private static function render_create_job_modal(string $modal_id, array $clients, int $selected_client_id, array $range): string
+    {
+        ob_start();
+        echo '<div class="wp-pq-admin-modal-backdrop" id="' . esc_attr($modal_id) . '-backdrop" hidden></div>';
+        echo '<section class="wp-pq-admin-modal" id="' . esc_attr($modal_id) . '" hidden>';
+        echo '<div class="wp-pq-modal-card wp-pq-modal-card-compact">';
+        echo '<div class="wp-pq-section-heading"><div><h3>Create Job</h3><p class="wp-pq-panel-note">Create a new job explicitly for the selected client.</p></div>';
+        echo '<button class="button" type="button" data-pq-close-modal="' . esc_attr($modal_id) . '">Close</button></div>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-ai-form">';
+        wp_nonce_field('wp_pq_create_bucket');
+        echo '<input type="hidden" name="action" value="wp_pq_create_bucket">';
+        echo '<input type="hidden" name="redirect_page" value="wp-pq-rollups">';
+        echo '<input type="hidden" name="month" value="' . esc_attr($range['month']) . '">';
+        echo '<input type="hidden" name="start_date" value="' . esc_attr($range['custom_start']) . '">';
+        echo '<input type="hidden" name="end_date" value="' . esc_attr($range['custom_end']) . '">';
+        if ($selected_client_id > 0) {
+            echo '<input type="hidden" name="client_id" value="' . (int) $selected_client_id . '">';
+        } else {
+            echo self::render_client_picker('rollup-create-job-client', 'client_id', $clients, 0, 'Client', 'Type a client name or email', true);
+        }
+        echo '<label>Job name <input type="text" name="bucket_name" placeholder="Website retainer" required></label>';
+        echo '<div class="wp-pq-modal-actions">';
+        echo '<button class="button" type="button" data-pq-close-modal="' . esc_attr($modal_id) . '">Cancel</button>';
+        echo '<button class="button button-primary" type="submit">Create Job</button>';
+        echo '</div>';
+        echo '</form>';
+        echo '</div>';
+        echo '</section>';
+        return (string) ob_get_clean();
+    }
+
+    private static function render_rollup_job_list(int $selected_client_id, array $jobs, array $range): string
+    {
+        if ($selected_client_id <= 0) {
+            return '';
+        }
+
+        $html = '<div class="wp-pq-bucket-list">';
+        if (empty($jobs)) {
+            $html .= '<p class="wp-pq-empty-state">No jobs exist for this client yet.</p></div>';
+            return $html;
+        }
+
+        foreach ($jobs as $job) {
+            $bucket_id = (int) ($job['id'] ?? 0);
+            $counts = self::get_bucket_dependency_counts($bucket_id);
+            $can_delete = self::bucket_can_be_deleted($counts);
+            $html .= '<div class="wp-pq-bucket-group">';
+            $html .= '<div class="wp-pq-job-row">';
+            $html .= '<div><strong>' . esc_html(self::bucket_label_from_row($job)) . '</strong>';
+            $html .= '<p class="wp-pq-panel-note">Tasks: ' . (int) $counts['task_count'] . ' · Work Statements: ' . (int) $counts['work_log_count'] . ' · Statements: ' . (int) $counts['statement_count'] . '</p></div>';
+            if ($can_delete) {
+                ob_start();
+                echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-inline-action-form">';
+                wp_nonce_field('wp_pq_delete_bucket_' . $bucket_id);
+                echo '<input type="hidden" name="action" value="wp_pq_delete_bucket">';
+                echo '<input type="hidden" name="redirect_page" value="wp-pq-rollups">';
+                echo '<input type="hidden" name="client_id" value="' . (int) $selected_client_id . '">';
+                echo '<input type="hidden" name="bucket_id" value="' . $bucket_id . '">';
+                echo '<input type="hidden" name="month" value="' . esc_attr($range['month']) . '">';
+                echo '<input type="hidden" name="start_date" value="' . esc_attr($range['custom_start']) . '">';
+                echo '<input type="hidden" name="end_date" value="' . esc_attr($range['custom_end']) . '">';
+                echo '<button class="button" type="submit">Delete Empty Job</button>';
+                echo '</form>';
+                $html .= (string) ob_get_clean();
+            } else {
+                $html .= '<span class="wp-pq-detail-pill">In use</span>';
+            }
+            $html .= '</div></div>';
+        }
+
+        $html .= '</div>';
+        return $html;
+    }
+
+    private static function render_ai_parse_panel(array $clients, array $jobs, int $selected_client_id, int $selected_bucket_id, string $openai_key): string
+    {
+        ob_start();
+        echo '<section class="wp-pq-panel">';
+        echo '<h2>Parse Source Document</h2>';
+        if ($openai_key === '') {
+            echo '<div class="wp-pq-admin-callout"><p>Add your OpenAI API key in <a href="' . esc_url(admin_url('admin.php?page=wp-pq-settings')) . '">Settings</a> before using the ingester.</p></div>';
+        }
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" enctype="multipart/form-data" class="wp-pq-ai-form">';
+        wp_nonce_field('wp_pq_ai_parse');
+        echo '<input type="hidden" name="action" value="wp_pq_ai_parse">';
+        echo self::render_client_picker('ai-import-client', 'client_id', $clients, $selected_client_id, 'Client', 'Type a client name or email', true);
+        echo self::render_bucket_select('billing_bucket_id', $jobs, $selected_bucket_id, 'Job context', 'Use parsed jobs', true);
+        echo '<label>Paste task list text';
+        echo '<textarea name="source_text" rows="12" placeholder="Paste notes, bullets, email copy, or a rough master list here."></textarea>';
+        echo '</label>';
+        echo '<label>Or upload a document';
+        echo '<input type="file" name="source_file" accept=".txt,.md,.csv,.json,.pdf">';
+        echo '</label>';
+        echo '<div class="wp-pq-create-actions">';
+        echo '<button class="button button-primary" type="submit"' . ($openai_key === '' ? ' disabled' : '') . '>Parse With OpenAI</button>';
+        echo '</div>';
+        echo '</form>';
+        echo '</section>';
+        return (string) ob_get_clean();
+    }
+
+    private static function render_ai_rules_panel(?array $client, array $jobs, int $selected_bucket_id): string
+    {
+        $selected_bucket = $selected_bucket_id > 0 ? self::find_bucket_by_id($jobs, $selected_bucket_id) : null;
+
+        ob_start();
+        echo '<section class="wp-pq-panel">';
+        echo '<h2>Importer Rules</h2>';
+        echo '<div class="wp-pq-admin-callout">';
+        echo '<p><strong>Flow:</strong> parse → preview → import.</p>';
+        echo '<p><strong>Jobs:</strong> existing jobs are reused by normalized name. New jobs require explicit confirmation before import.</p>';
+        echo '<p><strong>Warnings:</strong> unresolved assignees and bad deadlines warn only. Client/context mismatches block import.</p>';
+        echo '<p><strong>Requester:</strong> imported tasks are attributed to the client primary contact, not to you as PM.</p>';
+        echo '</div>';
+        if ($client) {
+            echo '<p class="wp-pq-panel-note"><strong>Selected client:</strong> ' . esc_html((string) $client['label']) . '</p>';
+        }
+        if ($selected_bucket) {
+            echo '<p class="wp-pq-panel-note"><strong>Locked job context:</strong> ' . esc_html(self::bucket_label_from_row($selected_bucket)) . '</p>';
+        } elseif (! empty($jobs)) {
+            echo '<div class="wp-pq-chip-row">';
+            foreach ($jobs as $job) {
+                echo '<span class="wp-pq-detail-pill">' . esc_html(self::bucket_label_from_row($job)) . '</span>';
+            }
+            echo '</div>';
+        }
+        echo '</section>';
+        return (string) ob_get_clean();
+    }
+
+    private static function render_ai_preview_panel(array $preview, array $clients): string
+    {
+        $client_id = (int) ($preview['client_id'] ?? 0);
+        $jobs = $client_id > 0 ? self::get_client_bucket_rows($client_id) : [];
+        $warning_list = (array) ($preview['warning_messages'] ?? []);
+        $blocking_list = (array) ($preview['blocking_errors'] ?? []);
+
+        ob_start();
+        echo '<section class="wp-pq-panel wp-pq-ai-preview">';
+        echo '<h2>Preview Import</h2>';
+        echo '<p class="wp-pq-panel-note">' . esc_html((string) ($preview['summary'] ?? 'Parsed task list.')) . '</p>';
+        echo '<p class="wp-pq-panel-note">Client: ' . esc_html((string) ($preview['client_label'] ?? 'Client')) . ' · Source: ' . esc_html((string) ($preview['source_name'] ?? 'Pasted text')) . ' · Tasks: ' . (int) count((array) ($preview['tasks'] ?? [])) . '</p>';
+        if (! empty($blocking_list)) {
+            echo '<div class="notice notice-error inline"><p><strong>Blocking issues:</strong> ' . esc_html(implode(' ', $blocking_list)) . '</p></div>';
+        }
+        if (! empty($warning_list)) {
+            echo '<div class="notice notice-warning inline"><p><strong>Warnings:</strong> ' . esc_html(implode(' ', $warning_list)) . '</p></div>';
+        }
+
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-ai-context-form" data-pq-auto-submit="1">';
+        wp_nonce_field('wp_pq_ai_revalidate');
+        echo '<input type="hidden" name="action" value="wp_pq_ai_revalidate">';
+        echo self::render_client_picker('ai-preview-client', 'client_id', $clients, $client_id, 'Client context', 'Type a client name or email', true);
+        echo self::render_bucket_select('billing_bucket_id', $jobs, (int) ($preview['billing_bucket_id'] ?? 0), 'Job context', 'Use parsed jobs', true);
+        echo '<div class="wp-pq-inline-action-form"><button class="button" type="submit">Revalidate Preview</button></div>';
+        echo '</form>';
+
+        echo '<table class="widefat striped wp-pq-admin-table">';
+        echo '<thead><tr><th>Task</th><th>Job</th><th>Priority</th><th>Owner</th><th>Deadline</th><th>Billable</th><th>Status</th></tr></thead>';
+        echo '<tbody>';
+        foreach ((array) ($preview['tasks'] ?? []) as $task) {
+            $warnings = (array) ($task['warnings'] ?? []);
+            echo '<tr>';
+            echo '<td><strong>' . esc_html((string) ($task['title'] ?? 'Task')) . '</strong><br><span class="description">' . esc_html(wp_trim_words((string) ($task['description'] ?? ''), 18)) . '</span>';
+            if (! empty($warnings)) {
+                echo '<br><span class="description">' . esc_html(implode(' · ', $warnings)) . '</span>';
+            }
+            echo '</td>';
+            echo '<td>' . esc_html((string) ($task['job_label'] ?? 'Default job')) . '</td>';
+            echo '<td>' . esc_html(ucfirst((string) ($task['priority'] ?? 'normal'))) . '</td>';
+            echo '<td>' . esc_html((string) ($task['owner_label'] ?? 'Unassigned')) . '</td>';
+            echo '<td>' . esc_html((string) ($task['deadline_label'] ?? 'No deadline')) . '</td>';
+            echo '<td>' . esc_html(self::humanize_label((string) self::render_ai_billable_label($task['is_billable'] ?? null))) . '</td>';
+            echo '<td>' . esc_html(self::humanize_label((string) ($task['status_hint'] ?? 'pending_approval'))) . '</td>';
+            echo '</tr>';
+        }
+        echo '</tbody>';
+        echo '</table>';
+
+        echo '<div class="wp-pq-inline-action-form">';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('wp_pq_ai_import');
+        echo '<input type="hidden" name="action" value="wp_pq_ai_import">';
+        echo '<input type="hidden" name="client_id" value="' . $client_id . '">';
+        echo '<input type="hidden" name="billing_bucket_id" value="' . (int) ($preview['billing_bucket_id'] ?? 0) . '">';
+        if (! empty($preview['requires_job_confirmation'])) {
+            echo '<label class="inline"><input type="checkbox" name="confirm_new_jobs" value="1" required> Confirm new job creation for this import</label>';
+        }
+        echo '<button class="button button-primary" type="submit"' . (! empty($blocking_list) ? ' disabled' : '') . '>Import Parsed Tasks</button>';
+        echo '</form>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('wp_pq_ai_clear_preview');
+        echo '<input type="hidden" name="action" value="wp_pq_ai_clear_preview">';
+        echo '<button class="button" type="submit">Discard Preview</button>';
+        echo '</form>';
+        echo '</div>';
+        echo '</section>';
+        return (string) ob_get_clean();
+    }
+
+    private static function render_bucket_select(string $name, array $jobs, int $selected_id, string $label, string $empty_label, bool $allowParsedOption = false): string
+    {
+        $html = '<label>' . esc_html($label) . '<select name="' . esc_attr($name) . '">';
+        $html .= '<option value="0">' . esc_html($empty_label) . '</option>';
+        foreach ($jobs as $job) {
+            $job_id = (int) ($job['id'] ?? 0);
+            $html .= '<option value="' . $job_id . '"' . selected($job_id, $selected_id, false) . '>' . esc_html(self::bucket_label_from_row($job)) . '</option>';
+        }
+        if ($allowParsedOption && empty($jobs)) {
+            $html .= '<option value="0" selected>' . esc_html($empty_label) . '</option>';
+        }
+        $html .= '</select></label>';
+        return $html;
+    }
+
+    private static function get_bucket_dependency_counts(int $bucket_id): array
+    {
+        global $wpdb;
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $work_logs_table = $wpdb->prefix . 'pq_work_logs';
+        $statements_table = $wpdb->prefix . 'pq_statements';
+
+        return [
+            'task_count' => (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$tasks_table} WHERE billing_bucket_id = %d", $bucket_id)),
+            'work_log_count' => (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$work_logs_table} WHERE billing_bucket_id = %d", $bucket_id)),
+            'statement_count' => (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$statements_table} WHERE billing_bucket_id = %d", $bucket_id)),
+        ];
+    }
+
+    private static function bucket_can_be_deleted(array $counts): bool
+    {
+        return (int) ($counts['task_count'] ?? 0) === 0
+            && (int) ($counts['work_log_count'] ?? 0) === 0
+            && (int) ($counts['statement_count'] ?? 0) === 0;
+    }
+
+    private static function build_ai_import_preview(array $raw_tasks, int $client_id, int $bucket_id, string $source_name, string $summary): array
+    {
+        $client_name = WP_PQ_DB::get_client_name($client_id);
+        $jobs = self::get_client_bucket_rows($client_id);
+        $selected_bucket = $bucket_id > 0 ? self::find_bucket_by_id($jobs, $bucket_id) : null;
+        $blocking_errors = [];
+        $warning_messages = [];
+        if ($client_id <= 0) {
+            $blocking_errors[] = 'Choose a client before importing.';
+        }
+        if ($bucket_id > 0 && ! $selected_bucket) {
+            $blocking_errors[] = 'The chosen job does not belong to the selected client.';
+        }
+
+        $tasks = [];
+        $new_job_names = [];
+        foreach ($raw_tasks as $task) {
+            $enriched = self::enrich_ai_preview_task((array) $task, $client_id, $jobs, $selected_bucket);
+            $tasks[] = $enriched;
+            foreach ((array) ($enriched['warnings'] ?? []) as $warning) {
+                $warning_messages[$warning] = $warning;
+            }
+            if (! empty($enriched['requires_new_job']) && ! empty($enriched['job_name'])) {
+                $new_job_names[sanitize_title((string) $enriched['job_name'])] = (string) $enriched['job_name'];
+            }
+        }
+
+        return [
+            'client_id' => $client_id,
+            'billing_bucket_id' => $selected_bucket ? (int) ($selected_bucket['id'] ?? 0) : 0,
+            'client_label' => $client_name,
+            'source_name' => $source_name,
+            'summary' => sanitize_text_field($summary),
+            'raw_tasks' => array_values($raw_tasks),
+            'tasks' => $tasks,
+            'blocking_errors' => array_values($blocking_errors),
+            'warning_messages' => array_values($warning_messages),
+            'new_job_names' => array_values($new_job_names),
+            'requires_job_confirmation' => ! empty($new_job_names),
+            'created_at' => current_time('mysql', true),
+        ];
+    }
+
+    private static function enrich_ai_preview_task(array $task, int $client_id, array $jobs, ?array $selected_bucket): array
+    {
+        $job_name = trim((string) ($task['job_name'] ?? ''));
+        $matched_bucket = $selected_bucket ?: self::find_bucket_by_name($jobs, $job_name);
+        $resolved_owner_id = self::resolve_import_user_id((string) ($task['action_owner_hint'] ?? ''), $client_id);
+        $normalized_deadline = self::normalize_import_deadline((string) ($task['requested_deadline'] ?? ''));
+        $warnings = [];
+
+        if ((string) ($task['action_owner_hint'] ?? '') !== '' && $resolved_owner_id <= 0) {
+            $warnings[] = 'Unresolved assignee';
+        }
+        if ((string) ($task['requested_deadline'] ?? '') !== '' && $normalized_deadline === '') {
+            $warnings[] = 'Deadline could not be normalized';
+        }
+        if (! $selected_bucket && $job_name !== '' && ! $matched_bucket) {
+            $warnings[] = 'New job will be created';
+        }
+
+        $job_label = 'Default job';
+        if ($selected_bucket) {
+            $job_label = self::bucket_label_from_row($selected_bucket) . ' (selected context)';
+        } elseif ($matched_bucket) {
+            $job_label = self::bucket_label_from_row($matched_bucket) . ' (existing)';
+        } elseif ($job_name !== '') {
+            $job_label = $job_name . ' (new)';
+        }
+
+        return [
+            'title' => (string) ($task['title'] ?? ''),
+            'description' => (string) ($task['description'] ?? ''),
+            'job_name' => $job_name,
+            'job_label' => $job_label,
+            'matched_bucket_id' => (int) ($matched_bucket['id'] ?? 0),
+            'requires_new_job' => ! $selected_bucket && $job_name !== '' && ! $matched_bucket,
+            'priority' => (string) ($task['priority'] ?? 'normal'),
+            'requested_deadline' => (string) ($task['requested_deadline'] ?? ''),
+            'normalized_deadline' => $normalized_deadline,
+            'deadline_label' => $normalized_deadline !== '' ? self::format_admin_datetime($normalized_deadline) : (((string) ($task['requested_deadline'] ?? '')) !== '' ? 'Unparsed deadline' : 'No deadline'),
+            'needs_meeting' => ! empty($task['needs_meeting']),
+            'action_owner_hint' => (string) ($task['action_owner_hint'] ?? ''),
+            'resolved_owner_id' => $resolved_owner_id,
+            'owner_label' => $resolved_owner_id > 0 ? self::user_display_name($resolved_owner_id) : (((string) ($task['action_owner_hint'] ?? '')) !== '' ? (string) $task['action_owner_hint'] : 'Unassigned'),
+            'is_billable' => array_key_exists('is_billable', $task) ? $task['is_billable'] : null,
+            'status_hint' => (string) ($task['status_hint'] ?? 'pending_approval'),
+            'warnings' => $warnings,
+        ];
+    }
+
+    private static function resolve_preview_bucket_id(array $task, int $client_id, int $selected_bucket_id): int
+    {
+        if ($selected_bucket_id > 0) {
+            return $selected_bucket_id;
+        }
+
+        $matched_bucket_id = (int) ($task['matched_bucket_id'] ?? 0);
+        if ($matched_bucket_id > 0) {
+            return $matched_bucket_id;
+        }
+
+        $job_name = trim((string) ($task['job_name'] ?? ''));
+        if ($job_name !== '') {
+            return self::create_bucket_for_client($client_id, $job_name);
+        }
+
+        return WP_PQ_DB::get_or_create_default_billing_bucket_id($client_id);
+    }
+
+    private static function find_bucket_by_id(array $jobs, int $bucket_id): ?array
+    {
+        foreach ($jobs as $job) {
+            if ((int) ($job['id'] ?? 0) === $bucket_id) {
+                return $job;
+            }
+        }
+        return null;
+    }
+
+    private static function find_bucket_by_name(array $jobs, string $job_name): ?array
+    {
+        $slug = sanitize_title($job_name);
+        if ($slug === '') {
+            return null;
+        }
+
+        foreach ($jobs as $job) {
+            if (sanitize_title((string) ($job['bucket_name'] ?? '')) === $slug || sanitize_title((string) ($job['bucket_slug'] ?? '')) === $slug) {
+                return $job;
+            }
+        }
+        return null;
+    }
+
+    private static function user_display_name(int $user_id): string
+    {
+        $user = get_user_by('ID', $user_id);
+        if (! $user) {
+            return 'User #' . $user_id;
+        }
+        return (string) ($user->display_name ?: $user->user_login);
     }
 
     private static function get_client_directory_rows(): array
@@ -2448,6 +2857,38 @@ document.addEventListener('DOMContentLoaded', function () {
     };
     input.addEventListener('change', syncValue);
     input.addEventListener('input', syncValue);
+    input.addEventListener('change', function () {
+      var form = input.closest('form');
+      if (form && form.dataset.pqAutoSubmit === '1' && hidden.value) {
+        form.submit();
+      }
+    });
+  });
+  document.querySelectorAll('select').forEach(function (select) {
+    select.addEventListener('change', function () {
+      var form = select.closest('form');
+      if (form && form.dataset.pqAutoSubmit === '1') {
+        form.submit();
+      }
+    });
+  });
+  document.querySelectorAll('[data-pq-open-modal]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var modalId = button.dataset.pqOpenModal;
+      var modal = modalId ? document.getElementById(modalId) : null;
+      var backdrop = modalId ? document.getElementById(modalId + '-backdrop') : null;
+      if (modal) modal.hidden = false;
+      if (backdrop) backdrop.hidden = false;
+    });
+  });
+  document.querySelectorAll('[data-pq-close-modal]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var modalId = button.dataset.pqCloseModal;
+      var modal = modalId ? document.getElementById(modalId) : null;
+      var backdrop = modalId ? document.getElementById(modalId + '-backdrop') : null;
+      if (modal) modal.hidden = true;
+      if (backdrop) backdrop.hidden = true;
+    });
   });
 });
 </script>";

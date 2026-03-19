@@ -89,6 +89,7 @@
   const createPanel = document.getElementById('wp-pq-create-panel');
   const openCreateBtn = document.getElementById('wp-pq-open-create');
   const closeCreateBtn = document.getElementById('wp-pq-close-create');
+  const openAiImportBtn = document.getElementById('wp-pq-open-ai-import');
   const createClientWrap = document.getElementById('wp-pq-create-client-wrap');
   const createClientEl = document.getElementById('wp-pq-create-client');
   const createBucketEl = document.getElementById('wp-pq-create-bucket');
@@ -496,6 +497,21 @@
       return createFormState.clientUserId || (parseInt(createClientEl.value || '0', 10) || 0);
     }
     return filterState.clientUserId || 0;
+  }
+
+  function buildAiImportUrl() {
+    const base = window.wpPqConfig.adminUrl || '/wp-admin/admin.php';
+    const url = new URL(base, window.location.origin);
+    url.searchParams.set('page', 'wp-pq-ai-import');
+    const clientId = currentCreateClientId();
+    const bucketId = parseInt((createBucketEl && createBucketEl.value) || createFormState.billingBucketId || '0', 10) || 0;
+    if (clientId > 0) {
+      url.searchParams.set('client_id', String(clientId));
+    }
+    if (bucketId > 0) {
+      url.searchParams.set('bucket_id', String(bucketId));
+    }
+    return url.toString();
   }
 
   function syncCreateFormContext() {
@@ -1651,6 +1667,13 @@
 
   function wireCreateForm() {
     if (!createForm) return;
+
+    if (openAiImportBtn) {
+      openAiImportBtn.hidden = !window.wpPqConfig.canApprove;
+      openAiImportBtn.addEventListener('click', () => {
+        window.location.href = buildAiImportUrl();
+      });
+    }
 
     if (createClientEl) {
       createClientEl.addEventListener('change', () => {

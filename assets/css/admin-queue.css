@@ -285,6 +285,52 @@
   margin-top: 18px;
 }
 
+.wp-pq-ai-context-form,
+.wp-pq-admin-subpanel {
+  display: grid;
+  gap: 12px;
+}
+
+.wp-pq-job-row {
+  align-items: start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.wp-pq-job-row .wp-pq-inline-action-form {
+  margin-top: 0;
+}
+
+.wp-pq-admin-modal-backdrop {
+  background: rgba(15, 23, 42, 0.24);
+  inset: 0;
+  position: fixed;
+  z-index: 9998;
+}
+
+.wp-pq-admin-modal {
+  inset: 0;
+  padding: 24px;
+  position: fixed;
+  z-index: 9999;
+}
+
+.wp-pq-admin-modal[hidden],
+.wp-pq-admin-modal-backdrop[hidden] {
+  display: none;
+}
+
+.wp-pq-admin-modal .wp-pq-modal-card {
+  margin: 0 auto;
+  max-width: 560px;
+}
+
+.wp-pq-secondary-action {
+  background: transparent;
+  border: 1px solid var(--pq-border);
+}
+
 .wp-pq-view-toggle,
 .wp-pq-workspace-tabs {
   display: flex;
