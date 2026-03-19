@@ -75,12 +75,10 @@
 
   const taskList = document.getElementById('wp-pq-task-list');
   const boardEl = document.getElementById('wp-pq-board');
-  const boardSummaryEl = document.getElementById('wp-pq-board-summary');
+  const filterListEl = document.getElementById('wp-pq-filter-list');
   const boardFiltersEl = document.getElementById('wp-pq-board-filters');
   const clientFilterWrap = document.getElementById('wp-pq-client-filter-wrap');
   const clientFilterEl = document.getElementById('wp-pq-client-filter');
-  const bucketFilterWrap = document.getElementById('wp-pq-bucket-filter-wrap');
-  const bucketFilterEl = document.getElementById('wp-pq-bucket-filter');
   const batchApproveBtn = document.getElementById('wp-pq-batch-approve');
   const batchStatementBtn = document.getElementById('wp-pq-batch-statement');
   const jobNavWrap = document.getElementById('wp-pq-job-nav-wrap');
@@ -146,9 +144,12 @@
   const panelMeetings = document.getElementById('wp-pq-panel-meetings');
   const panelNotes = document.getElementById('wp-pq-panel-notes');
   const panelFiles = document.getElementById('wp-pq-panel-files');
+  const appShellEl = document.querySelector('.wp-pq-app-shell');
   const drawerEl = document.getElementById('wp-pq-task-drawer');
   const drawerBackdrop = document.getElementById('wp-pq-drawer-backdrop');
   const drawerCloseBtn = document.getElementById('wp-pq-close-drawer');
+  const taskWorkspaceEl = document.getElementById('wp-pq-task-workspace');
+  const taskEmptyEl = document.getElementById('wp-pq-task-empty');
   const revisionModalBackdrop = document.getElementById('wp-pq-revision-modal-backdrop');
   const revisionModal = document.getElementById('wp-pq-revision-modal');
   const revisionForm = document.getElementById('wp-pq-revision-form');
@@ -171,7 +172,6 @@
   const closeDeleteModalBtn = document.getElementById('wp-pq-close-delete-modal');
   const cancelDeleteBtn = document.getElementById('wp-pq-cancel-delete');
   const confirmDeleteBtn = document.getElementById('wp-pq-confirm-delete');
-  const savedViewList = document.getElementById('wp-pq-saved-view-list');
   const binderClientContext = document.getElementById('wp-pq-binder-client-context');
   const binderJobContext = document.getElementById('wp-pq-binder-job-context');
 
@@ -192,8 +192,7 @@
   let filterState = { clientUserId: 0, billingBucketId: 0 };
   let filterOptions = { canViewAll: !!window.wpPqConfig.canViewAll, clients: [], buckets: [] };
   let createFormState = { clientUserId: 0, billingBucketId: 0 };
-  let savedView = 'all';
-  let summaryFilter = 'all';
+  let taskFilter = { mode: 'all', value: 'all' };
   let workersCache = [];
   let workersCacheKey = '';
   let boardSortInstances = [];
@@ -462,7 +461,7 @@
     const clientOptions = Array.isArray(filterOptions.clients) ? filterOptions.clients : [];
     const bucketOptions = visibleBuckets();
 
-    boardFiltersEl.hidden = !canViewAll && bucketOptions.length <= 1;
+    boardFiltersEl.hidden = !canViewAll;
 
     if (clientFilterWrap && clientFilterEl) {
       clientFilterWrap.hidden = !canViewAll;
@@ -474,18 +473,9 @@
       }
     }
 
-    if (bucketFilterWrap && bucketFilterEl) {
-      const shouldShowBuckets = bucketOptions.length > 1 || filterState.billingBucketId > 0 || (!canViewAll && bucketOptions.length > 0);
-      bucketFilterWrap.hidden = !shouldShowBuckets;
-      bucketFilterEl.innerHTML = '<option value="0">' + (canViewAll && !filterState.clientUserId ? 'All jobs' : 'All jobs') + '</option>' + bucketOptions.map((bucket) => (
-        '<option value="' + escapeHtml(bucket.id) + '">' + escapeHtml(bucket.label || bucket.bucket_name || 'Job') + '</option>'
-      )).join('');
-
-      const bucketIsValid = bucketOptions.some((bucket) => parseInt(bucket.id, 10) === filterState.billingBucketId);
-      if (!bucketIsValid) {
-        filterState.billingBucketId = 0;
-      }
-      bucketFilterEl.value = String(filterState.billingBucketId || 0);
+    const bucketIsValid = bucketOptions.some((bucket) => parseInt(bucket.id, 10) === filterState.billingBucketId);
+    if (!bucketIsValid) {
+      filterState.billingBucketId = 0;
     }
 
     syncCreateFormContext();
@@ -605,12 +595,11 @@
 
   function renderTaskCollections() {
     pruneBatchSelection();
-    const scopedTasks = getTasksForSavedView();
-    const visibleTasks = applySummaryFilter(scopedTasks);
+    const scopedTasks = tasksCache.slice();
+    const visibleTasks = applyTaskFilter(scopedTasks);
 
     if (boardEl) {
       renderBoard(visibleTasks);
-      updateBoardSummary(scopedTasks);
       updateBatchApproveButton();
       updateBatchButton();
       initBoardSort();
@@ -621,48 +610,36 @@
       }
     }
 
-    updateSavedViewUi(visibleTasks);
+    updateBinderUi(scopedTasks, visibleTasks);
     highlightSelected();
   }
 
-  function getTasksForSavedView() {
-    if (savedView === 'awaiting_me') {
-      return tasksCache.filter((task) => parseInt(task.action_owner_id || 0, 10) === parseInt(window.wpPqConfig.currentUserId || 0, 10));
+  function applyTaskFilter(tasks) {
+    if (taskFilter.mode === 'responsibility' && taskFilter.value === 'awaiting_me') {
+      return tasks.filter((task) => parseInt(task.action_owner_id || 0, 10) === parseInt(window.wpPqConfig.currentUserId || 0, 10));
     }
-    if (savedView === 'awaiting_client') {
-      return tasksCache.filter((task) => !!task.action_owner_is_client && String(task.status || '') !== 'delivered');
+    if (taskFilter.mode === 'responsibility' && taskFilter.value === 'awaiting_client') {
+      return tasks.filter((task) => !!task.action_owner_is_client && String(task.status || '') !== 'delivered');
     }
-    if (savedView === 'delivered') {
-      return tasksCache.filter((task) => String(task.status || '') === 'delivered');
-    }
-    if (savedView === 'unbilled') {
-      return tasksCache.filter((task) => String(task.status || '') === 'delivered' && !!task.is_billable && String(task.billing_status || '') === 'unbilled');
-    }
-    return tasksCache.slice();
-  }
-
-  function applySummaryFilter(tasks) {
-    if (summaryFilter === 'urgent') {
-      return tasks.filter((task) => String(task.priority || '') === 'urgent');
-    }
-    if (summaryFilter === 'pending_approval') {
+    if (taskFilter.mode === 'status' && taskFilter.value === 'pending_approval') {
       return tasks.filter((task) => String(task.status || '') === 'pending_approval');
     }
-    if (summaryFilter === 'pending_review') {
+    if (taskFilter.mode === 'status' && taskFilter.value === 'pending_review') {
       return tasks.filter((task) => String(task.status || '') === 'pending_review');
     }
-    if (summaryFilter === 'blocked') {
-      return tasks.filter((task) => ['not_approved', 'revision_requested'].includes(String(task.status || '')));
+    if (taskFilter.mode === 'status' && taskFilter.value === 'delivered') {
+      return tasks.filter((task) => String(task.status || '') === 'delivered');
+    }
+    if (taskFilter.mode === 'status' && taskFilter.value === 'unbilled') {
+      return tasks.filter((task) => String(task.status || '') === 'delivered' && !!task.is_billable && String(task.billing_status || '') === 'unbilled');
+    }
+    if (taskFilter.mode === 'status' && taskFilter.value === 'urgent') {
+      return tasks.filter((task) => String(task.priority || '') === 'urgent');
     }
     return tasks;
   }
 
-  function updateSavedViewUi(visibleTasks) {
-    if (!savedViewList) return;
-    savedViewList.querySelectorAll('[data-saved-view]').forEach((button) => {
-      button.classList.toggle('is-active', button.dataset.savedView === savedView);
-    });
-
+  function updateBinderUi(scopedTasks, visibleTasks) {
     const selectedClient = (filterOptions.clients || []).find((client) => parseInt(client.id, 10) === filterState.clientUserId);
     const selectedBucket = (filterOptions.buckets || []).find((bucket) => parseInt(bucket.id, 10) === filterState.billingBucketId);
     if (binderClientContext) {
@@ -676,6 +653,61 @@
         ? ((selectedBucket.label || selectedBucket.bucket_name || 'Selected job') + ' · ' + countLabel)
         : ('All jobs · ' + countLabel);
     }
+    renderUnifiedFilters(scopedTasks || []);
+  }
+
+  function renderUnifiedFilters(tasks) {
+    if (!filterListEl) return;
+
+    const urgentCount = tasks.filter((task) => task.priority === 'urgent').length;
+    const approvalCount = tasks.filter((task) => task.status === 'pending_approval').length;
+    const reviewCount = tasks.filter((task) => task.status === 'pending_review').length;
+    const deliveredCount = tasks.filter((task) => task.status === 'delivered').length;
+    const unbilledCount = tasks.filter((task) => task.status === 'delivered' && task.is_billable && task.billing_status === 'unbilled').length;
+    const awaitingMeCount = tasks.filter((task) => parseInt(task.action_owner_id || 0, 10) === parseInt(window.wpPqConfig.currentUserId || 0, 10)).length;
+    const awaitingClientCount = tasks.filter((task) => !!task.action_owner_is_client && String(task.status || '') !== 'delivered').length;
+
+    const groups = [
+      {
+        label: '',
+        items: [
+          { mode: 'all', value: 'all', label: 'All tasks', count: tasks.length },
+        ],
+      },
+      {
+        label: 'By responsibility',
+        items: [
+          { mode: 'responsibility', value: 'awaiting_me', label: 'Awaiting me', count: awaitingMeCount },
+          { mode: 'responsibility', value: 'awaiting_client', label: 'Awaiting client', count: awaitingClientCount },
+        ],
+      },
+      {
+        label: 'By status',
+        items: [
+          { mode: 'status', value: 'pending_approval', label: 'Awaiting approval', count: approvalCount },
+          { mode: 'status', value: 'pending_review', label: 'Awaiting review', count: reviewCount },
+          { mode: 'status', value: 'delivered', label: 'Delivered', count: deliveredCount },
+          { mode: 'status', value: 'unbilled', label: 'Unbilled', count: unbilledCount },
+          { mode: 'status', value: 'urgent', label: 'Urgent', count: urgentCount, tone: urgentCount > 0 ? 'warning' : 'default' },
+        ],
+      },
+    ];
+
+    filterListEl.innerHTML = groups.map((group) => (
+      '<div class="wp-pq-filter-group">' +
+        (group.label ? '<div class="wp-pq-filter-group-heading">' + escapeHtml(group.label) + '</div>' : '') +
+        group.items.map((item) => {
+          const isActive = taskFilter.mode === item.mode && taskFilter.value === item.value;
+          return '<button type="button" class="button wp-pq-filter-row ' +
+            (isActive ? 'is-active ' : '') +
+            ((item.tone || 'default') === 'warning' ? 'is-warning ' : '') +
+            '" data-filter-mode="' + escapeHtml(item.mode) + '" data-filter-value="' + escapeHtml(item.value) + '">' +
+              '<span class="wp-pq-filter-row-label">' + escapeHtml(item.label) + '</span>' +
+              '<span class="wp-pq-filter-row-count">' + escapeHtml(item.count) + '</span>' +
+            '</button>';
+        }).join('') +
+      '</div>'
+    )).join('');
   }
 
   function renderJobNav() {
@@ -1494,33 +1526,6 @@
     }
   }
 
-  function updateBoardSummary(tasks) {
-    if (!boardSummaryEl) return;
-
-    const urgentCount = tasks.filter((task) => task.priority === 'urgent').length;
-    const approvalCount = tasks.filter((task) => task.status === 'pending_approval').length;
-    const reviewCount = tasks.filter((task) => task.status === 'pending_review').length;
-    const blockedCount = tasks.filter((task) => task.status === 'not_approved' || task.status === 'revision_requested').length;
-
-    const items = [
-      { key: 'all', label: 'Active', count: tasks.length, tone: 'default' },
-      { key: 'urgent', label: 'Urgent', count: urgentCount, tone: urgentCount > 0 ? 'warning' : 'default' },
-      { key: 'pending_approval', label: 'Awaiting approval', count: approvalCount, tone: 'default' },
-      { key: 'pending_review', label: 'Awaiting review', count: reviewCount, tone: 'default' },
-      { key: 'blocked', label: 'Waiting on changes', count: blockedCount, tone: blockedCount > 0 ? 'warning' : 'default' },
-    ];
-
-    boardSummaryEl.innerHTML = items.map((item) => (
-      '<button type="button" class="wp-pq-summary-row ' +
-        (summaryFilter === item.key ? 'is-active ' : '') +
-        (item.tone === 'warning' ? 'is-warning' : '') +
-        '" data-summary-filter="' + escapeHtml(item.key) + '">' +
-        '<span class="wp-pq-summary-row-label">' + escapeHtml(item.label) + '</span>' +
-        '<span class="wp-pq-summary-row-count">' + escapeHtml(item.count) + '</span>' +
-      '</button>'
-    )).join('');
-  }
-
   function updateBatchButton() {
     if (!batchStatementBtn || !window.wpPqConfig.canBatch) return;
     const count = selectedBatchTaskIds.size;
@@ -1555,6 +1560,8 @@
     if (currentTaskActionsEl) currentTaskActionsEl.innerHTML = '';
     if (assignmentPanelEl) assignmentPanelEl.hidden = true;
     if (priorityPanelEl) priorityPanelEl.hidden = true;
+    if (taskWorkspaceEl) taskWorkspaceEl.hidden = true;
+    if (taskEmptyEl) taskEmptyEl.hidden = false;
   }
 
   async function updateTaskSummary(task) {
@@ -1568,6 +1575,8 @@
     }
     if (currentTaskDescriptionEl) currentTaskDescriptionEl.textContent = task.description || 'No request brief provided yet.';
     if (currentTaskActionsEl) currentTaskActionsEl.innerHTML = renderStatusButtons(task);
+    if (taskWorkspaceEl) taskWorkspaceEl.hidden = false;
+    if (taskEmptyEl) taskEmptyEl.hidden = true;
     if (meetingPanel) {
       meetingPanel.hidden = false;
     }
@@ -1579,6 +1588,10 @@
     syncPriorityPanel(task);
   }
 
+  function isDesktopWorkspace() {
+    return window.matchMedia('(min-width: 901px)').matches;
+  }
+
   function drawerIsOpen() {
     return !!drawerEl && drawerEl.classList.contains('is-open');
   }
@@ -1587,16 +1600,20 @@
     if (!drawerEl) return;
     drawerEl.classList.add('is-open');
     drawerEl.setAttribute('aria-hidden', 'false');
-    if (drawerBackdrop) drawerBackdrop.hidden = false;
-    document.body.classList.add('wp-pq-drawer-open');
+    if (appShellEl) appShellEl.classList.add('is-detail-focus');
+    if (drawerBackdrop) drawerBackdrop.hidden = isDesktopWorkspace();
+    document.body.classList.toggle('wp-pq-drawer-open', !isDesktopWorkspace());
   }
 
   function closeDrawer() {
     if (!drawerEl) return;
+    selectedTaskId = null;
     drawerEl.classList.remove('is-open');
     drawerEl.setAttribute('aria-hidden', 'true');
+    if (appShellEl) appShellEl.classList.remove('is-detail-focus');
     if (drawerBackdrop) drawerBackdrop.hidden = true;
     document.body.classList.remove('wp-pq-drawer-open');
+    resetTaskSummary();
     highlightSelected();
   }
 
@@ -1609,6 +1626,9 @@
   async function loadTasks() {
     const data = await api(apiPathWithFilters('tasks'), { method: 'GET' });
     replaceTasks(data.tasks || []);
+    if (selectedTaskId && !getTaskById(selectedTaskId)) {
+      closeDrawer();
+    }
     filterOptions = data.filters || filterOptions;
     syncFilterControls();
     await refreshFromCache({ reloadActivePane: !boardEl || drawerIsOpen(), refreshCalendar: currentView === 'calendar' });
@@ -1639,23 +1659,10 @@
   function wireBoardFilters() {
     if (clientFilterEl) {
       clientFilterEl.addEventListener('change', async () => {
-        summaryFilter = 'all';
+        taskFilter = { mode: 'all', value: 'all' };
         setFilterState({
           clientUserId: parseInt(clientFilterEl.value || '0', 10) || 0,
           billingBucketId: 0,
-        });
-        syncFilterControls();
-        selectedTaskId = null;
-        await loadTasks();
-      });
-    }
-
-    if (bucketFilterEl) {
-      bucketFilterEl.addEventListener('change', async () => {
-        summaryFilter = 'all';
-        setFilterState({
-          clientUserId: filterState.clientUserId,
-          billingBucketId: parseInt(bucketFilterEl.value || '0', 10) || 0,
         });
         syncFilterControls();
         selectedTaskId = null;
@@ -2556,26 +2563,16 @@
     });
   }
 
-  function wireSavedViews() {
-    if (!savedViewList) return;
-    savedViewList.addEventListener('click', async (e) => {
-      const button = e.target.closest('[data-saved-view]');
+  function wireUnifiedFilters() {
+    if (!filterListEl) return;
+    filterListEl.addEventListener('click', async (e) => {
+      const button = e.target.closest('[data-filter-mode][data-filter-value]');
       if (!button) return;
       e.preventDefault();
-      savedView = button.dataset.savedView || 'all';
-      summaryFilter = 'all';
-      await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar' });
-    });
-  }
-
-  function wireBoardSummary() {
-    if (!boardSummaryEl) return;
-    boardSummaryEl.addEventListener('click', async (e) => {
-      const button = e.target.closest('[data-summary-filter]');
-      if (!button) return;
-      e.preventDefault();
-      const nextFilter = button.dataset.summaryFilter || 'all';
-      summaryFilter = nextFilter === summaryFilter ? 'all' : nextFilter;
+      taskFilter = {
+        mode: button.dataset.filterMode || 'all',
+        value: button.dataset.filterValue || 'all',
+      };
       await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar' });
     });
   }
@@ -2586,7 +2583,7 @@
       const button = e.target.closest('[data-job-id]');
       if (!button) return;
       e.preventDefault();
-      summaryFilter = 'all';
+      taskFilter = { mode: 'all', value: 'all' };
       setFilterState({
         clientUserId: filterState.clientUserId,
         billingBucketId: parseInt(button.dataset.jobId || '0', 10) || 0,
@@ -2944,8 +2941,7 @@
   wireBatching();
   wirePrefs();
   wireInbox();
-  wireSavedViews();
-  wireBoardSummary();
+  wireUnifiedFilters();
   wireJobNav();
   wireStatusActions();
   wireDrawerControls();
