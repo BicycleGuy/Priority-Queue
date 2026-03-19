@@ -66,6 +66,20 @@
     },
   ];
 
+  const binderIcons = {
+    jobs: '▣',
+    all_tasks: '≡',
+    awaiting_me: '@',
+    awaiting_client: '◌',
+    pending_approval: '!',
+    pending_review: '✓',
+    delivered: '↓',
+    unbilled: '$',
+    urgent: '▲',
+    alerts: '•',
+    preferences: '○',
+  };
+
   function activePrefGroups() {
     if (!window.wpPqConfig.canViewAll && prefPanel) {
       return prefGroups.filter((group) => group.key === 'client_updates');
@@ -702,12 +716,21 @@
             (isActive ? 'is-active ' : '') +
             ((item.tone || 'default') === 'warning' ? 'is-warning ' : '') +
             '" data-filter-mode="' + escapeHtml(item.mode) + '" data-filter-value="' + escapeHtml(item.value) + '">' +
-              '<span class="wp-pq-filter-row-label">' + escapeHtml(item.label) + '</span>' +
+              '<span class="wp-pq-filter-row-main">' +
+                '<span class="wp-pq-row-icon" aria-hidden="true">' + escapeHtml(filterIcon(item)) + '</span>' +
+                '<span class="wp-pq-filter-row-label">' + escapeHtml(item.label) + '</span>' +
+              '</span>' +
               '<span class="wp-pq-filter-row-count">' + escapeHtml(item.count) + '</span>' +
             '</button>';
         }).join('') +
       '</div>'
     )).join('');
+  }
+
+  function filterIcon(item) {
+    if (!item) return binderIcons.all_tasks;
+    if (item.mode === 'all') return binderIcons.all_tasks;
+    return binderIcons[item.value] || binderIcons.all_tasks;
   }
 
   function renderJobNav() {
@@ -724,14 +747,16 @@
     }
 
     const buttons = [
-      '<button class="button ' + (filterState.billingBucketId === 0 ? 'is-active' : '') + '" type="button" data-job-id="0">All jobs</button>',
+      '<button class="button ' + (filterState.billingBucketId === 0 ? 'is-active' : '') + '" type="button" data-job-id="0">' +
+        '<span class="wp-pq-job-row-main"><span class="wp-pq-row-icon" aria-hidden="true">' + binderIcons.jobs + '</span><span>All jobs</span></span>' +
+      '</button>',
     ];
 
     bucketOptions.forEach((bucket) => {
       const bucketId = parseInt(bucket.id, 10) || 0;
       buttons.push(
         '<button class="button ' + (bucketId === filterState.billingBucketId ? 'is-active' : '') + '" type="button" data-job-id="' + escapeHtml(bucketId) + '">' +
-          escapeHtml(bucket.label || bucket.bucket_name || 'Job') +
+          '<span class="wp-pq-job-row-main"><span class="wp-pq-row-icon" aria-hidden="true">' + binderIcons.jobs + '</span><span>' + escapeHtml(bucket.label || bucket.bucket_name || 'Job') + '</span></span>' +
         '</button>'
       );
     });
@@ -1240,7 +1265,8 @@
     statusColumns.forEach((column) => {
       const tasksInColumn = tasks.filter((task) => task.status === column.key);
       const columnEl = document.createElement('section');
-      columnEl.className = 'wp-pq-board-column';
+      columnEl.className = 'wp-pq-board-column' + (tasksInColumn.length ? '' : ' is-collapsed');
+      columnEl.dataset.status = column.key;
       columnEl.innerHTML =
         '<header class="wp-pq-board-column-head">' +
         '<h4>' + escapeHtml(column.label) + '</h4>' +
@@ -1352,7 +1378,16 @@
         scrollSpeed: 18,
         filter: 'button, input, label, a, select, textarea',
         preventOnFilter: false,
+        onStart: () => {
+          boardEl.classList.add('is-dragging');
+          setBoardDragTarget(null);
+        },
+        onMove: (evt) => {
+          setBoardDragTarget(evt && evt.to ? evt.to.closest('.wp-pq-board-column') : null);
+        },
         onEnd: async (evt) => {
+          boardEl.classList.remove('is-dragging');
+          setBoardDragTarget(null);
           const sourceStatus = evt.from && evt.from.dataset ? evt.from.dataset.status : '';
           const targetStatus = evt.to && evt.to.dataset ? evt.to.dataset.status : sourceStatus;
           if (evt.oldIndex === evt.newIndex && sourceStatus === targetStatus) return;
@@ -1432,6 +1467,14 @@
       });
       boardSortInstances.push(sortable);
     });
+  }
+
+  function setBoardDragTarget(columnEl) {
+    if (!boardEl) return;
+    boardEl.querySelectorAll('.wp-pq-board-column.is-drag-target').forEach((el) => {
+      if (el !== columnEl) el.classList.remove('is-drag-target');
+    });
+    if (columnEl) columnEl.classList.add('is-drag-target');
   }
 
   function openMoveModal() {

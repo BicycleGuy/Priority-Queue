@@ -70,7 +70,7 @@ class WP_PQ_Portal
         echo '      </div>';
         echo '      <div class="wp-pq-binder-section wp-pq-binder-section-status">';
         echo '        <p class="wp-pq-binder-label">Status</p>';
-        echo '        <button class="button wp-pq-alerts-link" type="button" id="wp-pq-open-inbox"><span>Alerts</span><span id="wp-pq-inbox-count" class="wp-pq-inline-count">0</span></button>';
+        echo '        <button class="button wp-pq-alerts-link" type="button" id="wp-pq-open-inbox"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">•</span><span>Alerts</span></span><span id="wp-pq-inbox-count" class="wp-pq-inline-count">0</span></button>';
         echo '      </div>';
         echo '      <div class="wp-pq-binder-section">';
         echo '        <p class="wp-pq-binder-label">Mode</p>';
@@ -102,7 +102,7 @@ class WP_PQ_Portal
         echo '        </div>';
         echo '      </div>';
         echo '      <div class="wp-pq-binder-section wp-pq-binder-section-bottom">';
-        echo '        <button class="button" type="button" id="wp-pq-open-prefs">Preferences</button>';
+        echo '        <button class="button" type="button" id="wp-pq-open-prefs"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">○</span><span>Preferences</span></span></button>';
         echo '      </div>';
         echo '    </aside>';
         echo '    <main class="wp-pq-workspace">';
