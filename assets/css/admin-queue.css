@@ -879,10 +879,11 @@
 
 .wp-pq-workspace-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 440px);
+  grid-template-columns: minmax(0, 1fr) 0fr;
   gap: 22px;
   min-width: 0;
   align-items: start;
+  transition: grid-template-columns 220ms ease;
 }
 
 .wp-pq-workspace-main {
@@ -897,14 +898,18 @@
   transition: transform 180ms ease, opacity 180ms ease, box-shadow 180ms ease;
 }
 
+.wp-pq-app-shell.is-detail-focus .wp-pq-workspace-body {
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 440px);
+}
+
 .wp-pq-app-shell.is-detail-focus .wp-pq-binder {
-  transform: translateX(-18px);
-  opacity: 0.88;
+  transform: translateX(-28px);
+  opacity: 0.76;
 }
 
 .wp-pq-app-shell.is-detail-focus .wp-pq-workspace-main {
-  transform: translateX(-14px);
-  opacity: 0.9;
+  transform: translateX(-20px);
+  opacity: 0.84;
 }
 
 .wp-pq-kicker {
@@ -1502,17 +1507,24 @@
   top: 24px;
   width: auto;
   height: calc(100vh - 128px);
+  min-width: 0;
   padding: 18px;
   background: #ffffff;
   border: 1px solid #e1e7f0;
   border-radius: 20px;
   box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
-  transform: none;
+  transform: translateX(36px);
   z-index: 1;
   overflow-y: auto;
+  overflow-x: hidden;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .wp-pq-drawer.is-open {
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
   box-shadow: 0 18px 36px rgba(15, 23, 42, 0.1);
 }
 
