@@ -1376,9 +1376,10 @@
         group: 'wp-pq-board',
         animation: 160,
         draggable: '.wp-pq-task-card',
-        forceFallback: false,
+        forceFallback: true,
         fallbackOnBody: true,
         fallbackTolerance: 4,
+        fallbackClass: 'wp-pq-sortable-fallback',
         delayOnTouchOnly: true,
         touchStartThreshold: 4,
         emptyInsertThreshold: 20,
@@ -1393,6 +1394,7 @@
         onStart: () => {
           boardDragActive = true;
           boardEl.classList.add('is-dragging');
+          if (appShellEl) appShellEl.classList.add('is-board-dragging');
           setBoardDragTarget(null);
         },
         onMove: (evt) => {
@@ -1402,6 +1404,7 @@
           boardDragActive = false;
           boardDragLockUntil = Date.now() + 220;
           boardEl.classList.remove('is-dragging');
+          if (appShellEl) appShellEl.classList.remove('is-board-dragging');
           setBoardDragTarget(null);
           const sourceStatus = evt.from && evt.from.dataset ? evt.from.dataset.status : '';
           const targetStatus = evt.to && evt.to.dataset ? evt.to.dataset.status : sourceStatus;
