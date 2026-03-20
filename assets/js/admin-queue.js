@@ -211,6 +211,8 @@
   let workersCacheKey = '';
   let boardSortInstances = [];
   let notificationsCache = [];
+  let boardDragActive = false;
+  let boardDragLockUntil = 0;
 
   async function api(path, options) {
     let resp;
@@ -1107,7 +1109,10 @@
       '<div class="wp-pq-task-avatars">' + avatars.join('') + '</div>' +
       '</div>';
 
-    card.addEventListener('click', () => selectTask(task.id, true));
+    card.addEventListener('click', () => {
+      if (boardDragActive || Date.now() < boardDragLockUntil) return;
+      selectTask(task.id, true);
+    });
     const approvePick = card.querySelector('[data-approve-task-id]');
     if (approvePick) {
       approvePick.addEventListener('click', (e) => e.stopPropagation());
@@ -1370,15 +1375,23 @@
       const sortable = Sortable.create(columnEl, {
         group: 'wp-pq-board',
         animation: 160,
-        forceFallback: true,
+        draggable: '.wp-pq-task-card',
+        forceFallback: false,
         fallbackOnBody: true,
+        fallbackTolerance: 4,
+        delayOnTouchOnly: true,
+        touchStartThreshold: 4,
         emptyInsertThreshold: 20,
         scroll: true,
         scrollSensitivity: 120,
         scrollSpeed: 18,
+        ghostClass: 'wp-pq-sortable-ghost',
+        chosenClass: 'wp-pq-sortable-chosen',
+        dragClass: 'wp-pq-sortable-drag',
         filter: 'button, input, label, a, select, textarea',
         preventOnFilter: false,
         onStart: () => {
+          boardDragActive = true;
           boardEl.classList.add('is-dragging');
           setBoardDragTarget(null);
         },
@@ -1386,6 +1399,8 @@
           setBoardDragTarget(evt && evt.to ? evt.to.closest('.wp-pq-board-column') : null);
         },
         onEnd: async (evt) => {
+          boardDragActive = false;
+          boardDragLockUntil = Date.now() + 220;
           boardEl.classList.remove('is-dragging');
           setBoardDragTarget(null);
           const sourceStatus = evt.from && evt.from.dataset ? evt.from.dataset.status : '';
@@ -1802,6 +1817,7 @@
     if (!taskList || boardEl || typeof Sortable === 'undefined') return;
     Sortable.create(taskList, {
       animation: 150,
+      draggable: '.wp-pq-task',
       onEnd: async () => {
         const orderedIds = Array.from(taskList.querySelectorAll('.wp-pq-task')).map((el) => parseInt(el.dataset.id, 10)).filter((id) => id > 0);
         const items = orderedIds.map((id) => ({ id: id }));
