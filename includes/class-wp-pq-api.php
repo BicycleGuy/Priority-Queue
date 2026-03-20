@@ -1795,61 +1795,51 @@ class WP_PQ_API
 
     public static function create_statement_batch(array $task_ids, string $notes = '', string $statement_month = '', int $user_id = 0)
     {
+        return self::create_invoice_draft([
+            'task_ids' => $task_ids,
+            'notes' => $notes,
+            'statement_month' => $statement_month,
+        ], $user_id);
+    }
+
+    public static function create_invoice_draft(array $args, int $user_id = 0)
+    {
         global $wpdb;
 
-        $task_ids = array_values(array_unique(array_filter(array_map('intval', $task_ids))));
-        if (empty($task_ids)) {
-            return new WP_Error('pq_no_tasks', 'Select at least one delivered task to batch.', ['status' => 422]);
-        }
+        $task_ids = array_values(array_unique(array_filter(array_map('intval', (array) ($args['task_ids'] ?? [])))));
+        $client_id = (int) ($args['client_id'] ?? 0);
+        $statement_month = self::normalize_statement_month((string) ($args['statement_month'] ?? ''));
+        $notes = sanitize_textarea_field((string) ($args['notes'] ?? ''));
 
         if ($user_id <= 0) {
             $user_id = get_current_user_id();
         }
 
-        $tasks_table = $wpdb->prefix . 'pq_tasks';
-        $statements_table = $wpdb->prefix . 'pq_statements';
-        $items_table = $wpdb->prefix . 'pq_statement_items';
-        $history_table = $wpdb->prefix . 'pq_task_status_history';
-        $ids_in = implode(',', $task_ids);
-        $rows = $wpdb->get_results("SELECT * FROM {$tasks_table} WHERE id IN ({$ids_in})", ARRAY_A);
-
-        if (count($rows) !== count($task_ids)) {
-            return new WP_Error('pq_missing_task', 'One or more tasks could not be loaded for batching.', ['status' => 404]);
+        if (empty($task_ids) && $client_id <= 0) {
+            return new WP_Error('pq_missing_draft_scope', 'Choose a client or select tasks before creating an invoice draft.', ['status' => 422]);
         }
 
-        $client_id = 0;
+        $rows = self::load_invoice_draft_task_rows($task_ids, $user_id);
+        if (is_wp_error($rows)) {
+            return $rows;
+        }
+
         $client_user_id = 0;
-        $billing_bucket_id = 0;
         $range_start = '';
         $range_end = '';
 
         foreach ($rows as $row) {
-            if (! self::can_access_task($row, $user_id)) {
-                return new WP_Error('pq_forbidden_batch', 'You cannot batch one or more selected tasks.', ['status' => 403]);
-            }
-            if ((string) $row['status'] !== 'delivered') {
-                return new WP_Error('pq_invalid_batch_status', 'Only delivered tasks can be batched into a statement.', ['status' => 422]);
-            }
-            if ((int) ($row['is_billable'] ?? 1) !== 1) {
-                return new WP_Error('pq_non_billable_task', 'Non-billable tasks cannot be batched into a statement.', ['status' => 422]);
-            }
-            if ((string) ($row['billing_status'] ?? 'unbilled') !== 'unbilled') {
-                return new WP_Error('pq_invalid_billing_status', 'Only unbilled delivered tasks can be batched.', ['status' => 422]);
-            }
-
             $row_client_id = (int) ($row['client_id'] ?? 0);
             $row_client_user_id = (int) ($row['client_user_id'] ?? 0);
-            $row_bucket_id = (int) ($row['billing_bucket_id'] ?? 0);
-            if ($row_bucket_id <= 0) {
-                $row_bucket_id = WP_PQ_DB::get_or_create_default_billing_bucket_id($row_client_id);
-            }
-
             if ($client_id === 0) {
                 $client_id = $row_client_id;
                 $client_user_id = $row_client_user_id;
-                $billing_bucket_id = $row_bucket_id;
-            } elseif ($client_id !== $row_client_id || $billing_bucket_id !== $row_bucket_id) {
-                return new WP_Error('pq_mixed_client_bucket', 'Statements must be created from tasks in one client and one billing bucket.', ['status' => 422]);
+            } elseif ($client_id !== $row_client_id) {
+                return new WP_Error('pq_mixed_client_draft', 'Invoice drafts must belong to one client only.', ['status' => 422]);
+            }
+
+            if ($client_user_id <= 0 && $row_client_user_id > 0) {
+                $client_user_id = $row_client_user_id;
             }
 
             $row_rollup_date = self::task_rollup_date($row);
@@ -1859,27 +1849,54 @@ class WP_PQ_API
             }
         }
 
-        $statement_month = self::normalize_statement_month($statement_month);
+        if ($client_id <= 0) {
+            return new WP_Error('pq_invalid_draft_client', 'Invoice drafts must belong to one client.', ['status' => 422]);
+        }
+
+        if ($client_user_id <= 0) {
+            $client_user_id = WP_PQ_DB::get_primary_contact_user_id($client_id);
+        }
+
+        if ($range_start === '' || $range_end === '') {
+            $month_ts = strtotime($statement_month . '-01');
+            $range_start = $range_start !== '' ? $range_start : wp_date('Y-m-01', $month_ts);
+            $range_end = $range_end !== '' ? $range_end : wp_date('Y-m-t', $month_ts);
+        }
+
+        $statements_table = $wpdb->prefix . 'pq_statements';
+        $items_table = $wpdb->prefix . 'pq_statement_items';
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $history_table = $wpdb->prefix . 'pq_task_status_history';
         $statement_code = self::generate_statement_code($statement_month);
+        $billing_bucket_id = self::single_bucket_id_from_tasks($rows);
         $now = current_time('mysql', true);
-        $notes = sanitize_textarea_field($notes);
 
         $wpdb->insert($statements_table, [
             'statement_code' => $statement_code,
             'statement_month' => $statement_month,
             'client_id' => $client_id,
-            'client_user_id' => $client_user_id,
-            'billing_bucket_id' => $billing_bucket_id,
+            'client_user_id' => $client_user_id > 0 ? $client_user_id : null,
+            'billing_bucket_id' => $billing_bucket_id > 0 ? $billing_bucket_id : null,
             'range_start' => $range_start ?: null,
             'range_end' => $range_end ?: null,
+            'currency_code' => 'USD',
+            'total_amount' => 0,
             'created_by' => $user_id,
             'notes' => $notes,
             'created_at' => $now,
+            'updated_at' => $now,
         ]);
 
         $statement_id = (int) $wpdb->insert_id;
         if ($statement_id <= 0) {
-            return new WP_Error('pq_statement_insert_failed', 'Failed to create the statement batch.', ['status' => 500]);
+            return new WP_Error('pq_statement_insert_failed', 'Failed to create the invoice draft.', ['status' => 500]);
+        }
+
+        $line_count = 0;
+        foreach (self::build_invoice_draft_lines_from_tasks($rows) as $line) {
+            if (self::insert_statement_line($statement_id, $line, $now) > 0) {
+                $line_count++;
+            }
         }
 
         foreach ($rows as $row) {
@@ -1897,9 +1914,11 @@ class WP_PQ_API
                 'updated_at' => $now,
             ], ['id' => $task_id]);
 
-            self::insert_history_note($history_table, $task_id, (string) $row['status'], $user_id, 'statement_batch:' . $statement_code);
-            self::emit_event($task_id, 'statement_batched', 'Statement batch created', 'This delivered task was added to statement ' . $statement_code . '.');
+            self::insert_history_note($history_table, $task_id, (string) $row['status'], $user_id, 'invoice_draft:' . $statement_code);
+            self::emit_event($task_id, 'statement_batched', 'Invoice draft created', 'This delivered task was added to invoice draft ' . $statement_code . '.');
         }
+
+        self::recalculate_statement_total($statement_id);
 
         return [
             'id' => $statement_id,
@@ -1911,16 +1930,17 @@ class WP_PQ_API
             'range_start' => $range_start,
             'range_end' => $range_end,
             'task_count' => count($rows),
+            'line_count' => $line_count,
         ];
     }
 
-    public static function create_work_log_batch(array $task_ids, string $notes = '', string $range_start = '', string $range_end = '', int $user_id = 0)
+    public static function create_work_log_batch(array $task_ids, string $notes = '', string $range_start = '', string $range_end = '', int $user_id = 0, array $snapshot_filters = [])
     {
         global $wpdb;
 
         $task_ids = array_values(array_unique(array_filter(array_map('intval', $task_ids))));
         if (empty($task_ids)) {
-            return new WP_Error('pq_no_work_log_tasks', 'Select at least one delivered task to add to a work log.', ['status' => 422]);
+            return new WP_Error('pq_no_work_log_tasks', 'Select at least one task to add to a work statement.', ['status' => 422]);
         }
 
         if ($user_id <= 0) {
@@ -1931,7 +1951,13 @@ class WP_PQ_API
         $logs_table = $wpdb->prefix . 'pq_work_logs';
         $items_table = $wpdb->prefix . 'pq_work_log_items';
         $ids_in = implode(',', $task_ids);
-        $rows = $wpdb->get_results("SELECT * FROM {$tasks_table} WHERE id IN ({$ids_in})", ARRAY_A);
+        $rows = $wpdb->get_results(
+            "SELECT t.*, b.bucket_name, b.is_default
+             FROM {$tasks_table} t
+             LEFT JOIN {$wpdb->prefix}pq_billing_buckets b ON b.id = t.billing_bucket_id
+             WHERE t.id IN ({$ids_in})",
+            ARRAY_A
+        );
 
         if (count($rows) !== count($task_ids)) {
             return new WP_Error('pq_missing_work_log_task', 'One or more tasks could not be loaded for the work log.', ['status' => 404]);
@@ -1947,29 +1973,16 @@ class WP_PQ_API
             if (! self::can_access_task($row, $user_id)) {
                 return new WP_Error('pq_forbidden_work_log', 'You cannot add one or more selected tasks to a work log.', ['status' => 403]);
             }
-            if ((string) $row['status'] !== 'delivered') {
-                return new WP_Error('pq_invalid_work_log_status', 'Only delivered tasks can be added to a work log.', ['status' => 422]);
-            }
-            if ((int) ($row['is_billable'] ?? 1) !== 1) {
-                return new WP_Error('pq_non_billable_work_log_task', 'Non-billable tasks cannot be added to a billing work log.', ['status' => 422]);
-            }
-            if ((int) ($row['work_log_id'] ?? 0) > 0) {
-                return new WP_Error('pq_already_work_logged', 'Only tasks that are not already in a work log can be selected.', ['status' => 422]);
-            }
 
             $row_client_id = (int) ($row['client_id'] ?? 0);
             $row_client_user_id = (int) ($row['client_user_id'] ?? 0);
             $row_bucket_id = (int) ($row['billing_bucket_id'] ?? 0);
-            if ($row_bucket_id <= 0) {
-                $row_bucket_id = WP_PQ_DB::get_or_create_default_billing_bucket_id($row_client_id);
-            }
 
             if ($client_id === 0) {
                 $client_id = $row_client_id;
                 $client_user_id = $row_client_user_id;
-                $billing_bucket_id = $row_bucket_id;
-            } elseif ($client_id !== $row_client_id || $billing_bucket_id !== $row_bucket_id) {
-                return new WP_Error('pq_mixed_work_log_group', 'Work logs must be created from tasks in one client and one billing bucket.', ['status' => 422]);
+            } elseif ($client_id !== $row_client_id) {
+                return new WP_Error('pq_mixed_work_log_group', 'Work statements must be created for one client at a time.', ['status' => 422]);
             }
 
             $row_rollup_date = self::task_rollup_date($row);
@@ -1979,6 +1992,7 @@ class WP_PQ_API
             }
         }
 
+        $billing_bucket_id = self::single_bucket_id_from_tasks($rows);
         $range_start = self::normalize_rollup_date($range_start ?: $derived_start);
         $range_end = self::normalize_rollup_date($range_end ?: $derived_end);
         $log_code = self::generate_work_log_code($range_end ?: $range_start);
@@ -1993,6 +2007,7 @@ class WP_PQ_API
             'range_end' => $range_end ?: null,
             'created_by' => $user_id,
             'notes' => sanitize_textarea_field($notes),
+            'snapshot_filters' => ! empty($snapshot_filters) ? wp_json_encode($snapshot_filters) : null,
             'created_at' => $now,
         ]);
 
@@ -2006,6 +2021,13 @@ class WP_PQ_API
             $wpdb->insert($items_table, [
                 'work_log_id' => $work_log_id,
                 'task_id' => $task_id,
+                'task_title' => (string) ($row['title'] ?? ''),
+                'task_description' => (string) ($row['description'] ?? ''),
+                'task_status' => (string) ($row['status'] ?? ''),
+                'task_billing_status' => (string) ($row['billing_status'] ?? ''),
+                'task_bucket_name' => (string) ($row['bucket_name'] ?? ''),
+                'task_bucket_is_default' => (int) ($row['is_default'] ?? 0) === 1 ? 1 : 0,
+                'task_updated_at' => (string) ($row['updated_at'] ?? $row['created_at'] ?? $now),
                 'created_at' => $now,
             ]);
 
@@ -2026,6 +2048,61 @@ class WP_PQ_API
             'range_end' => $range_end,
             'task_count' => count($rows),
         ];
+    }
+
+    public static function create_work_log_snapshot(array $args, int $user_id = 0)
+    {
+        global $wpdb;
+
+        $client_id = (int) ($args['client_id'] ?? 0);
+        $range_start = self::normalize_rollup_date((string) ($args['range_start'] ?? ''));
+        $range_end = self::normalize_rollup_date((string) ($args['range_end'] ?? ''));
+        $job_ids = array_values(array_unique(array_filter(array_map('intval', (array) ($args['job_ids'] ?? [])))));
+        $statuses = array_values(array_unique(array_filter(array_map('sanitize_key', (array) ($args['statuses'] ?? [])))));
+        $notes = sanitize_textarea_field((string) ($args['notes'] ?? ''));
+
+        if ($user_id <= 0) {
+            $user_id = get_current_user_id();
+        }
+
+        if ($client_id <= 0 || $range_start === '' || $range_end === '') {
+            return new WP_Error('pq_invalid_work_statement_scope', 'Choose a client and date range before creating a work statement.', ['status' => 422]);
+        }
+
+        $allowed_statuses = WP_PQ_Workflow::allowed_statuses();
+        $statuses = array_values(array_intersect($statuses, $allowed_statuses));
+        if (empty($statuses)) {
+            $statuses = array_values(array_filter($allowed_statuses, static fn(string $status): bool => $status !== 'archived'));
+        }
+
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $where = [
+            $wpdb->prepare("t.client_id = %d", $client_id),
+            $wpdb->prepare("DATE(COALESCE(t.updated_at, t.created_at)) BETWEEN %s AND %s", $range_start, $range_end),
+        ];
+
+        $status_sql = implode("','", array_map('esc_sql', $statuses));
+        $where[] = "t.status IN ('{$status_sql}')";
+
+        if (! empty($job_ids)) {
+            $where[] = 't.billing_bucket_id IN (' . implode(',', array_map('intval', $job_ids)) . ')';
+        }
+
+        $rows = $wpdb->get_results(
+            "SELECT t.id FROM {$tasks_table} t WHERE " . implode(' AND ', $where) . " ORDER BY t.status ASC, COALESCE(t.updated_at, t.created_at) DESC, t.id DESC",
+            ARRAY_A
+        );
+        $task_ids = array_values(array_unique(array_map(static fn(array $row): int => (int) ($row['id'] ?? 0), $rows)));
+        if (empty($task_ids)) {
+            return new WP_Error('pq_empty_work_statement', 'No tasks matched those work statement filters.', ['status' => 422]);
+        }
+
+        return self::create_work_log_batch($task_ids, $notes, $range_start, $range_end, $user_id, [
+            'client_id' => $client_id,
+            'job_ids' => $job_ids,
+            'statuses' => $statuses,
+            'date_basis' => 'updated_at',
+        ]);
     }
 
     private static function emit_event(int $task_id, string $event_key, string $subject, string $body): void
@@ -2426,8 +2503,8 @@ class WP_PQ_API
                 ];
             case 'statement_batched':
                 return [
-                    'title' => 'Added to statement',
-                    'body' => '"' . $title . "\" was added to a billing statement batch.",
+                    'title' => 'Added to invoice draft',
+                    'body' => '"' . $title . "\" was added to an invoice draft.",
                 ];
             case 'task_reprioritized':
                 return [
@@ -2800,6 +2877,357 @@ class WP_PQ_API
         }
 
         return false;
+    }
+
+    private static function load_invoice_draft_task_rows(array $task_ids, int $user_id)
+    {
+        global $wpdb;
+
+        $task_ids = array_values(array_unique(array_filter(array_map('intval', $task_ids))));
+        if (empty($task_ids)) {
+            return [];
+        }
+
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $items_table = $wpdb->prefix . 'pq_statement_items';
+        $ids_in = implode(',', $task_ids);
+        $rows = $wpdb->get_results("SELECT * FROM {$tasks_table} WHERE id IN ({$ids_in})", ARRAY_A);
+
+        if (count($rows) !== count($task_ids)) {
+            return new WP_Error('pq_missing_task', 'One or more tasks could not be loaded for invoice drafting.', ['status' => 404]);
+        }
+
+        $linked_task_ids = array_map('intval', (array) $wpdb->get_col("SELECT DISTINCT task_id FROM {$items_table} WHERE task_id IN ({$ids_in})"));
+        $linked_lookup = array_fill_keys($linked_task_ids, true);
+
+        foreach ($rows as $row) {
+            $task_id = (int) ($row['id'] ?? 0);
+            if (! self::can_access_task($row, $user_id)) {
+                return new WP_Error('pq_forbidden_batch', 'You cannot add one or more selected tasks to an invoice draft.', ['status' => 403]);
+            }
+            if ((string) ($row['status'] ?? '') !== 'delivered') {
+                return new WP_Error('pq_invalid_batch_status', 'Only delivered tasks can be added to an invoice draft.', ['status' => 422]);
+            }
+            if ((int) ($row['is_billable'] ?? 1) !== 1) {
+                return new WP_Error('pq_non_billable_task', 'Non-billable tasks cannot be added to an invoice draft.', ['status' => 422]);
+            }
+            if (isset($linked_lookup[$task_id])) {
+                return new WP_Error('pq_task_already_drafted', 'A selected task is already linked to an active invoice draft.', ['status' => 422]);
+            }
+
+            $billing_status = (string) ($row['billing_status'] ?? 'unbilled');
+            if (in_array($billing_status, ['statement_sent', 'paid'], true)) {
+                return new WP_Error('pq_invalid_billing_status', 'Only unbilled delivered tasks can be added to a new invoice draft.', ['status' => 422]);
+            }
+        }
+
+        return $rows;
+    }
+
+    private static function build_invoice_draft_lines_from_tasks(array $rows): array
+    {
+        global $wpdb;
+
+        if (empty($rows)) {
+            return [];
+        }
+
+        $bucket_ids = [];
+        foreach ($rows as &$row) {
+            $client_id = (int) ($row['client_id'] ?? 0);
+            $bucket_id = (int) ($row['billing_bucket_id'] ?? 0);
+            if ($bucket_id <= 0 && $client_id > 0) {
+                $bucket_id = WP_PQ_DB::get_or_create_default_billing_bucket_id($client_id);
+                $row['billing_bucket_id'] = $bucket_id;
+            }
+            if ($bucket_id > 0) {
+                $bucket_ids[] = $bucket_id;
+            }
+        }
+        unset($row);
+
+        $bucket_names = [];
+        $bucket_ids = array_values(array_unique(array_filter(array_map('intval', $bucket_ids))));
+        if (! empty($bucket_ids)) {
+            $bucket_rows = $wpdb->get_results(
+                "SELECT id, bucket_name FROM {$wpdb->prefix}pq_billing_buckets WHERE id IN (" . implode(',', $bucket_ids) . ')',
+                ARRAY_A
+            );
+            foreach ((array) $bucket_rows as $bucket_row) {
+                $bucket_names[(int) ($bucket_row['id'] ?? 0)] = trim((string) ($bucket_row['bucket_name'] ?? ''));
+            }
+        }
+
+        $groups = [];
+        foreach ($rows as $row) {
+            $bucket_id = (int) ($row['billing_bucket_id'] ?? 0);
+            $group_key = $bucket_id > 0 ? 'bucket:' . $bucket_id : 'bucket:none';
+            if (! isset($groups[$group_key])) {
+                $bucket_name = $bucket_id > 0 ? ($bucket_names[$bucket_id] ?? 'Job') : 'General';
+                $groups[$group_key] = [
+                    'line_type' => 'task_rollup',
+                    'source_kind' => 'task',
+                    'description' => 'Delivered work for ' . $bucket_name,
+                    'quantity' => 0,
+                    'unit' => 'tasks',
+                    'unit_rate' => null,
+                    'line_amount' => null,
+                    'billing_bucket_id' => $bucket_id > 0 ? $bucket_id : null,
+                    'linked_task_ids' => [],
+                    'source_snapshot' => [],
+                    'notes' => '',
+                ];
+            }
+
+            $groups[$group_key]['quantity']++;
+            $groups[$group_key]['linked_task_ids'][] = (int) ($row['id'] ?? 0);
+            $groups[$group_key]['source_snapshot'][] = [
+                'task_id' => (int) ($row['id'] ?? 0),
+                'title' => (string) ($row['title'] ?? ''),
+                'status' => (string) ($row['status'] ?? ''),
+                'billing_bucket_id' => (int) ($row['billing_bucket_id'] ?? 0),
+            ];
+        }
+
+        $lines = [];
+        $sort_order = 1;
+        foreach ($groups as $group) {
+            $task_ids = array_values(array_unique(array_filter(array_map('intval', (array) $group['linked_task_ids']))));
+            $source_snapshot = [
+                'task_ids' => $task_ids,
+                'suggested_description' => (string) $group['description'],
+                'suggested_quantity' => (float) $group['quantity'],
+                'suggested_unit' => (string) $group['unit'],
+                'tasks' => $group['source_snapshot'],
+            ];
+
+            $lines[] = [
+                'line_type' => (string) $group['line_type'],
+                'source_kind' => (string) $group['source_kind'],
+                'description' => (string) $group['description'],
+                'quantity' => (float) $group['quantity'],
+                'unit' => (string) $group['unit'],
+                'unit_rate' => null,
+                'line_amount' => null,
+                'billing_bucket_id' => $group['billing_bucket_id'],
+                'linked_task_ids' => $task_ids,
+                'source_snapshot' => $source_snapshot,
+                'notes' => '',
+                'sort_order' => $sort_order++,
+            ];
+        }
+
+        return $lines;
+    }
+
+    private static function insert_statement_line(int $statement_id, array $line, string $now): int
+    {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'pq_statement_lines';
+        $quantity = isset($line['quantity']) && $line['quantity'] !== '' ? number_format((float) $line['quantity'], 2, '.', '') : null;
+        $unit_rate = isset($line['unit_rate']) && $line['unit_rate'] !== '' ? number_format((float) $line['unit_rate'], 2, '.', '') : null;
+        $line_amount = isset($line['line_amount']) && $line['line_amount'] !== '' ? number_format((float) $line['line_amount'], 2, '.', '') : null;
+        $linked_task_ids = array_values(array_unique(array_filter(array_map('intval', (array) ($line['linked_task_ids'] ?? [])))));
+
+        $wpdb->insert($table, [
+            'statement_id' => $statement_id,
+            'line_type' => sanitize_key((string) ($line['line_type'] ?? 'manual_adjustment')),
+            'source_kind' => sanitize_key((string) ($line['source_kind'] ?? 'manual')),
+            'description' => sanitize_textarea_field((string) ($line['description'] ?? '')),
+            'quantity' => $quantity,
+            'unit' => sanitize_text_field((string) ($line['unit'] ?? '')),
+            'unit_rate' => $unit_rate,
+            'line_amount' => $line_amount,
+            'billing_bucket_id' => (int) ($line['billing_bucket_id'] ?? 0) > 0 ? (int) $line['billing_bucket_id'] : null,
+            'linked_task_ids' => ! empty($linked_task_ids) ? wp_json_encode($linked_task_ids) : null,
+            'source_snapshot' => ! empty($line['source_snapshot']) ? wp_json_encode($line['source_snapshot']) : null,
+            'notes' => sanitize_textarea_field((string) ($line['notes'] ?? '')),
+            'sort_order' => max(0, (int) ($line['sort_order'] ?? 0)),
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        return (int) $wpdb->insert_id;
+    }
+
+    public static function get_statement_line_rows(int $statement_id): array
+    {
+        global $wpdb;
+
+        if ($statement_id <= 0) {
+            return [];
+        }
+
+        return (array) $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}pq_statement_lines WHERE statement_id = %d ORDER BY sort_order ASC, id ASC",
+            $statement_id
+        ), ARRAY_A);
+    }
+
+    public static function recalculate_statement_total(int $statement_id): float
+    {
+        global $wpdb;
+
+        if ($statement_id <= 0) {
+            return 0.0;
+        }
+
+        $total = (float) $wpdb->get_var($wpdb->prepare(
+            "SELECT COALESCE(SUM(COALESCE(line_amount, 0)), 0) FROM {$wpdb->prefix}pq_statement_lines WHERE statement_id = %d",
+            $statement_id
+        ));
+
+        $wpdb->update($wpdb->prefix . 'pq_statements', [
+            'total_amount' => number_format($total, 2, '.', ''),
+            'updated_at' => current_time('mysql', true),
+        ], ['id' => $statement_id]);
+
+        return $total;
+    }
+
+    public static function delete_statement_line(int $statement_id, int $line_id, int $user_id = 0)
+    {
+        global $wpdb;
+
+        if ($line_id <= 0 || $statement_id <= 0) {
+            return new WP_Error('pq_missing_line', 'Invoice draft line not found.', ['status' => 404]);
+        }
+
+        $line = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$wpdb->prefix}pq_statement_lines WHERE id = %d AND statement_id = %d",
+            $line_id,
+            $statement_id
+        ), ARRAY_A);
+        if (! $line) {
+            return new WP_Error('pq_missing_line', 'Invoice draft line not found.', ['status' => 404]);
+        }
+
+        foreach (self::statement_line_task_ids($line) as $task_id) {
+            self::remove_task_from_statement_draft($statement_id, $task_id, $user_id);
+        }
+
+        $wpdb->delete($wpdb->prefix . 'pq_statement_lines', ['id' => $line_id, 'statement_id' => $statement_id]);
+        self::recalculate_statement_total($statement_id);
+
+        return true;
+    }
+
+    public static function remove_task_from_statement_draft(int $statement_id, int $task_id, int $user_id = 0)
+    {
+        global $wpdb;
+
+        if ($statement_id <= 0 || $task_id <= 0) {
+            return new WP_Error('pq_missing_draft_task', 'Invoice draft task linkage not found.', ['status' => 404]);
+        }
+
+        $items_table = $wpdb->prefix . 'pq_statement_items';
+        $deleted = $wpdb->delete($items_table, [
+            'statement_id' => $statement_id,
+            'task_id' => $task_id,
+        ]);
+        if ($deleted === false) {
+            return new WP_Error('pq_delete_draft_task_failed', 'Failed to remove the task from the invoice draft.', ['status' => 500]);
+        }
+
+        $lines = self::get_statement_line_rows($statement_id);
+        foreach ($lines as $line) {
+            $task_ids = self::statement_line_task_ids($line);
+            if (! in_array($task_id, $task_ids, true)) {
+                continue;
+            }
+
+            $task_ids = array_values(array_filter($task_ids, static fn(int $candidate): bool => $candidate !== $task_id));
+            $wpdb->update($wpdb->prefix . 'pq_statement_lines', [
+                'linked_task_ids' => ! empty($task_ids) ? wp_json_encode($task_ids) : null,
+                'updated_at' => current_time('mysql', true),
+            ], ['id' => (int) $line['id']]);
+        }
+
+        self::restore_task_invoice_eligibility($task_id);
+        return true;
+    }
+
+    public static function delete_statement_draft(int $statement_id, int $user_id = 0)
+    {
+        global $wpdb;
+
+        if ($statement_id <= 0) {
+            return new WP_Error('pq_missing_statement', 'Invoice draft not found.', ['status' => 404]);
+        }
+
+        $items_table = $wpdb->prefix . 'pq_statement_items';
+        $task_ids = array_map('intval', (array) $wpdb->get_col($wpdb->prepare(
+            "SELECT task_id FROM {$items_table} WHERE statement_id = %d",
+            $statement_id
+        )));
+
+        foreach ($task_ids as $task_id) {
+            self::remove_task_from_statement_draft($statement_id, $task_id, $user_id);
+        }
+
+        $wpdb->delete($wpdb->prefix . 'pq_statement_lines', ['statement_id' => $statement_id]);
+        $wpdb->delete($items_table, ['statement_id' => $statement_id]);
+        $wpdb->delete($wpdb->prefix . 'pq_statements', ['id' => $statement_id]);
+
+        return true;
+    }
+
+    private static function restore_task_invoice_eligibility(int $task_id): void
+    {
+        global $wpdb;
+
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $items_table = $wpdb->prefix . 'pq_statement_items';
+        $task = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$tasks_table} WHERE id = %d", $task_id), ARRAY_A);
+        if (! $task) {
+            return;
+        }
+
+        $active_statement_id = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT statement_id FROM {$items_table} WHERE task_id = %d ORDER BY id DESC LIMIT 1",
+            $task_id
+        ));
+
+        if ($active_statement_id > 0) {
+            $wpdb->update($tasks_table, [
+                'billing_status' => 'batched',
+                'statement_id' => $active_statement_id,
+                'updated_at' => current_time('mysql', true),
+            ], ['id' => $task_id]);
+            return;
+        }
+
+        $wpdb->update($tasks_table, [
+            'billing_status' => (int) ($task['is_billable'] ?? 1) === 1 ? 'unbilled' : 'not_billable',
+            'statement_id' => null,
+            'statement_batched_at' => null,
+            'updated_at' => current_time('mysql', true),
+        ], ['id' => $task_id]);
+    }
+
+    private static function statement_line_task_ids(array $line): array
+    {
+        $task_ids = json_decode((string) ($line['linked_task_ids'] ?? ''), true);
+        if (! is_array($task_ids)) {
+            return [];
+        }
+
+        return array_values(array_unique(array_filter(array_map('intval', $task_ids))));
+    }
+
+    private static function single_bucket_id_from_tasks(array $rows): int
+    {
+        $bucket_ids = [];
+        foreach ($rows as $row) {
+            $bucket_id = (int) ($row['billing_bucket_id'] ?? 0);
+            if ($bucket_id > 0) {
+                $bucket_ids[] = $bucket_id;
+            }
+        }
+
+        $bucket_ids = array_values(array_unique($bucket_ids));
+        return count($bucket_ids) === 1 ? (int) $bucket_ids[0] : 0;
     }
 
     public static function normalize_statement_month(string $statement_month = ''): string

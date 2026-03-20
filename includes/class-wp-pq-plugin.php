@@ -24,6 +24,8 @@ final class WP_PQ_Plugin
         WP_PQ_DB::migrate_task_context_fields();
         WP_PQ_DB::migrate_client_accounts();
         WP_PQ_DB::migrate_named_default_buckets();
+        WP_PQ_DB::migrate_invoice_draft_models();
+        WP_PQ_DB::migrate_work_statement_snapshots();
         WP_PQ_DB::ensure_default_billing_buckets();
         WP_PQ_Housekeeping::init();
         WP_PQ_Admin::init();

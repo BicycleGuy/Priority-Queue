@@ -26,6 +26,8 @@ class WP_PQ_Admin
         add_action('admin_post_wp_pq_export_statement', [self::class, 'handle_export_statement']);
         add_action('admin_post_wp_pq_print_statement', [self::class, 'handle_print_statement']);
         add_action('admin_post_wp_pq_update_statement', [self::class, 'handle_update_statement']);
+        add_action('admin_post_wp_pq_delete_statement', [self::class, 'handle_delete_statement']);
+        add_action('admin_post_wp_pq_remove_statement_task', [self::class, 'handle_remove_statement_task']);
         add_action('admin_post_wp_pq_ai_parse', [self::class, 'handle_ai_parse']);
         add_action('admin_post_wp_pq_ai_revalidate', [self::class, 'handle_ai_revalidate']);
         add_action('admin_post_wp_pq_ai_import', [self::class, 'handle_ai_import']);
@@ -87,8 +89,8 @@ class WP_PQ_Admin
 
         add_submenu_page(
             'wp-pq-queue',
-            'Priority Queue Statements',
-            'Statements',
+            'Priority Queue Invoice Drafts',
+            'Invoice Drafts',
             WP_PQ_Roles::CAP_APPROVE,
             'wp-pq-statements',
             [self::class, 'render_statements_page']
@@ -157,7 +159,7 @@ class WP_PQ_Admin
             '<a href="' . esc_url(admin_url('admin.php?page=wp-pq-client-directory')) . '">Clients</a>',
             '<a href="' . esc_url(admin_url('admin.php?page=wp-pq-rollups')) . '">Billing Rollup</a>',
             '<a href="' . esc_url(admin_url('admin.php?page=wp-pq-work-logs')) . '">Work Statements</a>',
-            '<a href="' . esc_url(admin_url('admin.php?page=wp-pq-statements')) . '">Statements</a>',
+            '<a href="' . esc_url(admin_url('admin.php?page=wp-pq-statements')) . '">Invoice Drafts</a>',
             '<a href="' . esc_url(admin_url('admin.php?page=wp-pq-ai-import')) . '">AI Import</a>',
             '<a href="' . esc_url(admin_url('admin.php?page=wp-pq-settings')) . '">Settings</a>'
         );
@@ -225,7 +227,7 @@ class WP_PQ_Admin
 
         echo '<div class="wrap wp-pq-wrap">';
         echo '<h1>Clients</h1>';
-        echo '<p>Create client accounts, link existing WordPress users as client members, manage jobs, and jump straight into that client\'s work statements and billing statements.</p>';
+        echo '<p>Create client accounts, link existing WordPress users as client members, manage jobs, and jump straight into that client\'s work statements and invoice drafts.</p>';
         echo self::admin_section_nav('clients');
 
         if (isset($_GET['wp_pq_notice'])) {
@@ -286,7 +288,7 @@ class WP_PQ_Admin
                 $members = self::get_client_member_rows((int) $client['id']);
                 echo '<section class="wp-pq-panel wp-pq-rollup-group">';
                 echo '<h2>' . esc_html((string) $client['name']) . '</h2>';
-                echo '<p class="wp-pq-panel-note">Delivered tasks: ' . (int) $client['delivered_count'] . ' · Unbilled: ' . (int) $client['unbilled_count'] . ' · Work statements: ' . (int) $client['work_log_count'] . ' · Statements: ' . (int) $client['statement_count'] . '.</p>';
+                echo '<p class="wp-pq-panel-note">Delivered tasks: ' . (int) $client['delivered_count'] . ' · Unbilled: ' . (int) $client['unbilled_count'] . ' · Work statements: ' . (int) $client['work_log_count'] . ' · Invoice Drafts: ' . (int) $client['statement_count'] . '.</p>';
                 echo '<p class="wp-pq-panel-note">Primary contact: ' . esc_html((string) ($client['email'] ?: 'Not set')) . '</p>';
                 if (! empty($members)) {
                     echo '<h3>Members</h3>';
@@ -354,7 +356,7 @@ class WP_PQ_Admin
                 echo '<div class="wp-pq-inline-action-form">';
                 echo '  <a class="button" href="' . esc_url($rollup_url) . '">View Billing Rollup</a>';
                 echo '  <a class="button" href="' . esc_url(add_query_arg(['page' => 'wp-pq-work-logs', 'client_id' => (int) $client['id']], admin_url('admin.php'))) . '">View Work Statements</a>';
-                echo '  <a class="button" href="' . esc_url($statement_url) . '">View Statements</a>';
+                echo '  <a class="button" href="' . esc_url($statement_url) . '">View Invoice Drafts</a>';
                 echo '</div>';
                 if (! empty($client['recent_work_logs'])) {
                     echo '<h3>Recent Work Statements</h3>';
@@ -365,7 +367,7 @@ class WP_PQ_Admin
                     echo '</tbody></table>';
                 }
                 if (! empty($client['recent_statements'])) {
-                    echo '<h3>Recent Statements</h3>';
+                    echo '<h3>Recent Invoice Drafts</h3>';
                     echo '<table class="widefat striped wp-pq-admin-table"><thead><tr><th>Code</th><th>Bucket</th><th>Range</th><th>Tasks</th></tr></thead><tbody>';
                     foreach ($client['recent_statements'] as $statement) {
                         echo '<tr><td>' . esc_html((string) $statement['statement_code']) . '</td><td>' . esc_html(self::bucket_label_from_row($statement)) . '</td><td>' . esc_html(self::format_date_range((string) $statement['range_start'], (string) $statement['range_end'])) . '</td><td>' . (int) $statement['task_count'] . '</td></tr>';
@@ -473,7 +475,7 @@ class WP_PQ_Admin
         }
         echo '<div class="wrap wp-pq-wrap">';
         echo '<h1>Billing Rollup</h1>';
-        echo '<p>Review delivered work by date range, sort it into client jobs, then create either a work statement or a billing statement.</p>';
+        echo '<p>Review delivered work by date range, sort it into client jobs, and see what is still unbilled before you move into Work Statements or Invoice Drafts.</p>';
         echo self::admin_section_nav('rollups');
 
         if (isset($_GET['wp_pq_notice'])) {
@@ -511,7 +513,7 @@ class WP_PQ_Admin
         if (empty($work_logs)) {
             echo '<p class="wp-pq-empty-state">No work statements in this range yet.</p>';
         } else {
-            echo '<table class="widefat striped wp-pq-admin-table"><thead><tr><th>Code</th><th>Client</th><th>Bucket</th><th>Tasks</th><th>Actions</th></tr></thead><tbody>';
+            echo '<table class="widefat striped wp-pq-admin-table"><thead><tr><th>Code</th><th>Client</th><th>Jobs</th><th>Tasks</th><th>Actions</th></tr></thead><tbody>';
             foreach ($work_logs as $work_log) {
                 $view_url = add_query_arg([
                     'page' => 'wp-pq-work-logs',
@@ -546,11 +548,11 @@ class WP_PQ_Admin
             echo '</tbody></table>';
         }
 
-        echo '    <h3>Statements</h3>';
+        echo '    <h3>Invoice Drafts</h3>';
         if (empty($statements)) {
-            echo '<p class="wp-pq-empty-state">No statements in this range yet.</p>';
+            echo '<p class="wp-pq-empty-state">No invoice drafts in this range yet.</p>';
         } else {
-            echo '<table class="widefat striped wp-pq-admin-table"><thead><tr><th>Code</th><th>Client</th><th>Bucket</th><th>Tasks</th><th>Actions</th></tr></thead><tbody>';
+            echo '<table class="widefat striped wp-pq-admin-table"><thead><tr><th>Code</th><th>Client</th><th>Jobs</th><th>Tasks</th><th>Lines</th><th>Actions</th></tr></thead><tbody>';
             foreach ($statements as $statement) {
                 $view_url = add_query_arg([
                     'page' => 'wp-pq-statements',
@@ -569,7 +571,8 @@ class WP_PQ_Admin
                 echo '<td>' . esc_html(self::client_label_from_row($statement)) . '</td>';
                 echo '<td>' . esc_html(self::bucket_label_from_row($statement)) . '</td>';
                 echo '<td>' . (int) $statement['task_count'] . '</td>';
-                echo '<td><a class="button" href="' . esc_url($view_url) . '">View</a> <a class="button" target="_blank" href="' . esc_url($print_url) . '">Print / PDF</a></td>';
+                echo '<td>' . (int) ($statement['line_count'] ?? 0) . '</td>';
+                echo '<td><a class="button" href="' . esc_url($view_url) . '">Open Draft</a> <a class="button" target="_blank" href="' . esc_url($print_url) . '">Print / PDF</a></td>';
                 echo '</tr>';
             }
             echo '</tbody></table>';
@@ -584,15 +587,15 @@ class WP_PQ_Admin
             foreach ($groups as $group) {
             echo '<section class="wp-pq-panel wp-pq-rollup-group">';
                 echo '<h2>' . esc_html((string) $group['client_name']) . '</h2>';
-                echo '<p class="wp-pq-panel-note"><strong>Bucket:</strong> ' . esc_html((string) $group['bucket_name']) . '</p>';
-                echo '<p class="wp-pq-panel-note">' . count($group['tasks']) . ' delivered task(s) in range. Work-log eligible: ' . (int) $group['work_log_ready_count'] . '. Statement eligible: ' . (int) $group['statement_ready_count'] . '.</p>';
-                echo '<table class="widefat striped wp-pq-admin-table"><thead><tr><th>Task</th><th>Delivered</th><th>Work Statement</th><th>Statement</th><th>Bucket</th></tr></thead><tbody>';
+                echo '<p class="wp-pq-panel-note"><strong>Job:</strong> ' . esc_html((string) $group['bucket_name']) . '</p>';
+                echo '<p class="wp-pq-panel-note">' . count($group['tasks']) . ' delivered task(s) in range. Work statement snapshots can include any of them. Invoice Draft eligibility: ' . (int) $group['statement_ready_count'] . ' still eligible.</p>';
+                echo '<table class="widefat striped wp-pq-admin-table"><thead><tr><th>Task</th><th>Delivered</th><th>Work Statement</th><th>Invoice Draft</th><th>Job</th></tr></thead><tbody>';
                 foreach ($group['tasks'] as $task) {
                     echo '<tr>';
                     echo '<td><strong>' . esc_html((string) $task['title']) . '</strong><br><span class="description">#' . (int) $task['id'] . ' · ' . esc_html((string) $task['priority']) . '</span></td>';
                     echo '<td>' . esc_html(self::format_admin_datetime((string) $task['delivered_at'])) . '</td>';
-                    echo '<td>' . esc_html((int) ($task['work_log_id'] ?? 0) > 0 ? 'Logged' : 'Ready') . '</td>';
-                    echo '<td>' . esc_html((string) ($task['billing_status'] ?? '') === 'batched' ? 'Batched' : 'Ready') . '</td>';
+                    echo '<td>' . esc_html((int) ($task['work_log_id'] ?? 0) > 0 ? 'Included before' : 'Available') . '</td>';
+                    echo '<td>' . esc_html((string) ($task['billing_status'] ?? '') === 'batched' ? 'In invoice draft' : 'Eligible') . '</td>';
                     echo '<td>';
                     echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-inline-form">';
                     wp_nonce_field('wp_pq_assign_bucket_' . (int) $task['id']);
@@ -612,36 +615,22 @@ class WP_PQ_Admin
                     echo '</tr>';
                 }
                 echo '</tbody></table>';
-
-                if ($group['work_log_ready_count'] > 0) {
-                    echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-inline-action-form">';
-                    wp_nonce_field('wp_pq_create_work_log');
-                    echo '<input type="hidden" name="action" value="wp_pq_create_work_log">';
-                    echo '<input type="hidden" name="redirect_page" value="wp-pq-rollups">';
-                    echo '<input type="hidden" name="month" value="' . esc_attr($range['month']) . '">';
-                    echo '<input type="hidden" name="start_date" value="' . esc_attr($range['custom_start']) . '">';
-                    echo '<input type="hidden" name="end_date" value="' . esc_attr($range['custom_end']) . '">';
-                    foreach ($group['work_log_task_ids'] as $task_id) {
-                        echo '<input type="hidden" name="task_ids[]" value="' . (int) $task_id . '">';
-                    }
-                    echo '<button class="button" type="submit">Create Work Statement (' . (int) $group['work_log_ready_count'] . ')</button>';
-                    echo '</form>';
-                }
-
-                if ($group['statement_ready_count'] > 0) {
-                    echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-inline-action-form">';
-                    wp_nonce_field('wp_pq_create_statement');
-                    echo '<input type="hidden" name="action" value="wp_pq_create_statement">';
-                    echo '<input type="hidden" name="redirect_page" value="wp-pq-rollups">';
-                    echo '<input type="hidden" name="month" value="' . esc_attr($range['month']) . '">';
-                    echo '<input type="hidden" name="start_date" value="' . esc_attr($range['custom_start']) . '">';
-                    echo '<input type="hidden" name="end_date" value="' . esc_attr($range['custom_end']) . '">';
-                    foreach ($group['statement_task_ids'] as $task_id) {
-                        echo '<input type="hidden" name="task_ids[]" value="' . (int) $task_id . '">';
-                    }
-                    echo '<button class="button button-primary" type="submit">Create Statement (' . (int) $group['statement_ready_count'] . ')</button>';
-                    echo '</form>';
-                }
+                $work_statement_url = add_query_arg([
+                    'page' => 'wp-pq-work-logs',
+                    'month' => $range['month'],
+                    'start_date' => $range['custom_start'],
+                    'end_date' => $range['custom_end'],
+                    'client_id' => (int) ($group['client_id'] ?? 0),
+                ], admin_url('admin.php'));
+                $draft_url = add_query_arg([
+                    'page' => 'wp-pq-statements',
+                    'period' => $range['month'],
+                    'client_id' => (int) ($group['client_id'] ?? 0),
+                ], admin_url('admin.php'));
+                echo '<div class="wp-pq-inline-action-form">';
+                echo '<a class="button" href="' . esc_url($work_statement_url) . '">Open Work Statements</a>';
+                echo '<a class="button button-primary" href="' . esc_url($draft_url) . '">Open Invoice Drafts</a>';
+                echo '</div>';
                 echo '</section>';
             }
         }
@@ -661,6 +650,12 @@ class WP_PQ_Admin
         $work_log_summaries = self::get_work_log_summaries($range['start'], $range['end']);
         $work_log_detail = $selected_work_log_id > 0 ? self::get_work_log_detail($selected_work_log_id) : null;
         $clients = self::get_billing_clients();
+        $jobs = $selected_client_id > 0 ? self::get_client_bucket_rows($selected_client_id) : [];
+        $status_labels = self::work_statement_status_labels();
+        $selected_statuses = array_values(array_unique(array_filter(array_map('sanitize_key', (array) ($_GET['statuses'] ?? [])))));
+        if (empty($selected_statuses)) {
+            $selected_statuses = array_values(array_filter(array_keys($status_labels), static fn(string $status): bool => $status !== 'archived'));
+        }
 
         if ($selected_client_id > 0) {
             $work_log_summaries = array_values(array_filter($work_log_summaries, static function (array $log) use ($selected_client_id): bool {
@@ -673,7 +668,7 @@ class WP_PQ_Admin
 
         echo '<div class="wrap wp-pq-wrap">';
         echo '<h1>Work Statements</h1>';
-        echo '<p>Review non-invoice work statements by range, adjust notes, and export a clean PDF or CSV for client-facing delivery.</p>';
+        echo '<p>Create optional, frozen client work reports from one client, one date range, and the jobs or statuses you want represented in the snapshot.</p>';
         echo self::admin_section_nav('work_logs');
 
         if (isset($_GET['wp_pq_notice'])) {
@@ -697,20 +692,57 @@ class WP_PQ_Admin
         echo '      <input type="date" name="end_date" value="' . esc_attr($range['custom_end']) . '">';
         echo '    </label>';
         echo self::render_client_picker('work-log-client-filter', 'client_id', $clients, $selected_client_id, 'Client', 'Type a client name or email');
-        echo '    <button class="button" type="submit">Filter Work Statements</button>';
+        echo '    <button class="button" type="submit">Filter History</button>';
         echo '  </form>';
         echo '  <p class="wp-pq-panel-note">Current range: ' . esc_html($range['label']) . '</p>';
         echo '</div>';
 
         echo '<div class="wp-pq-billing-grid">';
         echo '  <section class="wp-pq-panel">';
+        echo '    <h2>Create Work Statement Snapshot</h2>';
+        if ($selected_client_id <= 0) {
+            echo '<p class="wp-pq-empty-state">Pick a client above to build a frozen work statement snapshot.</p>';
+        } else {
+            echo '    <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-ai-form">';
+            wp_nonce_field('wp_pq_create_work_log');
+            echo '      <input type="hidden" name="action" value="wp_pq_create_work_log">';
+            echo '      <input type="hidden" name="redirect_page" value="wp-pq-work-logs">';
+            echo '      <input type="hidden" name="client_id" value="' . (int) $selected_client_id . '">';
+            echo '      <input type="hidden" name="month" value="' . esc_attr($range['month']) . '">';
+            echo '      <input type="hidden" name="start_date" value="' . esc_attr($range['custom_start']) . '">';
+            echo '      <input type="hidden" name="end_date" value="' . esc_attr($range['custom_end']) . '">';
+            echo '      <p class="wp-pq-panel-note">This snapshot freezes on creation and never auto-updates. It can span multiple jobs and statuses for the selected client.</p>';
+            if (! empty($jobs)) {
+                echo '      <label>Jobs';
+                echo '        <select name="job_ids[]" multiple size="' . esc_attr((string) min(6, max(3, count($jobs)))) . '">';
+                foreach ($jobs as $job) {
+                    $job_id = (int) ($job['id'] ?? 0);
+                    echo '<option value="' . $job_id . '">' . esc_html(self::bucket_label_from_row($job)) . '</option>';
+                }
+                echo '        </select>';
+                echo '      </label>';
+            }
+            echo '      <fieldset class="wp-pq-status-filter-fieldset"><legend>Status filters</legend>';
+            foreach ($status_labels as $status_key => $status_label) {
+                echo '<label class="inline"><input type="checkbox" name="statuses[]" value="' . esc_attr($status_key) . '"' . checked(in_array($status_key, $selected_statuses, true), true, false) . '> ' . esc_html($status_label) . '</label>';
+            }
+            echo '      </fieldset>';
+            echo '      <label>Notes <textarea name="notes" rows="4" placeholder="Optional summary or client-facing context for this frozen report."></textarea></label>';
+            echo '      <div class="wp-pq-create-actions">';
+            echo '        <button class="button button-primary" type="submit">Create Work Statement</button>';
+            echo '      </div>';
+            echo '    </form>';
+        }
+        echo '  </section>';
+
+        echo '  <section class="wp-pq-panel">';
         echo '    <h2>Work Statement History</h2>';
-        echo '    <p class="wp-pq-panel-note">Each work statement is a dated roll-up of delivered tasks that should not yet become a billing statement.</p>';
+        echo '    <p class="wp-pq-panel-note">These are frozen client reports. Open one to review the exact job/status snapshot that was captured.</p>';
 
         if (empty($work_log_summaries)) {
             echo '<p class="wp-pq-empty-state">No work statements have been created in this range yet.</p>';
         } else {
-            echo '<table class="widefat striped wp-pq-admin-table"><thead><tr><th>Code</th><th>Client</th><th>Job</th><th>Range</th><th>Tasks</th><th>Actions</th></tr></thead><tbody>';
+            echo '<table class="widefat striped wp-pq-admin-table"><thead><tr><th>Code</th><th>Client</th><th>Jobs</th><th>Range</th><th>Tasks</th><th>Actions</th></tr></thead><tbody>';
             foreach ($work_log_summaries as $work_log) {
                 $view_url = add_query_arg([
                     'page' => 'wp-pq-work-logs',
@@ -746,21 +778,13 @@ class WP_PQ_Admin
             echo '</tbody></table>';
         }
         echo '  </section>';
-
-        echo '  <section class="wp-pq-panel">';
-        echo '    <h2>How To Use Work Statements</h2>';
-        echo '    <p class="wp-pq-panel-note">Use a work statement when you want a polished document of delivered work without moving those tasks into invoice batching yet. Billing statements remain the place for currency, totals, and due dates.</p>';
-        echo '    <div class="wp-pq-admin-callout">';
-        echo '      <p><strong>Good fit:</strong> progress recaps, client-facing delivery summaries, or internal confirmation of completed work.</p>';
-        echo '      <p><strong>Not a fit:</strong> final billing documents that should be sent for payment.</p>';
-        echo '    </div>';
-        echo '  </section>';
         echo '</div>';
 
         if ($work_log_detail) {
             echo '<section class="wp-pq-panel wp-pq-statement-detail">';
             echo '  <h2>Work Statement ' . esc_html((string) $work_log_detail['work_log_code']) . '</h2>';
-            echo '  <p class="wp-pq-panel-note">Created ' . esc_html(self::format_admin_datetime((string) $work_log_detail['created_at'])) . ' for ' . esc_html(self::client_label_from_row($work_log_detail)) . ' in ' . esc_html(self::bucket_label_from_row($work_log_detail)) . '.</p>';
+            echo '  <p class="wp-pq-panel-note">Created ' . esc_html(self::format_admin_datetime((string) $work_log_detail['created_at'])) . ' for ' . esc_html(self::client_label_from_row($work_log_detail)) . ' across ' . esc_html(self::bucket_label_from_row($work_log_detail)) . '.</p>';
+            echo '  <div class="wp-pq-admin-callout"><p><strong>Freeze rule:</strong> this report is a creation-time snapshot. Later task changes do not change this document.</p></div>';
             echo '  <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-bucket-form">';
             wp_nonce_field('wp_pq_update_work_log_' . (int) $work_log_detail['id']);
             echo '    <input type="hidden" name="action" value="wp_pq_update_work_log">';
@@ -783,14 +807,15 @@ class WP_PQ_Admin
             echo '    </div>';
             echo '  </form>';
             echo '  <table class="widefat striped wp-pq-admin-table">';
-            echo '    <thead><tr><th>Task</th><th>Delivered</th><th>Priority</th><th>Billing status</th></tr></thead>';
+            echo '    <thead><tr><th>Task</th><th>Job</th><th>Status</th><th>Updated</th><th>Billing status</th></tr></thead>';
             echo '    <tbody>';
             foreach ($work_log_detail['tasks'] as $task) {
                 echo '<tr>';
                 echo '<td><strong>' . esc_html((string) $task['title']) . '</strong><br><span class="description">#' . (int) $task['id'] . '</span></td>';
-                echo '<td>' . esc_html(self::format_admin_datetime((string) $task['delivered_at'])) . '</td>';
-                echo '<td>' . esc_html(ucfirst((string) $task['priority'])) . '</td>';
-                echo '<td>' . esc_html(self::humanize_label((string) ($task['billing_status'] ?? 'unbilled'))) . '</td>';
+                echo '<td>' . esc_html(self::bucket_label_from_row($task)) . '</td>';
+                echo '<td>' . esc_html(self::humanize_label((string) ($task['status'] ?? 'pending_approval'))) . '</td>';
+                echo '<td>' . esc_html(self::format_admin_datetime((string) ($task['updated_at'] ?? $task['created_at'] ?? ''))) . '</td>';
+                echo '<td>' . esc_html(self::billing_status_label((string) ($task['billing_status'] ?? 'unbilled'))) . '</td>';
                 echo '</tr>';
             }
             echo '    </tbody>';
@@ -862,6 +887,7 @@ class WP_PQ_Admin
         $unbilled_tasks = self::get_delivered_unbilled_tasks($selected_month);
         $statement_summaries = self::get_statement_summaries($selected_month);
         $statement_detail = $selected_statement_id > 0 ? self::get_statement_detail($selected_statement_id) : null;
+        $clients = self::get_billing_clients();
         if ($selected_client_id > 0) {
             $unbilled_tasks = array_values(array_filter($unbilled_tasks, static function (array $task) use ($selected_client_id): bool {
                 return (int) ($task['client_id'] ?? 0) === $selected_client_id;
@@ -874,82 +900,125 @@ class WP_PQ_Admin
             }
         }
 
+        $client_jobs = $selected_client_id > 0 ? self::get_client_bucket_rows($selected_client_id) : [];
+        $detail_jobs = $statement_detail ? self::get_client_bucket_rows((int) ($statement_detail['client_id'] ?? 0)) : $client_jobs;
+        $eligible_by_job = [];
+        foreach ($unbilled_tasks as $task) {
+            $job_key = (int) ($task['billing_bucket_id'] ?? 0);
+            if (! isset($eligible_by_job[$job_key])) {
+                $eligible_by_job[$job_key] = [
+                    'job_label' => self::bucket_label_from_row($task),
+                    'tasks' => [],
+                ];
+            }
+            $eligible_by_job[$job_key]['tasks'][] = $task;
+        }
+
+        $line_type_labels = self::invoice_line_type_labels();
+
         echo '<div class="wrap wp-pq-wrap">';
-        echo '<h1>Statements</h1>';
-        echo '<p>Batch delivered work into statements, review by month, and export a clean task list for billing.</p>';
+        echo '<h1>Invoice Drafts</h1>';
+        echo '<p>Build single-client invoice drafts that can span one or many jobs, then export a canonical CSV for accounting handoff.</p>';
         echo self::admin_section_nav('statements');
 
         if (isset($_GET['wp_pq_notice'])) {
             $notice = sanitize_key((string) $_GET['wp_pq_notice']);
             $message = isset($_GET['message']) ? sanitize_text_field(wp_unslash((string) $_GET['message'])) : '';
             if ($notice === 'statement_created') {
-                echo '<div class="notice notice-success"><p>' . esc_html($message ?: 'Statement created.') . '</p></div>';
+                echo '<div class="notice notice-success"><p>' . esc_html($message ?: 'Invoice Draft created.') . '</p></div>';
             } elseif ($notice === 'statement_error') {
-                echo '<div class="notice notice-error"><p>' . esc_html($message ?: 'There was a problem creating the statement.') . '</p></div>';
+                echo '<div class="notice notice-error"><p>' . esc_html($message ?: 'There was a problem updating the Invoice Draft.') . '</p></div>';
             }
         }
 
+        echo self::render_client_datalist($clients, 'wp-pq-client-options');
         echo '<div class="wp-pq-panel wp-pq-filter-bar">';
         echo '  <form method="get" class="wp-pq-period-form">';
         echo '    <input type="hidden" name="page" value="wp-pq-statements">';
-        echo '    <input type="hidden" name="client_id" value="' . (int) $selected_client_id . '">';
         echo '    <label>Period';
         echo '      <input type="month" name="period" value="' . esc_attr($selected_month) . '">';
         echo '    </label>';
-        echo '    <button class="button" type="submit">Filter Period</button>';
+        echo self::render_client_picker('statement-client-filter', 'client_id', $clients, $selected_client_id, 'Client', 'Type a client name or email');
+        echo '    <button class="button" type="submit">Open Workspace</button>';
         echo '  </form>';
         echo '</div>';
 
         echo '<div class="wp-pq-billing-grid">';
         echo '  <section class="wp-pq-panel">';
-        echo '    <h2>Unbilled Delivered Tasks</h2>';
-        echo '    <p class="wp-pq-panel-note">These delivered tasks are ready to be grouped into a statement for ' . esc_html($selected_month) . '.</p>';
-
-        if (empty($unbilled_tasks)) {
-            echo '<p class="wp-pq-empty-state">No unbilled delivered tasks were found for this period.</p>';
+        echo '    <h2>Start Invoice Draft</h2>';
+        if ($selected_client_id <= 0) {
+            echo '<p class="wp-pq-empty-state">Choose a client above to start an Invoice Draft workspace.</p>';
         } else {
-            echo '    <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+            echo '    <div class="wp-pq-admin-callout">';
+            echo '      <p><strong>Rule:</strong> line items may be initialized from tasks, but they stop deriving from those tasks as soon as the draft is created.</p>';
+            echo '      <p><strong>Client guardrail:</strong> this workspace never mixes clients. One draft belongs to one client only.</p>';
+            echo '    </div>';
+
+            echo '    <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-ai-form">';
             wp_nonce_field('wp_pq_create_statement');
             echo '      <input type="hidden" name="action" value="wp_pq_create_statement">';
+            echo '      <input type="hidden" name="redirect_page" value="wp-pq-statements">';
+            echo '      <input type="hidden" name="client_id" value="' . (int) $selected_client_id . '">';
             echo '      <input type="hidden" name="period" value="' . esc_attr($selected_month) . '">';
-            echo '      <table class="widefat striped wp-pq-admin-table">';
-            echo '        <thead><tr><th class="check-column"><input type="checkbox" data-pq-check-all></th><th>Task</th><th>Requested By</th><th>Delivered</th><th>Priority</th><th>Owners</th></tr></thead>';
-            echo '        <tbody>';
-            foreach ($unbilled_tasks as $task) {
-                echo '<tr>';
-                echo '<td class="check-column"><input type="checkbox" name="task_ids[]" value="' . (int) $task['id'] . '"></td>';
-                echo '<td><strong>' . esc_html((string) $task['title']) . '</strong><br><span class="description">#' . (int) $task['id'] . ' · ' . esc_html(wp_trim_words((string) $task['description'], 18)) . '</span></td>';
-                echo '<td>' . esc_html((string) $task['submitter_name']) . '</td>';
-                echo '<td>' . esc_html(self::format_admin_datetime((string) $task['delivered_at'])) . '</td>';
-                echo '<td>' . esc_html(ucfirst((string) $task['priority'])) . '</td>';
-                echo '<td>' . esc_html((string) $task['owner_names']) . '</td>';
-                echo '</tr>';
+            if (empty($eligible_by_job)) {
+                echo '<p class="wp-pq-empty-state">No unbilled delivered tasks were found for this client in ' . esc_html($selected_month) . '.</p>';
+            } else {
+                echo '<table class="widefat striped wp-pq-admin-table">';
+                echo '<thead><tr><th class="check-column"><input type="checkbox" data-pq-check-all></th><th>Task</th><th>Job</th><th>Delivered</th><th>Owners</th></tr></thead><tbody>';
+                foreach ($eligible_by_job as $group) {
+                    echo '<tr class="wp-pq-admin-group-row"><td colspan="5"><strong>' . esc_html((string) $group['job_label']) . '</strong></td></tr>';
+                    foreach ($group['tasks'] as $task) {
+                        echo '<tr>';
+                        echo '<td class="check-column"><input type="checkbox" name="task_ids[]" value="' . (int) $task['id'] . '"></td>';
+                        echo '<td><strong>' . esc_html((string) $task['title']) . '</strong><br><span class="description">#' . (int) $task['id'] . ' · ' . esc_html(wp_trim_words((string) $task['description'], 18)) . '</span></td>';
+                        echo '<td>' . esc_html(self::bucket_label_from_row($task)) . '</td>';
+                        echo '<td>' . esc_html(self::format_admin_datetime((string) $task['delivered_at'])) . '</td>';
+                        echo '<td>' . esc_html((string) $task['owner_names']) . '</td>';
+                        echo '</tr>';
+                    }
+                }
+                echo '</tbody></table>';
             }
-            echo '        </tbody>';
-            echo '      </table>';
-            echo '      <label>Statement Notes';
-            echo '        <textarea name="notes" rows="4" placeholder="Optional client-facing or internal note for this statement period."></textarea>';
+            echo '      <label>Draft Notes';
+            echo '        <textarea name="notes" rows="4" placeholder="Optional internal context for this Invoice Draft."></textarea>';
             echo '      </label>';
             echo '      <div class="wp-pq-create-actions">';
-            echo '        <button class="button button-primary" type="submit">Create Statement from Selected</button>';
+            echo '        <button class="button button-primary" type="submit">Create Invoice Draft from Selected Tasks</button>';
+            echo '      </div>';
+            echo '    </form>';
+
+            echo '    <hr>';
+            echo '    <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-ai-form">';
+            wp_nonce_field('wp_pq_create_statement');
+            echo '      <input type="hidden" name="action" value="wp_pq_create_statement">';
+            echo '      <input type="hidden" name="redirect_page" value="wp-pq-statements">';
+            echo '      <input type="hidden" name="client_id" value="' . (int) $selected_client_id . '">';
+            echo '      <input type="hidden" name="period" value="' . esc_attr($selected_month) . '">';
+            echo '      <p class="wp-pq-panel-note">Need a retainer, fixed fee, subscription, pass-through, or manual adjustment first? Start an empty draft and add lines directly.</p>';
+            echo '      <label>Draft Notes';
+            echo '        <textarea name="notes" rows="3" placeholder="Optional starting note for an empty draft."></textarea>';
+            echo '      </label>';
+            echo '      <div class="wp-pq-create-actions">';
+            echo '        <button class="button" type="submit">Create Empty Invoice Draft</button>';
             echo '      </div>';
             echo '    </form>';
         }
         echo '  </section>';
 
         echo '  <section class="wp-pq-panel">';
-        echo '    <h2>Statement Batches</h2>';
-        echo '    <p class="wp-pq-panel-note">Review existing statements for this period and export a task list for billing.</p>';
+        echo '    <h2>Invoice Draft History</h2>';
+        echo '    <p class="wp-pq-panel-note">These drafts are accounting handoff records. Totals come from line items only.</p>';
         if (empty($statement_summaries)) {
-            echo '<p class="wp-pq-empty-state">No statements have been created for this period yet.</p>';
+            echo '<p class="wp-pq-empty-state">No invoice drafts have been created for this period yet.</p>';
         } else {
             echo '      <table class="widefat striped wp-pq-admin-table">';
-            echo '        <thead><tr><th>Code</th><th>Created</th><th>Tasks</th><th>Created By</th><th>Notes</th><th>Actions</th></tr></thead>';
+            echo '        <thead><tr><th>Code</th><th>Jobs</th><th>Tasks</th><th>Lines</th><th>Total</th><th>Actions</th></tr></thead>';
             echo '        <tbody>';
             foreach ($statement_summaries as $statement) {
                 $view_url = add_query_arg([
                     'page' => 'wp-pq-statements',
                     'period' => $selected_month,
+                    'client_id' => (int) ($statement['client_id'] ?? 0),
                     'statement_id' => (int) $statement['id'],
                 ], admin_url('admin.php'));
                 $export_url = wp_nonce_url(
@@ -968,11 +1037,11 @@ class WP_PQ_Admin
                 );
                 echo '<tr>';
                 echo '<td><strong>' . esc_html((string) $statement['statement_code']) . '</strong></td>';
-                echo '<td>' . esc_html(self::format_admin_datetime((string) $statement['created_at'])) . '</td>';
+                echo '<td>' . esc_html(self::bucket_label_from_row($statement)) . '</td>';
                 echo '<td>' . (int) $statement['task_count'] . '</td>';
-                echo '<td>' . esc_html((string) $statement['creator_name']) . '</td>';
-                echo '<td>' . esc_html(wp_trim_words((string) $statement['notes'], 16)) . '</td>';
-                echo '<td><a class="button" href="' . esc_url($view_url) . '">View</a> <a class="button" target="_blank" href="' . esc_url($print_url) . '">Print / PDF</a> <a class="button" href="' . esc_url($export_url) . '">CSV</a></td>';
+                echo '<td>' . (int) ($statement['line_count'] ?? 0) . '</td>';
+                echo '<td>' . esc_html((string) ($statement['currency_code'] ?: 'USD')) . ' ' . esc_html(number_format((float) ($statement['total_amount'] ?? 0), 2)) . '</td>';
+                echo '<td><a class="button" href="' . esc_url($view_url) . '">Open</a> <a class="button" href="' . esc_url($export_url) . '">CSV</a> <a class="button" target="_blank" href="' . esc_url($print_url) . '">Print / PDF</a></td>';
                 echo '</tr>';
             }
             echo '        </tbody>';
@@ -982,9 +1051,14 @@ class WP_PQ_Admin
         echo '</div>';
 
         if ($statement_detail) {
+            $statement_total = number_format((float) ($statement_detail['total_amount'] ?? 0), 2);
             echo '<section class="wp-pq-panel wp-pq-statement-detail">';
-            echo '  <h2>Statement ' . esc_html((string) $statement_detail['statement_code']) . '</h2>';
-            echo '  <p class="wp-pq-panel-note">Created ' . esc_html(self::format_admin_datetime((string) $statement_detail['created_at'])) . ' by ' . esc_html((string) $statement_detail['creator_name']) . ' for ' . esc_html(self::client_label_from_row($statement_detail)) . ' in ' . esc_html(self::bucket_label_from_row($statement_detail)) . '.</p>';
+            echo '  <h2>Invoice Draft ' . esc_html((string) $statement_detail['statement_code']) . '</h2>';
+            echo '  <p class="wp-pq-panel-note">Created ' . esc_html(self::format_admin_datetime((string) $statement_detail['created_at'])) . ' by ' . esc_html((string) $statement_detail['creator_name']) . ' for ' . esc_html(self::client_label_from_row($statement_detail)) . ' across ' . esc_html(self::bucket_label_from_row($statement_detail)) . '.</p>';
+            echo '  <div class="wp-pq-admin-callout">';
+            echo '    <p><strong>Financial truth:</strong> totals come from line items only. Linked tasks are there for traceability and to prevent double-billing.</p>';
+            echo '    <p><strong>One-way rule:</strong> task-derived lines can be edited, but they do not re-derive from tasks after the draft is created.</p>';
+            echo '  </div>';
             if (! empty($statement_detail['notes'])) {
                 echo '  <div class="wp-pq-admin-callout"><p>' . esc_html((string) $statement_detail['notes']) . '</p></div>';
             }
@@ -992,28 +1066,92 @@ class WP_PQ_Admin
             wp_nonce_field('wp_pq_update_statement_' . (int) $statement_detail['id']);
             echo '    <input type="hidden" name="action" value="wp_pq_update_statement">';
             echo '    <input type="hidden" name="statement_id" value="' . (int) $statement_detail['id'] . '">';
+            echo '    <div class="wp-pq-admin-callout"><p><strong>Computed total:</strong> ' . esc_html((string) ($statement_detail['currency_code'] ?: 'USD')) . ' ' . esc_html($statement_total) . '</p></div>';
             echo '    <label>Currency <input type="text" name="currency_code" value="' . esc_attr((string) ($statement_detail['currency_code'] ?: 'USD')) . '" maxlength="10"></label>';
-            echo '    <label>Total amount <input type="number" name="total_amount" min="0" step="0.01" value="' . esc_attr((string) $statement_detail['total_amount']) . '"></label>';
             echo '    <label>Due date <input type="date" name="due_date" value="' . esc_attr((string) $statement_detail['due_date']) . '"></label>';
-            echo '    <label>Statement notes <textarea name="notes" rows="4">' . esc_textarea((string) $statement_detail['notes']) . '</textarea></label>';
+            echo '    <label>Invoice Draft notes <textarea name="notes" rows="4">' . esc_textarea((string) $statement_detail['notes']) . '</textarea></label>';
+            echo '    <h3>Invoice Lines</h3>';
+            echo '    <table class="widefat striped wp-pq-admin-table">';
+            echo '      <thead><tr><th>Type</th><th>Description</th><th>Qty</th><th>Unit</th><th>Rate</th><th>Amount</th><th>Job</th><th>Notes</th><th>Remove</th></tr></thead><tbody>';
+            foreach ((array) ($statement_detail['lines'] ?? []) as $line) {
+                $line_id = (int) ($line['id'] ?? 0);
+                $mismatch = self::line_source_mismatch_message($line);
+                echo '<tr>';
+                echo '<td><input type="hidden" name="line_id[]" value="' . $line_id . '"><select name="line_type[]">';
+                foreach ($line_type_labels as $line_key => $line_label) {
+                    echo '<option value="' . esc_attr($line_key) . '"' . selected((string) ($line['line_type'] ?? 'manual_adjustment'), $line_key, false) . '>' . esc_html($line_label) . '</option>';
+                }
+                echo '</select></td>';
+                echo '<td><textarea name="line_description[]" rows="3" placeholder="Line description">' . esc_textarea((string) ($line['description'] ?? '')) . '</textarea>';
+                echo '<div class="description">' . esc_html((string) ($line['source_kind'] ?? 'manual') === 'task' ? 'Task-derived' : 'Manual line') . ' · ' . count(self::decode_line_task_ids($line)) . ' linked task(s)</div>';
+                if ($mismatch !== '') {
+                    echo '<div class="description" style="color:#b45309;">' . esc_html($mismatch) . '</div>';
+                }
+                echo '</td>';
+                echo '<td><input type="number" name="line_quantity[]" min="0" step="0.01" value="' . esc_attr((string) ($line['quantity'] ?? '')) . '"></td>';
+                echo '<td><input type="text" name="line_unit[]" value="' . esc_attr((string) ($line['unit'] ?? '')) . '"></td>';
+                echo '<td><input type="number" name="line_unit_rate[]" min="0" step="0.01" value="' . esc_attr((string) ($line['unit_rate'] ?? '')) . '"></td>';
+                echo '<td><input type="number" name="line_amount[]" min="0" step="0.01" value="' . esc_attr((string) ($line['line_amount'] ?? '')) . '"></td>';
+                echo '<td>' . self::render_bucket_select('line_bucket_id[]', $detail_jobs, (int) ($line['billing_bucket_id'] ?? 0), '', 'No job') . '</td>';
+                echo '<td><textarea name="line_notes[]" rows="3" placeholder="Optional note">' . esc_textarea((string) ($line['notes'] ?? '')) . '</textarea></td>';
+                echo '<td><label class="inline"><input type="checkbox" name="remove_line_ids[]" value="' . $line_id . '"> Remove</label></td>';
+                echo '</tr>';
+            }
+            for ($line_index = 0; $line_index < 3; $line_index++) {
+                echo '<tr>';
+                echo '<td><select name="new_line_type[]">';
+                foreach ($line_type_labels as $line_key => $line_label) {
+                    echo '<option value="' . esc_attr($line_key) . '"' . selected($line_key, 'manual_adjustment', false) . '>' . esc_html($line_label) . '</option>';
+                }
+                echo '</select></td>';
+                echo '<td><textarea name="new_line_description[]" rows="3" placeholder="New line description"></textarea></td>';
+                echo '<td><input type="number" name="new_line_quantity[]" min="0" step="0.01"></td>';
+                echo '<td><input type="text" name="new_line_unit[]" placeholder="hours, mo, etc."></td>';
+                echo '<td><input type="number" name="new_line_unit_rate[]" min="0" step="0.01"></td>';
+                echo '<td><input type="number" name="new_line_amount[]" min="0" step="0.01"></td>';
+                echo '<td>' . self::render_bucket_select('new_line_bucket_id[]', $detail_jobs, 0, '', 'No job') . '</td>';
+                echo '<td><textarea name="new_line_notes[]" rows="3" placeholder="Optional note"></textarea></td>';
+                echo '<td></td>';
+                echo '</tr>';
+            }
+            echo '      </tbody></table>';
             echo '    <div class="wp-pq-inline-action-form">';
-            echo '      <button class="button button-primary" type="submit">Save Billing Details</button>';
+            echo '      <button class="button button-primary" type="submit">Save Invoice Draft</button>';
+            echo '      <a class="button" href="' . esc_url(wp_nonce_url(add_query_arg([
+                'action' => 'wp_pq_export_statement',
+                'statement_id' => (int) $statement_detail['id'],
+            ], admin_url('admin-post.php')), 'wp_pq_export_statement_' . (int) $statement_detail['id'])) . '">Export Canonical CSV</a>';
             echo '      <a class="button" target="_blank" href="' . esc_url(wp_nonce_url(add_query_arg([
                 'action' => 'wp_pq_print_statement',
                 'statement_id' => (int) $statement_detail['id'],
             ], admin_url('admin-post.php')), 'wp_pq_print_statement_' . (int) $statement_detail['id'])) . '">Print / PDF</a>';
             echo '    </div>';
             echo '  </form>';
+            echo '  <form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-inline-action-form">';
+            wp_nonce_field('wp_pq_delete_statement_' . (int) $statement_detail['id']);
+            echo '    <input type="hidden" name="action" value="wp_pq_delete_statement">';
+            echo '    <input type="hidden" name="statement_id" value="' . (int) $statement_detail['id'] . '">';
+            echo '    <button class="button" type="submit">Delete Invoice Draft</button>';
+            echo '  </form>';
+            echo '  <h3>Linked Tasks</h3>';
             echo '  <table class="widefat striped wp-pq-admin-table">';
-            echo '    <thead><tr><th>Task</th><th>Requested By</th><th>Delivered</th><th>Batched</th><th>Priority</th></tr></thead>';
+            echo '    <thead><tr><th>Task</th><th>Job</th><th>Delivered</th><th>Billing Status</th><th>Actions</th></tr></thead>';
             echo '    <tbody>';
             foreach ($statement_detail['tasks'] as $task) {
                 echo '<tr>';
                 echo '<td><strong>' . esc_html((string) $task['title']) . '</strong><br><span class="description">#' . (int) $task['id'] . '</span></td>';
-                echo '<td>' . esc_html((string) $task['submitter_name']) . '</td>';
+                echo '<td>' . esc_html(self::bucket_label_from_row($task)) . '</td>';
                 echo '<td>' . esc_html(self::format_admin_datetime((string) $task['delivered_at'])) . '</td>';
-                echo '<td>' . esc_html(self::format_admin_datetime((string) $task['statement_batched_at'])) . '</td>';
-                echo '<td>' . esc_html(ucfirst((string) $task['priority'])) . '</td>';
+                echo '<td>' . esc_html(self::billing_status_label((string) ($task['billing_status'] ?? 'unbilled'))) . '</td>';
+                echo '<td>';
+                echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-inline-form">';
+                wp_nonce_field('wp_pq_remove_statement_task_' . (int) $statement_detail['id'] . '_' . (int) $task['id']);
+                echo '<input type="hidden" name="action" value="wp_pq_remove_statement_task">';
+                echo '<input type="hidden" name="statement_id" value="' . (int) $statement_detail['id'] . '">';
+                echo '<input type="hidden" name="task_id" value="' . (int) $task['id'] . '">';
+                echo '<button class="button" type="submit">Remove Task</button>';
+                echo '</form>';
+                echo '</td>';
                 echo '</tr>';
             }
             echo '    </tbody>';
@@ -1304,14 +1442,35 @@ class WP_PQ_Admin
         check_admin_referer('wp_pq_create_work_log');
         $task_ids = array_values(array_unique(array_filter(array_map('intval', (array) ($_POST['task_ids'] ?? [])))));
         $range = self::get_rollup_range_from_request($_POST);
-        $result = WP_PQ_API::create_work_log_batch($task_ids, '', $range['start'], $range['end'], get_current_user_id());
+        $notes = isset($_POST['notes']) ? sanitize_textarea_field(wp_unslash((string) $_POST['notes'])) : '';
+
+        if (! empty($task_ids)) {
+            $result = WP_PQ_API::create_work_log_batch($task_ids, $notes, $range['start'], $range['end'], get_current_user_id());
+        } else {
+            $client_id = isset($_POST['client_id']) ? (int) $_POST['client_id'] : 0;
+            $job_ids = array_values(array_unique(array_filter(array_map('intval', (array) ($_POST['job_ids'] ?? [])))));
+            $statuses = array_values(array_unique(array_filter(array_map('sanitize_key', (array) ($_POST['statuses'] ?? [])))));
+            $result = WP_PQ_API::create_work_log_snapshot([
+                'client_id' => $client_id,
+                'range_start' => $range['start'],
+                'range_end' => $range['end'],
+                'job_ids' => $job_ids,
+                'statuses' => $statuses,
+                'notes' => $notes,
+            ], get_current_user_id());
+        }
 
         if (is_wp_error($result)) {
-            wp_safe_redirect(self::admin_redirect_url('wp-pq-rollups', 'rollup_error', $result->get_error_message()));
+            wp_safe_redirect(self::admin_redirect_url((string) ($_POST['redirect_page'] ?? 'wp-pq-work-logs'), 'work_log_error', $result->get_error_message(), $range, [
+                'client_id' => isset($_POST['client_id']) ? (int) $_POST['client_id'] : 0,
+            ]));
             exit;
         }
 
-        wp_safe_redirect(self::admin_redirect_url('wp-pq-rollups', 'work_log_created', sprintf('Work statement %s created with %d task%s.', $result['code'], (int) $result['task_count'], ((int) $result['task_count'] === 1 ? '' : 's'))));
+        wp_safe_redirect(self::admin_redirect_url((string) ($_POST['redirect_page'] ?? 'wp-pq-work-logs'), 'work_log_created', sprintf('Work statement %s created with %d task%s.', $result['code'], (int) $result['task_count'], ((int) $result['task_count'] === 1 ? '' : 's')), $range, [
+            'client_id' => isset($_POST['client_id']) ? (int) $_POST['client_id'] : 0,
+            'work_log_id' => (int) $result['id'],
+        ]));
         exit;
     }
 
@@ -1353,7 +1512,12 @@ class WP_PQ_Admin
         $notes = isset($_POST['notes']) ? sanitize_textarea_field(wp_unslash((string) $_POST['notes'])) : '';
         $range = self::get_rollup_range_from_request($_POST);
         $period = $range['month'];
-        $result = WP_PQ_API::create_statement_batch($task_ids, $notes, $period, get_current_user_id());
+        $result = WP_PQ_API::create_invoice_draft([
+            'task_ids' => $task_ids,
+            'client_id' => isset($_POST['client_id']) ? (int) $_POST['client_id'] : 0,
+            'notes' => $notes,
+            'statement_month' => $period,
+        ], get_current_user_id());
 
         if (is_wp_error($result)) {
             wp_safe_redirect(self::admin_redirect_url((string) ($_POST['redirect_page'] ?? 'wp-pq-statements'), 'statement_error', $result->get_error_message(), $range));
@@ -1366,7 +1530,14 @@ class WP_PQ_Admin
         $redirect_url = self::admin_redirect_url(
             (string) ($_POST['redirect_page'] ?? 'wp-pq-statements'),
             'statement_created',
-            sprintf('Statement %s created with %d task%s.', $result['code'], (int) $result['task_count'], ((int) $result['task_count'] === 1 ? '' : 's')),
+            sprintf(
+                'Invoice Draft %s created with %d task%s and %d line%s.',
+                $result['code'],
+                (int) $result['task_count'],
+                ((int) $result['task_count'] === 1 ? '' : 's'),
+                (int) ($result['line_count'] ?? 0),
+                ((int) ($result['line_count'] ?? 0) === 1 ? '' : 's')
+            ),
             $range,
             $redirect_args
         );
@@ -1384,7 +1555,7 @@ class WP_PQ_Admin
         check_admin_referer('wp_pq_update_statement_' . $statement_id);
 
         if ($statement_id <= 0) {
-            wp_safe_redirect(self::admin_redirect_url('wp-pq-statements', 'statement_error', 'Statement not found.'));
+            wp_safe_redirect(self::admin_redirect_url('wp-pq-statements', 'statement_error', 'Invoice Draft not found.'));
             exit;
         }
 
@@ -1392,25 +1563,69 @@ class WP_PQ_Admin
         $statements_table = $wpdb->prefix . 'pq_statements';
 
         $currency_code = strtoupper(sanitize_text_field(wp_unslash((string) ($_POST['currency_code'] ?? 'USD'))));
-        $total_amount_raw = sanitize_text_field(wp_unslash((string) ($_POST['total_amount'] ?? '')));
         $due_date = WP_PQ_API::normalize_rollup_date(sanitize_text_field(wp_unslash((string) ($_POST['due_date'] ?? ''))));
         $notes = sanitize_textarea_field(wp_unslash((string) ($_POST['notes'] ?? '')));
 
         $update = [
             'currency_code' => $currency_code !== '' ? substr($currency_code, 0, 10) : 'USD',
-            'total_amount' => $total_amount_raw === '' ? null : number_format((float) $total_amount_raw, 2, '.', ''),
             'due_date' => $due_date !== '' ? $due_date : null,
             'notes' => $notes,
+            'updated_at' => current_time('mysql', true),
         ];
 
         $wpdb->update($statements_table, $update, ['id' => $statement_id]);
+        self::sync_invoice_draft_lines_from_request($statement_id, $_POST);
+        WP_PQ_API::recalculate_statement_total($statement_id);
 
         wp_safe_redirect(add_query_arg([
             'page' => 'wp-pq-statements',
             'statement_id' => $statement_id,
             'wp_pq_notice' => 'statement_created',
-            'message' => 'Statement details updated.',
+            'message' => 'Invoice Draft details updated.',
         ], admin_url('admin.php')));
+        exit;
+    }
+
+    public static function handle_delete_statement(): void
+    {
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            wp_die('Forbidden');
+        }
+
+        $statement_id = isset($_POST['statement_id']) ? (int) $_POST['statement_id'] : 0;
+        check_admin_referer('wp_pq_delete_statement_' . $statement_id);
+        $result = WP_PQ_API::delete_statement_draft($statement_id, get_current_user_id());
+
+        if (is_wp_error($result)) {
+            wp_safe_redirect(self::admin_redirect_url('wp-pq-statements', 'statement_error', $result->get_error_message()));
+            exit;
+        }
+
+        wp_safe_redirect(self::admin_redirect_url('wp-pq-statements', 'statement_created', 'Invoice Draft deleted.'));
+        exit;
+    }
+
+    public static function handle_remove_statement_task(): void
+    {
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            wp_die('Forbidden');
+        }
+
+        $statement_id = isset($_POST['statement_id']) ? (int) $_POST['statement_id'] : 0;
+        $task_id = isset($_POST['task_id']) ? (int) $_POST['task_id'] : 0;
+        check_admin_referer('wp_pq_remove_statement_task_' . $statement_id . '_' . $task_id);
+        $result = WP_PQ_API::remove_task_from_statement_draft($statement_id, $task_id, get_current_user_id());
+
+        if (is_wp_error($result)) {
+            wp_safe_redirect(self::admin_redirect_url('wp-pq-statements', 'statement_error', $result->get_error_message(), [], [
+                'statement_id' => $statement_id,
+            ]));
+            exit;
+        }
+
+        wp_safe_redirect(self::admin_redirect_url('wp-pq-statements', 'statement_created', 'Task removed from invoice draft.', [], [
+            'statement_id' => $statement_id,
+        ]));
         exit;
     }
 
@@ -1619,18 +1834,20 @@ class WP_PQ_Admin
         header('Content-Disposition: attachment; filename=' . sanitize_file_name($work_log['work_log_code'] . '.csv'));
 
         $out = fopen('php://output', 'w');
-        fputcsv($out, ['Work Statement Code', 'Client', 'Bucket', 'Range Start', 'Range End', 'Task ID', 'Task Title', 'Delivered At', 'Priority']);
+        fputcsv($out, ['Work Statement Code', 'Client', 'Jobs', 'Range Start', 'Range End', 'Task ID', 'Task Title', 'Job', 'Status', 'Updated At', 'Billing Status']);
         foreach ($work_log['tasks'] as $task) {
             fputcsv($out, [
                 $work_log['work_log_code'],
                 $work_log['client_name'],
-                $work_log['bucket_name'],
+                self::bucket_label_from_row($work_log),
                 $work_log['range_start'],
                 $work_log['range_end'],
                 $task['id'],
                 $task['title'],
-                self::format_admin_datetime((string) $task['delivered_at']),
-                ucfirst((string) $task['priority']),
+                self::bucket_label_from_row($task),
+                self::humanize_label((string) ($task['status'] ?? 'pending_approval')),
+                self::format_admin_datetime((string) ($task['updated_at'] ?? $task['created_at'] ?? '')),
+                self::billing_status_label((string) ($task['billing_status'] ?? 'unbilled')),
             ]);
         }
         fclose($out);
@@ -1669,7 +1886,7 @@ class WP_PQ_Admin
         check_admin_referer('wp_pq_export_statement_' . $statement_id);
         $statement = self::get_statement_detail($statement_id);
         if (! $statement) {
-            wp_die('Statement not found.');
+            wp_die('Invoice Draft not found.');
         }
 
         nocache_headers();
@@ -1677,17 +1894,25 @@ class WP_PQ_Admin
         header('Content-Disposition: attachment; filename=' . sanitize_file_name($statement['statement_code'] . '.csv'));
 
         $out = fopen('php://output', 'w');
-        fputcsv($out, ['Statement Code', 'Statement Month', 'Task ID', 'Task Title', 'Requested By', 'Delivered At', 'Batched At', 'Priority']);
-        foreach ($statement['tasks'] as $task) {
+        fputcsv($out, ['Draft Code', 'Client', 'Period', 'Line Type', 'Description', 'Quantity', 'Unit', 'Unit Rate', 'Amount', 'Jobs', 'Linked Task IDs', 'Notes']);
+        foreach ((array) ($statement['lines'] ?? []) as $line) {
+            $linked_task_ids = self::decode_line_task_ids($line);
+            $job_label = (int) ($line['billing_bucket_id'] ?? 0) > 0
+                ? self::bucket_label_from_row(['billing_bucket_id' => (int) $line['billing_bucket_id'], 'bucket_name' => self::statement_line_bucket_name((int) ($line['billing_bucket_id'] ?? 0))])
+                : self::bucket_label_from_row($statement);
             fputcsv($out, [
                 $statement['statement_code'],
+                self::client_label_from_row($statement),
                 $statement['statement_month'],
-                $task['id'],
-                $task['title'],
-                $task['submitter_name'],
-                self::format_admin_datetime((string) $task['delivered_at']),
-                self::format_admin_datetime((string) $task['statement_batched_at']),
-                ucfirst((string) $task['priority']),
+                self::humanize_label((string) ($line['line_type'] ?? 'manual_adjustment')),
+                (string) ($line['description'] ?? ''),
+                (string) ($line['quantity'] ?? ''),
+                (string) ($line['unit'] ?? ''),
+                (string) ($line['unit_rate'] ?? ''),
+                (string) ($line['line_amount'] ?? ''),
+                $job_label,
+                implode('|', $linked_task_ids),
+                (string) ($line['notes'] ?? ''),
             ]);
         }
         fclose($out);
@@ -1704,20 +1929,10 @@ class WP_PQ_Admin
         check_admin_referer('wp_pq_print_statement_' . $statement_id);
         $statement = self::get_statement_detail($statement_id);
         if (! $statement) {
-            wp_die('Statement not found.');
+            wp_die('Invoice Draft not found.');
         }
 
-        self::render_print_document('Billing Statement', [
-            'code' => (string) $statement['statement_code'],
-            'client' => self::client_label_from_row($statement),
-            'bucket' => self::bucket_label_from_row($statement),
-            'period' => self::format_date_range((string) $statement['range_start'], (string) $statement['range_end']),
-            'created' => self::format_admin_datetime((string) $statement['created_at']),
-            'due' => self::format_date_only((string) $statement['due_date']),
-        ], $statement['tasks'], (string) ($statement['notes'] ?? ''), [
-            'currency' => (string) ($statement['currency_code'] ?: 'USD'),
-            'total' => isset($statement['total_amount']) ? (string) $statement['total_amount'] : '',
-        ]);
+        self::render_invoice_draft_print_document($statement);
     }
 
     private static function get_rollup_range(): array
@@ -1735,7 +1950,7 @@ class WP_PQ_Admin
         if (current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
             $items['rollups'] = ['label' => 'Billing Rollup', 'url' => admin_url('admin.php?page=wp-pq-rollups')];
             $items['work_logs'] = ['label' => 'Work Statements', 'url' => admin_url('admin.php?page=wp-pq-work-logs')];
-            $items['statements'] = ['label' => 'Statements', 'url' => admin_url('admin.php?page=wp-pq-statements')];
+            $items['statements'] = ['label' => 'Invoice Drafts', 'url' => admin_url('admin.php?page=wp-pq-statements')];
             $items['ai_import'] = ['label' => 'AI Import', 'url' => admin_url('admin.php?page=wp-pq-ai-import')];
             $items['settings'] = ['label' => 'Settings', 'url' => admin_url('admin.php?page=wp-pq-settings')];
         }
@@ -2019,7 +2234,7 @@ class WP_PQ_Admin
             $html .= '<div class="wp-pq-bucket-group">';
             $html .= '<div class="wp-pq-job-row">';
             $html .= '<div><strong>' . esc_html(self::bucket_label_from_row($job)) . '</strong>';
-            $html .= '<p class="wp-pq-panel-note">Tasks: ' . (int) $counts['task_count'] . ' · Work Statements: ' . (int) $counts['work_log_count'] . ' · Statements: ' . (int) $counts['statement_count'] . '</p></div>';
+            $html .= '<p class="wp-pq-panel-note">Tasks: ' . (int) $counts['task_count'] . ' · Work Statements: ' . (int) $counts['work_log_count'] . ' · Invoice Drafts: ' . (int) $counts['statement_count'] . '</p></div>';
             if ($can_delete) {
                 ob_start();
                 echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-inline-action-form">';
@@ -2172,7 +2387,9 @@ class WP_PQ_Admin
 
     private static function render_bucket_select(string $name, array $jobs, int $selected_id, string $label, string $empty_label, bool $allowParsedOption = false): string
     {
-        $html = '<label>' . esc_html($label) . '<select name="' . esc_attr($name) . '">';
+        $wrap_label = $label !== '';
+        $html = $wrap_label ? '<label>' . esc_html($label) : '';
+        $html .= '<select name="' . esc_attr($name) . '">';
         $html .= '<option value="0">' . esc_html($empty_label) . '</option>';
         foreach ($jobs as $job) {
             $job_id = (int) ($job['id'] ?? 0);
@@ -2181,7 +2398,10 @@ class WP_PQ_Admin
         if ($allowParsedOption && empty($jobs)) {
             $html .= '<option value="0" selected>' . esc_html($empty_label) . '</option>';
         }
-        $html .= '</select></label>';
+        $html .= '</select>';
+        if ($wrap_label) {
+            $html .= '</label>';
+        }
         return $html;
     }
 
@@ -2189,13 +2409,22 @@ class WP_PQ_Admin
     {
         global $wpdb;
         $tasks_table = $wpdb->prefix . 'pq_tasks';
-        $work_logs_table = $wpdb->prefix . 'pq_work_logs';
-        $statements_table = $wpdb->prefix . 'pq_statements';
+        $work_log_items_table = $wpdb->prefix . 'pq_work_log_items';
+        $statement_lines_table = $wpdb->prefix . 'pq_statement_lines';
 
         return [
             'task_count' => (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$tasks_table} WHERE billing_bucket_id = %d", $bucket_id)),
-            'work_log_count' => (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$work_logs_table} WHERE billing_bucket_id = %d", $bucket_id)),
-            'statement_count' => (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$statements_table} WHERE billing_bucket_id = %d", $bucket_id)),
+            'work_log_count' => (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(DISTINCT wi.work_log_id)
+                 FROM {$work_log_items_table} wi
+                 INNER JOIN {$tasks_table} t ON t.id = wi.task_id
+                 WHERE t.billing_bucket_id = %d",
+                $bucket_id
+            )),
+            'statement_count' => (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(DISTINCT statement_id) FROM {$statement_lines_table} WHERE billing_bucket_id = %d",
+                $bucket_id
+            )),
         ];
     }
 
@@ -2505,10 +2734,8 @@ class WP_PQ_Admin
             }
 
             $groups[$group_key]['tasks'][] = $row;
-            if ((int) ($row['work_log_id'] ?? 0) <= 0) {
-                $groups[$group_key]['work_log_task_ids'][] = (int) $row['id'];
-                $groups[$group_key]['work_log_ready_count']++;
-            }
+            $groups[$group_key]['work_log_task_ids'][] = (int) $row['id'];
+            $groups[$group_key]['work_log_ready_count']++;
             if ((string) ($row['billing_status'] ?? 'unbilled') === 'unbilled') {
                 $groups[$group_key]['statement_task_ids'][] = (int) $row['id'];
                 $groups[$group_key]['statement_ready_count']++;
@@ -2527,7 +2754,7 @@ class WP_PQ_Admin
         $users_table = $wpdb->users;
         $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
 
-        return $wpdb->get_results($wpdb->prepare(
+        $rows = $wpdb->get_results($wpdb->prepare(
             "SELECT l.*, COUNT(li.id) AS task_count, u.display_name AS client_name, u.user_email AS client_email, b.bucket_name, b.is_default
              FROM {$logs_table} l
              LEFT JOIN {$items_table} li ON li.work_log_id = l.id
@@ -2539,6 +2766,12 @@ class WP_PQ_Admin
             $start_date . ' 00:00:00',
             $end_date . ' 23:59:59'
         ), ARRAY_A);
+
+        foreach ($rows as &$row) {
+            $row['job_summary'] = self::work_log_job_summary($row);
+        }
+
+        return $rows;
     }
 
     private static function get_work_log_detail(int $work_log_id): ?array
@@ -2568,12 +2801,24 @@ class WP_PQ_Admin
             return null;
         }
 
+        $work_log['job_summary'] = self::work_log_job_summary($work_log);
         $work_log['tasks'] = $wpdb->get_results($wpdb->prepare(
-            "SELECT t.*
+            "SELECT
+                wi.task_id AS id,
+                wi.task_title AS title,
+                wi.task_description AS description,
+                wi.task_status AS status,
+                wi.task_billing_status AS billing_status,
+                wi.task_bucket_name AS bucket_name,
+                wi.task_bucket_is_default AS is_default,
+                wi.task_updated_at AS updated_at,
+                t.created_at,
+                u.display_name AS submitter_name
              FROM {$items_table} wi
-             INNER JOIN {$tasks_table} t ON t.id = wi.task_id
+             LEFT JOIN {$tasks_table} t ON t.id = wi.task_id
+             LEFT JOIN {$users_table} u ON u.ID = t.submitter_id
              WHERE wi.work_log_id = %d
-             ORDER BY COALESCE(t.delivered_at, t.updated_at) DESC, t.id DESC",
+             ORDER BY wi.task_status ASC, COALESCE(wi.task_updated_at, t.created_at) DESC, wi.id DESC",
             $work_log_id
         ), ARRAY_A);
 
@@ -2586,13 +2831,15 @@ class WP_PQ_Admin
 
         $statements_table = $wpdb->prefix . 'pq_statements';
         $items_table = $wpdb->prefix . 'pq_statement_items';
+        $lines_table = $wpdb->prefix . 'pq_statement_lines';
         $users_table = $wpdb->users;
         $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
 
-        return $wpdb->get_results($wpdb->prepare(
-            "SELECT s.*, COUNT(si.id) AS task_count, u.display_name AS client_name, u.user_email AS client_email, b.bucket_name, b.is_default
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT s.*, COUNT(DISTINCT si.id) AS task_count, COUNT(DISTINCT sl.id) AS line_count, u.display_name AS client_name, u.user_email AS client_email, b.bucket_name, b.is_default
              FROM {$statements_table} s
              LEFT JOIN {$items_table} si ON si.statement_id = s.id
+             LEFT JOIN {$lines_table} sl ON sl.statement_id = s.id
              LEFT JOIN {$users_table} u ON u.ID = s.client_user_id
              LEFT JOIN {$buckets_table} b ON b.id = s.billing_bucket_id
              WHERE s.created_at BETWEEN %s AND %s
@@ -2601,6 +2848,12 @@ class WP_PQ_Admin
             $start_date . ' 00:00:00',
             $end_date . ' 23:59:59'
         ), ARRAY_A);
+
+        foreach ($rows as &$row) {
+            $row['job_summary'] = self::statement_job_summary((int) ($row['id'] ?? 0), $row);
+        }
+
+        return $rows;
     }
 
     private static function get_delivered_unbilled_tasks(string $period): array
@@ -2610,9 +2863,10 @@ class WP_PQ_Admin
         $tasks_table = $wpdb->prefix . 'pq_tasks';
         $users_table = $wpdb->users;
         $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT t.*, u.display_name AS submitter_name
+            "SELECT t.*, u.display_name AS submitter_name, b.bucket_name, b.is_default
              FROM {$tasks_table} t
              LEFT JOIN {$users_table} u ON u.ID = t.submitter_id
+             LEFT JOIN {$wpdb->prefix}pq_billing_buckets b ON b.id = t.billing_bucket_id
              WHERE t.status = 'delivered'
                AND COALESCE(t.is_billable, 1) = 1
                AND t.billing_status = 'unbilled'
@@ -2634,13 +2888,15 @@ class WP_PQ_Admin
 
         $statements_table = $wpdb->prefix . 'pq_statements';
         $items_table = $wpdb->prefix . 'pq_statement_items';
+        $lines_table = $wpdb->prefix . 'pq_statement_lines';
         $users_table = $wpdb->users;
         $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
 
-        return $wpdb->get_results($wpdb->prepare(
-            "SELECT s.*, COUNT(si.id) AS task_count, u.display_name AS creator_name, client.display_name AS client_name, client.user_email AS client_email, b.bucket_name, b.is_default
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT s.*, COUNT(DISTINCT si.id) AS task_count, COUNT(DISTINCT sl.id) AS line_count, u.display_name AS creator_name, client.display_name AS client_name, client.user_email AS client_email, b.bucket_name, b.is_default
              FROM {$statements_table} s
              LEFT JOIN {$items_table} si ON si.statement_id = s.id
+             LEFT JOIN {$lines_table} sl ON sl.statement_id = s.id
              LEFT JOIN {$users_table} u ON u.ID = s.created_by
              LEFT JOIN {$users_table} client ON client.ID = s.client_user_id
              LEFT JOIN {$buckets_table} b ON b.id = s.billing_bucket_id
@@ -2649,6 +2905,12 @@ class WP_PQ_Admin
              ORDER BY s.created_at DESC, s.id DESC",
             $period
         ), ARRAY_A);
+
+        foreach ($rows as &$row) {
+            $row['job_summary'] = self::statement_job_summary((int) ($row['id'] ?? 0), $row);
+        }
+
+        return $rows;
     }
 
     private static function get_statement_detail(int $statement_id): ?array
@@ -2679,17 +2941,21 @@ class WP_PQ_Admin
             return null;
         }
 
+        $statement['job_summary'] = self::statement_job_summary($statement_id, $statement);
+        $statement['lines'] = WP_PQ_API::get_statement_line_rows($statement_id);
         $tasks = $wpdb->get_results($wpdb->prepare(
-            "SELECT t.*, u.display_name AS submitter_name
+            "SELECT t.*, u.display_name AS submitter_name, b.bucket_name, b.is_default
              FROM {$items_table} si
              INNER JOIN {$tasks_table} t ON t.id = si.task_id
              LEFT JOIN {$users_table} u ON u.ID = t.submitter_id
+             LEFT JOIN {$buckets_table} b ON b.id = t.billing_bucket_id
              WHERE si.statement_id = %d
              ORDER BY COALESCE(t.delivered_at, t.updated_at) DESC, t.id DESC",
             $statement_id
         ), ARRAY_A);
 
         $statement['tasks'] = $tasks;
+        $statement['line_count'] = count((array) $statement['lines']);
         return $statement;
     }
 
@@ -3064,6 +3330,294 @@ document.addEventListener('DOMContentLoaded', function () {
         return array_values(array_unique($job_names));
     }
 
+    private static function invoice_line_type_labels(): array
+    {
+        return [
+            'task_rollup' => 'Task Rollup',
+            'fixed_fee' => 'Fixed Fee',
+            'retainer' => 'Retainer',
+            'hourly_overage' => 'Hourly Overage',
+            'pass_through_expense' => 'Pass-through Expense',
+            'subscription_service' => 'Subscription / Service',
+            'manual_adjustment' => 'Manual Adjustment',
+        ];
+    }
+
+    private static function work_statement_status_labels(): array
+    {
+        return [
+            'pending_approval' => 'Pending Approval',
+            'approved' => 'Approved',
+            'in_progress' => 'In Progress',
+            'pending_review' => 'Needs Review',
+            'delivered' => 'Delivered',
+            'revision_requested' => 'Revisions Needed',
+            'not_approved' => 'Needs Clarification',
+            'archived' => 'Archived',
+        ];
+    }
+
+    private static function statement_job_summary(int $statement_id, array $row = []): string
+    {
+        global $wpdb;
+
+        if (! empty($row['job_summary'])) {
+            return (string) $row['job_summary'];
+        }
+
+        if ($statement_id <= 0) {
+            return 'All Jobs';
+        }
+
+        $bucket_ids = array_map('intval', (array) $wpdb->get_col($wpdb->prepare(
+            "SELECT DISTINCT billing_bucket_id FROM {$wpdb->prefix}pq_statement_lines WHERE statement_id = %d AND billing_bucket_id IS NOT NULL AND billing_bucket_id > 0 ORDER BY billing_bucket_id ASC",
+            $statement_id
+        )));
+
+        if (count($bucket_ids) > 1) {
+            return 'Multiple Jobs';
+        }
+
+        if (count($bucket_ids) === 1) {
+            $bucket = $wpdb->get_row($wpdb->prepare(
+                "SELECT bucket_name, is_default FROM {$wpdb->prefix}pq_billing_buckets WHERE id = %d",
+                $bucket_ids[0]
+            ), ARRAY_A);
+            if ($bucket) {
+                return self::bucket_label_from_row($bucket);
+            }
+        }
+
+        if ((int) ($row['billing_bucket_id'] ?? 0) > 0) {
+            return self::bucket_label_from_row($row);
+        }
+
+        return 'All Jobs';
+    }
+
+    private static function work_log_job_summary(array $row): string
+    {
+        $filters = json_decode((string) ($row['snapshot_filters'] ?? ''), true);
+        $job_ids = is_array($filters) ? array_values(array_unique(array_filter(array_map('intval', (array) ($filters['job_ids'] ?? []))))) : [];
+
+        if (count($job_ids) > 1) {
+            return 'Multiple Jobs';
+        }
+
+        if ((int) ($row['billing_bucket_id'] ?? 0) > 0) {
+            return self::bucket_label_from_row($row);
+        }
+
+        if (count($job_ids) === 1) {
+            return self::bucket_label_from_row($row);
+        }
+
+        return 'All Jobs';
+    }
+
+    private static function decode_line_task_ids(array $line): array
+    {
+        $task_ids = json_decode((string) ($line['linked_task_ids'] ?? ''), true);
+        if (! is_array($task_ids)) {
+            return [];
+        }
+
+        return array_values(array_unique(array_filter(array_map('intval', $task_ids))));
+    }
+
+    private static function line_source_mismatch_message(array $line): string
+    {
+        if ((string) ($line['source_kind'] ?? '') !== 'task') {
+            return '';
+        }
+
+        $snapshot = json_decode((string) ($line['source_snapshot'] ?? ''), true);
+        if (! is_array($snapshot)) {
+            return '';
+        }
+
+        $suggested_description = trim((string) ($snapshot['suggested_description'] ?? ''));
+        $suggested_quantity = isset($snapshot['suggested_quantity']) ? (float) $snapshot['suggested_quantity'] : null;
+        $suggested_unit = trim((string) ($snapshot['suggested_unit'] ?? ''));
+        $snapshot_task_ids = array_values(array_unique(array_filter(array_map('intval', (array) ($snapshot['task_ids'] ?? [])))));
+        $current_task_ids = self::decode_line_task_ids($line);
+        $current_description = trim((string) ($line['description'] ?? ''));
+        $current_quantity = isset($line['quantity']) && $line['quantity'] !== null ? (float) $line['quantity'] : null;
+        $current_unit = trim((string) ($line['unit'] ?? ''));
+        $has_pricing_override = trim((string) ($line['unit_rate'] ?? '')) !== '' || trim((string) ($line['line_amount'] ?? '')) !== '';
+
+        $description_changed = $suggested_description !== '' && $current_description !== $suggested_description;
+        $quantity_changed = $suggested_quantity !== null && $current_quantity !== null && abs($current_quantity - $suggested_quantity) > 0.009;
+        $unit_changed = $suggested_unit !== '' && $current_unit !== $suggested_unit;
+        $linked_tasks_changed = ! empty($snapshot_task_ids) && $snapshot_task_ids !== $current_task_ids;
+
+        if (! $description_changed && ! $quantity_changed && ! $unit_changed && ! $has_pricing_override && ! $linked_tasks_changed) {
+            return '';
+        }
+
+        return 'This line no longer matches the original task-derived suggestion.';
+    }
+
+    private static function statement_line_bucket_name(int $bucket_id): string
+    {
+        global $wpdb;
+
+        if ($bucket_id <= 0) {
+            return '';
+        }
+
+        return (string) $wpdb->get_var($wpdb->prepare(
+            "SELECT bucket_name FROM {$wpdb->prefix}pq_billing_buckets WHERE id = %d",
+            $bucket_id
+        ));
+    }
+
+    private static function billing_status_label(string $status): string
+    {
+        $status = trim($status);
+        if ($status === 'batched') {
+            return 'In invoice draft';
+        }
+
+        if ($status === 'statement_sent') {
+            return 'Sent to accounting';
+        }
+
+        return self::humanize_label($status !== '' ? $status : 'unbilled');
+    }
+
+    private static function sync_invoice_draft_lines_from_request(int $statement_id, array $source): void
+    {
+        global $wpdb;
+
+        $lines_table = $wpdb->prefix . 'pq_statement_lines';
+        $existing_lines = [];
+        foreach (WP_PQ_API::get_statement_line_rows($statement_id) as $line) {
+            $existing_lines[(int) ($line['id'] ?? 0)] = $line;
+        }
+
+        $remove_ids = array_fill_keys(array_map('intval', (array) ($source['remove_line_ids'] ?? [])), true);
+        $line_ids = array_values(array_map('intval', (array) ($source['line_id'] ?? [])));
+        $count = count($line_ids);
+
+        for ($index = 0; $index < $count; $index++) {
+            $line_id = (int) ($line_ids[$index] ?? 0);
+            if ($line_id <= 0 || ! isset($existing_lines[$line_id])) {
+                continue;
+            }
+
+            if (isset($remove_ids[$line_id])) {
+                WP_PQ_API::delete_statement_line($statement_id, $line_id, get_current_user_id());
+                continue;
+            }
+
+            $payload = self::invoice_line_payload_from_request($source, $index, 'line_');
+            if (! self::invoice_line_payload_has_content($payload)) {
+                continue;
+            }
+
+            $wpdb->update($lines_table, [
+                'line_type' => $payload['line_type'],
+                'description' => $payload['description'],
+                'quantity' => $payload['quantity'],
+                'unit' => $payload['unit'],
+                'unit_rate' => $payload['unit_rate'],
+                'line_amount' => $payload['line_amount'],
+                'billing_bucket_id' => $payload['billing_bucket_id'],
+                'notes' => $payload['notes'],
+                'sort_order' => $index + 1,
+                'updated_at' => current_time('mysql', true),
+            ], ['id' => $line_id, 'statement_id' => $statement_id]);
+        }
+
+        $new_count = max(
+            count((array) ($source['new_line_type'] ?? [])),
+            count((array) ($source['new_line_description'] ?? [])),
+            count((array) ($source['new_line_amount'] ?? []))
+        );
+
+        for ($index = 0; $index < $new_count; $index++) {
+            $payload = self::invoice_line_payload_from_request($source, $index, 'new_line_');
+            if (! self::invoice_line_payload_has_content($payload)) {
+                continue;
+            }
+
+            $wpdb->insert($lines_table, [
+                'statement_id' => $statement_id,
+                'line_type' => $payload['line_type'],
+                'source_kind' => 'manual',
+                'description' => $payload['description'],
+                'quantity' => $payload['quantity'],
+                'unit' => $payload['unit'],
+                'unit_rate' => $payload['unit_rate'],
+                'line_amount' => $payload['line_amount'],
+                'billing_bucket_id' => $payload['billing_bucket_id'],
+                'linked_task_ids' => null,
+                'source_snapshot' => null,
+                'notes' => $payload['notes'],
+                'sort_order' => count($existing_lines) + $index + 1,
+                'created_at' => current_time('mysql', true),
+                'updated_at' => current_time('mysql', true),
+            ]);
+        }
+    }
+
+    private static function invoice_line_payload_from_request(array $source, int $index, string $prefix): array
+    {
+        $type_values = (array) ($source[$prefix . 'type'] ?? []);
+        $description_values = (array) ($source[$prefix . 'description'] ?? []);
+        $quantity_values = (array) ($source[$prefix . 'quantity'] ?? []);
+        $unit_values = (array) ($source[$prefix . 'unit'] ?? []);
+        $unit_rate_values = (array) ($source[$prefix . 'unit_rate'] ?? []);
+        $amount_values = (array) ($source[$prefix . 'amount'] ?? []);
+        $note_values = (array) ($source[$prefix . 'notes'] ?? []);
+        $bucket_values = (array) ($source[$prefix . 'bucket_id'] ?? []);
+
+        $line_type = sanitize_key((string) ($type_values[$index] ?? 'manual_adjustment'));
+        $allowed_line_types = array_keys(self::invoice_line_type_labels());
+        if (! in_array($line_type, $allowed_line_types, true)) {
+            $line_type = 'manual_adjustment';
+        }
+
+        $description = sanitize_textarea_field((string) ($description_values[$index] ?? ''));
+        $quantity_raw = sanitize_text_field((string) ($quantity_values[$index] ?? ''));
+        $unit = sanitize_text_field((string) ($unit_values[$index] ?? ''));
+        $unit_rate_raw = sanitize_text_field((string) ($unit_rate_values[$index] ?? ''));
+        $line_amount_raw = sanitize_text_field((string) ($amount_values[$index] ?? ''));
+        $notes = sanitize_textarea_field((string) ($note_values[$index] ?? ''));
+        $billing_bucket_id = (int) ($bucket_values[$index] ?? 0);
+
+        $quantity = $quantity_raw !== '' ? number_format((float) $quantity_raw, 2, '.', '') : null;
+        $unit_rate = $unit_rate_raw !== '' ? number_format((float) $unit_rate_raw, 2, '.', '') : null;
+        if ($line_amount_raw !== '') {
+            $line_amount = number_format((float) $line_amount_raw, 2, '.', '');
+        } elseif ($quantity !== null && $unit_rate !== null) {
+            $line_amount = number_format(((float) $quantity) * ((float) $unit_rate), 2, '.', '');
+        } else {
+            $line_amount = null;
+        }
+
+        return [
+            'line_type' => $line_type,
+            'description' => $description,
+            'quantity' => $quantity,
+            'unit' => $unit,
+            'unit_rate' => $unit_rate,
+            'line_amount' => $line_amount,
+            'billing_bucket_id' => $billing_bucket_id > 0 ? $billing_bucket_id : null,
+            'notes' => $notes,
+        ];
+    }
+
+    private static function invoice_line_payload_has_content(array $payload): bool
+    {
+        return trim((string) ($payload['description'] ?? '')) !== ''
+            || trim((string) ($payload['quantity'] ?? '')) !== ''
+            || trim((string) ($payload['unit_rate'] ?? '')) !== ''
+            || trim((string) ($payload['line_amount'] ?? '')) !== ''
+            || trim((string) ($payload['notes'] ?? '')) !== '';
+    }
+
     private static function humanize_label(string $value): string
     {
         return ucwords(str_replace('_', ' ', trim($value)));
@@ -3082,6 +3636,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
     private static function bucket_label_from_row(array $row): string
     {
+        if (! empty($row['job_summary'])) {
+            return (string) $row['job_summary'];
+        }
+
         $bucket_name = trim((string) ($row['bucket_name'] ?? ''));
         $is_default = (int) ($row['is_default'] ?? 0) === 1;
         if ($bucket_name === '') {
@@ -3135,6 +3693,7 @@ document.addEventListener('DOMContentLoaded', function () {
         $due_label = (string) ($meta['due'] ?? '-');
         $currency = trim((string) ($totals['currency'] ?? 'USD'));
         $total = (string) ($totals['total'] ?? '');
+        $is_work_statement = $totals === null;
         ?>
 <!doctype html>
 <html lang="en">
@@ -3208,7 +3767,7 @@ document.addEventListener('DOMContentLoaded', function () {
       <section class="doc-card">
         <span class="label">Bill to</span>
         <div class="summary-value"><?php echo esc_html($client_label); ?></div>
-        <div class="summary-copy">Task roll-up for client work delivered in this billing period.</div>
+        <div class="summary-copy"><?php echo esc_html($is_work_statement ? 'Frozen client work snapshot for the selected jobs and statuses in this reporting range.' : 'Invoice draft prepared for accounting handoff from the selected work in this billing period.'); ?></div>
       </section>
       <section class="doc-card">
         <div class="meta-stack">
@@ -3230,10 +3789,10 @@ document.addEventListener('DOMContentLoaded', function () {
     <table>
       <thead>
         <tr>
-          <th style="width:46%;">Task</th>
-          <th style="width:20%;">Delivered</th>
-          <th style="width:14%;">Priority</th>
-          <th style="width:20%;">Reference</th>
+          <th style="width:46%;"><?php echo esc_html($is_work_statement ? 'Task' : 'Task'); ?></th>
+          <th style="width:20%;"><?php echo esc_html($is_work_statement ? 'Job' : 'Delivered'); ?></th>
+          <th style="width:14%;"><?php echo esc_html($is_work_statement ? 'Status' : 'Priority'); ?></th>
+          <th style="width:20%;"><?php echo esc_html($is_work_statement ? 'Billing Status' : 'Reference'); ?></th>
         </tr>
       </thead>
       <tbody>
@@ -3245,9 +3804,15 @@ document.addEventListener('DOMContentLoaded', function () {
                 <div class="task-brief"><?php echo esc_html(wp_trim_words((string) $task['description'], 28)); ?></div>
               <?php endif; ?>
             </td>
-            <td><?php echo esc_html(self::format_admin_datetime((string) ($task['delivered_at'] ?? $task['updated_at'] ?? ''))); ?></td>
-            <td><span class="pill"><?php echo esc_html(ucfirst((string) ($task['priority'] ?? 'normal'))); ?></span></td>
-            <td><?php echo esc_html('Task #' . (int) ($task['id'] ?? 0)); ?></td>
+            <?php if ($is_work_statement) : ?>
+              <td><?php echo esc_html(self::bucket_label_from_row($task)); ?></td>
+              <td><span class="pill"><?php echo esc_html(self::humanize_label((string) ($task['status'] ?? 'pending_approval'))); ?></span></td>
+              <td><?php echo esc_html(self::billing_status_label((string) ($task['billing_status'] ?? 'unbilled'))); ?></td>
+            <?php else : ?>
+              <td><?php echo esc_html(self::format_admin_datetime((string) ($task['delivered_at'] ?? $task['updated_at'] ?? ''))); ?></td>
+              <td><span class="pill"><?php echo esc_html(ucfirst((string) ($task['priority'] ?? 'normal'))); ?></span></td>
+              <td><?php echo esc_html('Task #' . (int) ($task['id'] ?? 0)); ?></td>
+            <?php endif; ?>
           </tr>
         <?php endforeach; ?>
       </tbody>
@@ -3278,7 +3843,190 @@ document.addEventListener('DOMContentLoaded', function () {
     </div>
 
     <p class="fine-print">
-      Generated from the Readspear Priority Portal. Keep this document with the related task record, work log, and statement batch for audit continuity.
+      Generated from the Readspear Priority Portal. Keep this document with the related task record, work statement, and invoice draft for audit continuity.
+    </p>
+  </main>
+</body>
+</html>
+        <?php
+        exit;
+    }
+
+    private static function render_invoice_draft_print_document(array $statement): void
+    {
+        nocache_headers();
+        $site_name = wp_specialchars_decode((string) get_bloginfo('name'), ENT_QUOTES);
+        $site_url = home_url('/');
+        $admin_email = (string) get_option('admin_email');
+        $document_code = (string) ($statement['statement_code'] ?? '-');
+        $client_label = self::client_label_from_row($statement);
+        $job_label = self::bucket_label_from_row($statement);
+        $period_label = self::format_date_range((string) ($statement['range_start'] ?? ''), (string) ($statement['range_end'] ?? ''));
+        $created_label = self::format_admin_datetime((string) ($statement['created_at'] ?? ''));
+        $due_label = self::format_date_only((string) ($statement['due_date'] ?? ''));
+        $currency = trim((string) (($statement['currency_code'] ?? '') ?: 'USD'));
+        $total = number_format((float) ($statement['total_amount'] ?? 0), 2);
+        $line_labels = self::invoice_line_type_labels();
+        ?>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title><?php echo esc_html('Invoice Draft ' . $document_code); ?></title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; background: #eef2f7; color: #172033; }
+    .toolbar { max-width: 1040px; margin: 18px auto 0; display: flex; gap: 10px; justify-content: flex-end; }
+    .toolbar button { border: 0; border-radius: 999px; background: #b91c1c; color: #fff; padding: 10px 16px; font-weight: 700; cursor: pointer; }
+    .doc { max-width: 1040px; margin: 18px auto 32px; background: #fff; padding: 44px 48px 48px; box-shadow: 0 24px 60px rgba(15,23,42,.10); border-radius: 24px; }
+    .header { display: flex; justify-content: space-between; gap: 28px; align-items: flex-start; margin-bottom: 28px; }
+    .brand-kicker { font-size: 12px; letter-spacing: .18em; text-transform: uppercase; color: #7b879c; margin: 0 0 12px; }
+    .brand h1 { margin: 0; font-size: 2.6rem; line-height: .98; letter-spacing: -.04em; }
+    .brand .sub { margin: 10px 0 0; color: #5d6880; line-height: 1.6; }
+    .doc-card { border: 1px solid #d9e0ea; border-radius: 20px; padding: 18px 20px; background: #fbfcff; }
+    .doc-card strong, .label { display: block; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: #6b768b; margin-bottom: 6px; }
+    .doc-code { font-size: 1.15rem; font-weight: 800; }
+    .summary-grid { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 16px; margin-bottom: 26px; }
+    .summary-value { font-size: 1rem; font-weight: 700; }
+    .summary-copy { color: #5d6880; line-height: 1.55; }
+    .amount-card { background: #172033; color: #fff; }
+    .amount-card strong { color: rgba(255,255,255,.72); }
+    .amount-value { font-size: 2rem; font-weight: 800; letter-spacing: -.03em; }
+    .section-title { margin: 30px 0 12px; font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: #6b768b; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    thead th { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: #6b768b; padding: 12px 12px; background: #f7f9fc; border-bottom: 1px solid #dfe6ef; text-align: left; }
+    tbody td { padding: 14px 12px; border-bottom: 1px solid #e6ebf3; vertical-align: top; text-align: left; }
+    .line-title { font-weight: 800; margin-bottom: 6px; }
+    .line-brief { color: #5d6880; font-size: 13px; line-height: 1.5; }
+    .notes, .footer-grid { margin-top: 28px; }
+    .footer-grid { display: grid; gap: 16px; grid-template-columns: 1.35fr .75fr; align-items: start; }
+    .notes p { margin: 0; color: #415067; line-height: 1.65; white-space: pre-wrap; }
+    .totals .totals-row { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid #e6ebf3; }
+    .totals .totals-row:last-child { border-bottom: 0; padding-bottom: 0; }
+    .totals .totals-row strong { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: #6b768b; }
+    .fine-print { margin-top: 28px; color: #7b879c; font-size: 12px; line-height: 1.6; }
+    @media print {
+      body { background: #fff; }
+      .toolbar { display: none; }
+      .doc { margin: 0; box-shadow: none; max-width: none; border-radius: 0; padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar"><button onclick="window.print()">Print / Save PDF</button></div>
+  <main class="doc">
+    <div class="header">
+      <div class="brand">
+        <p class="brand-kicker"><?php echo esc_html($site_name); ?></p>
+        <h1>Invoice Draft</h1>
+        <p class="sub"><?php echo esc_html($site_url); ?><br><?php echo esc_html($admin_email); ?></p>
+      </div>
+      <div class="doc-card amount-card">
+        <strong>Invoice Draft #</strong>
+        <div class="doc-code"><?php echo esc_html($document_code); ?></div>
+        <div style="margin-top:18px;">
+          <strong>Total</strong>
+          <div class="amount-value"><?php echo esc_html($currency . ' ' . $total); ?></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="summary-grid">
+      <section class="doc-card">
+        <span class="label">Client</span>
+        <div class="summary-value"><?php echo esc_html($client_label); ?></div>
+        <div class="summary-copy">Accounting handoff draft. Financial totals derive from line items only; linked tasks are supporting traceability.</div>
+      </section>
+      <section class="doc-card">
+        <div class="meta-stack">
+          <div><span class="label">Jobs</span><div class="summary-value"><?php echo esc_html($job_label); ?></div></div>
+          <div><span class="label">Billing period</span><div class="summary-value"><?php echo esc_html($period_label); ?></div></div>
+        </div>
+      </section>
+      <section class="doc-card">
+        <div class="meta-stack">
+          <div><span class="label">Created</span><div class="summary-value"><?php echo esc_html($created_label); ?></div></div>
+          <?php if ($due_label !== '' && $due_label !== '-') : ?>
+            <div><span class="label">Due</span><div class="summary-value"><?php echo esc_html($due_label); ?></div></div>
+          <?php endif; ?>
+        </div>
+      </section>
+    </div>
+
+    <div class="section-title">Invoice Lines</div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:40%;">Description</th>
+          <th style="width:14%;">Type</th>
+          <th style="width:12%;">Qty / Unit</th>
+          <th style="width:12%;">Rate</th>
+          <th style="width:12%;">Amount</th>
+          <th style="width:10%;">Job</th>
+        </tr>
+      </thead>
+      <tbody>
+        <?php foreach ((array) ($statement['lines'] ?? []) as $line) : ?>
+          <?php
+          $linked_task_ids = self::decode_line_task_ids($line);
+          $line_bucket_name = self::statement_line_bucket_name((int) ($line['billing_bucket_id'] ?? 0));
+          $line_job_label = $line_bucket_name !== ''
+              ? self::bucket_label_from_row([
+                  'bucket_name' => $line_bucket_name,
+                  'is_default' => 0,
+              ])
+              : $job_label;
+          $line_type = (string) ($line['line_type'] ?? 'manual_adjustment');
+          $quantity = (string) ($line['quantity'] ?? '');
+          $unit = trim((string) ($line['unit'] ?? ''));
+          $qty_label = trim($quantity . ($unit !== '' ? ' ' . $unit : ''));
+          ?>
+          <tr>
+            <td>
+              <div class="line-title"><?php echo esc_html((string) ($line['description'] ?? 'Untitled line')); ?></div>
+              <?php if (! empty($line['notes'])) : ?>
+                <div class="line-brief"><?php echo esc_html((string) $line['notes']); ?></div>
+              <?php endif; ?>
+              <?php if (! empty($linked_task_ids)) : ?>
+                <div class="line-brief">Linked tasks: <?php echo esc_html(implode(', ', array_map(static fn(int $task_id): string => '#' . $task_id, $linked_task_ids))); ?></div>
+              <?php endif; ?>
+            </td>
+            <td><?php echo esc_html((string) ($line_labels[$line_type] ?? self::humanize_label($line_type))); ?></td>
+            <td><?php echo esc_html($qty_label !== '' ? $qty_label : '—'); ?></td>
+            <td><?php echo esc_html((string) ($line['unit_rate'] !== null && $line['unit_rate'] !== '' ? $currency . ' ' . number_format((float) $line['unit_rate'], 2) : '—')); ?></td>
+            <td><?php echo esc_html((string) ($line['line_amount'] !== null && $line['line_amount'] !== '' ? $currency . ' ' . number_format((float) $line['line_amount'], 2) : '—')); ?></td>
+            <td><?php echo esc_html($line_job_label); ?></td>
+          </tr>
+        <?php endforeach; ?>
+      </tbody>
+    </table>
+
+    <div class="footer-grid">
+      <?php if (! empty($statement['notes'])) : ?>
+        <section class="doc-card notes">
+          <strong>Notes</strong>
+          <p><?php echo esc_html((string) $statement['notes']); ?></p>
+        </section>
+      <?php else : ?>
+        <section class="doc-card notes">
+          <strong>Summary</strong>
+          <p>Invoice draft prepared by <?php echo esc_html($site_name); ?> for <?php echo esc_html($client_label); ?> covering <?php echo esc_html($period_label); ?>.</p>
+        </section>
+      <?php endif; ?>
+
+      <section class="doc-card totals">
+        <div class="totals-row"><strong>Currency</strong><span><?php echo esc_html($currency); ?></span></div>
+        <div class="totals-row"><strong>Total</strong><span><?php echo esc_html($total); ?></span></div>
+        <div class="totals-row"><strong>Lines</strong><span><?php echo esc_html((string) count((array) ($statement['lines'] ?? []))); ?></span></div>
+        <?php if ($due_label !== '' && $due_label !== '-') : ?>
+          <div class="totals-row"><strong>Due</strong><span><?php echo esc_html($due_label); ?></span></div>
+        <?php endif; ?>
+      </section>
+    </div>
+
+    <p class="fine-print">
+      Generated from the Readspear Priority Portal. This document is an invoice draft for accounting handoff, not the issued invoice of record.
     </p>
   </main>
 </body>

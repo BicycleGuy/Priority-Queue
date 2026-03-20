@@ -24,7 +24,7 @@
     task_assigned: 'Task Assigned',
     task_reprioritized: 'Priority Changed',
     task_schedule_changed: 'Schedule Changed',
-    statement_batched: 'Statement Batched',
+    statement_batched: 'In Invoice Draft',
   };
 
   const prefGroups = [
@@ -49,7 +49,7 @@
     {
       key: 'delivery',
       label: 'Delivery and revisions',
-      description: 'Deliveries, revisions, and statement batching',
+      description: 'Deliveries, revisions, and invoice draft creation',
       events: ['task_revision_requested', 'task_delivered', 'statement_batched'],
     },
     {
@@ -811,7 +811,7 @@
     if (status === 'pending_review') return 'Ready for internal review';
     if (status === 'delivered') {
       if (!task.is_billable) return 'Delivered · non-billable';
-      return task.billing_status === 'batched' ? 'Added to statement batch' : 'Waiting for batching or client response';
+      return task.billing_status === 'batched' ? 'Added to invoice draft' : 'Waiting for invoice drafting or client response';
     }
     if (status === 'revision_requested') return 'Revisions needed';
     return humanizeToken(status);
@@ -849,7 +849,7 @@
       facts.push({ label: 'Billing', value: humanizeToken(task.billing_status) });
     }
     if (task.statement_code) {
-      facts.push({ label: 'Statement', value: task.statement_code });
+      facts.push({ label: 'Invoice Draft', value: task.statement_code });
     }
     if (task.needs_meeting) {
       facts.push({ label: 'Meeting', value: 'Requested' });
@@ -872,10 +872,10 @@
     if (status === 'in_progress') return 'Work is underway. When execution is complete, send it to review or request revisions.';
     if (status === 'pending_review') return 'Review the work here, then deliver it or send it back for revisions.';
     if (status === 'delivered') return task.billing_status === 'batched'
-      ? 'This delivered task has already been added to a statement batch.'
+      ? 'This delivered task has already been added to an invoice draft.'
       : (!task.is_billable
         ? 'Delivered and complete. This task is marked non-billable, so it will stay out of billing rollups.'
-        : 'Delivered work stays here until you batch it into a statement or request revisions.');
+        : 'Delivered work stays here until you add it to an invoice draft or request revisions.');
     if (status === 'revision_requested') return 'Changes were requested. Update the work, then return it to active progress.';
     return '';
   }
@@ -1075,7 +1075,7 @@
     if (!task.is_billable) {
       metaBits.push('<span>Non-billable</span>');
     } else if (task.billing_status === 'batched' && task.statement_code) {
-      metaBits.push('<span>Statement ' + escapeHtml(task.statement_code) + '</span>');
+      metaBits.push('<span>Invoice Draft ' + escapeHtml(task.statement_code) + '</span>');
     }
 
     const inlineAction = cardActionHtml(task);
@@ -1574,8 +1574,8 @@
     const count = selectedBatchTaskIds.size;
     batchStatementBtn.hidden = count === 0;
     batchStatementBtn.textContent = count > 0
-      ? 'Create Statement from Selected (' + count + ')'
-      : 'Create Statement from Selected';
+      ? 'Create Invoice Draft from Selected (' + count + ')'
+      : 'Create Invoice Draft from Selected';
   }
 
   function updateBatchApproveButton() {
@@ -2327,7 +2327,7 @@
         });
         selectedBatchTaskIds.clear();
         updateBatchButton();
-        alert('Statement ' + data.statement.code + ' created with ' + data.statement.task_count + ' delivered task' + (data.statement.task_count === 1 ? '' : 's') + '.', 'success');
+        alert('Invoice Draft ' + data.statement.code + ' created with ' + data.statement.task_count + ' delivered task' + (data.statement.task_count === 1 ? '' : 's') + '.', 'success');
         await loadTasks();
       } catch (err) {
         alert(err.message);

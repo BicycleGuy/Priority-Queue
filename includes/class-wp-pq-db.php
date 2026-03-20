@@ -27,6 +27,7 @@ class WP_PQ_DB
         $billing_buckets = $wpdb->prefix . 'pq_billing_buckets';
         $statements = $wpdb->prefix . 'pq_statements';
         $statement_items = $wpdb->prefix . 'pq_statement_items';
+        $statement_lines = $wpdb->prefix . 'pq_statement_lines';
         $work_logs = $wpdb->prefix . 'pq_work_logs';
         $work_log_items = $wpdb->prefix . 'pq_work_log_items';
 
@@ -238,6 +239,7 @@ class WP_PQ_DB
             created_by BIGINT UNSIGNED NOT NULL,
             notes LONGTEXT NULL,
             created_at DATETIME NOT NULL,
+            updated_at DATETIME NULL,
             PRIMARY KEY (id),
             UNIQUE KEY statement_code (statement_code),
             KEY statement_month (statement_month),
@@ -256,6 +258,29 @@ class WP_PQ_DB
             KEY task_id (task_id)
         ) {$charset_collate};");
 
+        dbDelta("CREATE TABLE {$statement_lines} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            statement_id BIGINT UNSIGNED NOT NULL,
+            line_type VARCHAR(40) NOT NULL DEFAULT 'manual_adjustment',
+            source_kind VARCHAR(20) NOT NULL DEFAULT 'manual',
+            description LONGTEXT NULL,
+            quantity DECIMAL(12,2) NULL,
+            unit VARCHAR(40) NULL,
+            unit_rate DECIMAL(12,2) NULL,
+            line_amount DECIMAL(12,2) NULL,
+            billing_bucket_id BIGINT UNSIGNED NULL,
+            linked_task_ids LONGTEXT NULL,
+            source_snapshot LONGTEXT NULL,
+            notes LONGTEXT NULL,
+            sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY statement_id (statement_id),
+            KEY line_type (line_type),
+            KEY billing_bucket_id (billing_bucket_id)
+        ) {$charset_collate};");
+
         dbDelta("CREATE TABLE {$work_logs} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             work_log_code VARCHAR(50) NOT NULL,
@@ -266,6 +291,7 @@ class WP_PQ_DB
             range_end DATE NULL,
             created_by BIGINT UNSIGNED NOT NULL,
             notes LONGTEXT NULL,
+            snapshot_filters LONGTEXT NULL,
             created_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             UNIQUE KEY work_log_code (work_log_code),
@@ -280,6 +306,13 @@ class WP_PQ_DB
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             work_log_id BIGINT UNSIGNED NOT NULL,
             task_id BIGINT UNSIGNED NOT NULL,
+            task_title VARCHAR(255) NULL,
+            task_description LONGTEXT NULL,
+            task_status VARCHAR(50) NULL,
+            task_billing_status VARCHAR(30) NULL,
+            task_bucket_name VARCHAR(190) NULL,
+            task_bucket_is_default TINYINT(1) NOT NULL DEFAULT 0,
+            task_updated_at DATETIME NULL,
             created_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             UNIQUE KEY work_log_task (work_log_id, task_id),
@@ -595,6 +628,131 @@ class WP_PQ_DB
         }
 
         update_option('wp_pq_named_bucket_migration_090_applied', 1, false);
+    }
+
+    public static function migrate_invoice_draft_models(): void
+    {
+        global $wpdb;
+
+        if (get_option('wp_pq_invoice_draft_migration_120_applied')) {
+            return;
+        }
+
+        $statements_table = $wpdb->prefix . 'pq_statements';
+        $statement_items_table = $wpdb->prefix . 'pq_statement_items';
+        $statement_lines_table = $wpdb->prefix . 'pq_statement_lines';
+        $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
+
+        $statement_ids = array_map('intval', (array) $wpdb->get_col("SELECT id FROM {$statements_table}"));
+        foreach ($statement_ids as $statement_id) {
+            if ($statement_id <= 0) {
+                continue;
+            }
+
+            $line_count = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$statement_lines_table} WHERE statement_id = %d",
+                $statement_id
+            ));
+            if ($line_count > 0) {
+                continue;
+            }
+
+            $statement = $wpdb->get_row($wpdb->prepare(
+                "SELECT statement_code, billing_bucket_id, total_amount FROM {$statements_table} WHERE id = %d",
+                $statement_id
+            ), ARRAY_A);
+            if (! $statement) {
+                continue;
+            }
+
+            $task_ids = array_map('intval', (array) $wpdb->get_col($wpdb->prepare(
+                "SELECT task_id FROM {$statement_items_table} WHERE statement_id = %d ORDER BY id ASC",
+                $statement_id
+            )));
+            $bucket_id = (int) ($statement['billing_bucket_id'] ?? 0);
+            $bucket_name = $bucket_id > 0
+                ? (string) $wpdb->get_var($wpdb->prepare("SELECT bucket_name FROM {$buckets_table} WHERE id = %d", $bucket_id))
+                : '';
+            $description = $bucket_name !== '' ? 'Imported task rollup for ' . $bucket_name : 'Imported task rollup';
+            $now = current_time('mysql', true);
+
+            $wpdb->insert($statement_lines_table, [
+                'statement_id' => $statement_id,
+                'line_type' => 'task_rollup',
+                'source_kind' => 'task',
+                'description' => $description,
+                'quantity' => count($task_ids),
+                'unit' => 'tasks',
+                'unit_rate' => null,
+                'line_amount' => $statement['total_amount'] !== null ? number_format((float) $statement['total_amount'], 2, '.', '') : null,
+                'billing_bucket_id' => $bucket_id > 0 ? $bucket_id : null,
+                'linked_task_ids' => ! empty($task_ids) ? wp_json_encode($task_ids) : null,
+                'source_snapshot' => wp_json_encode([
+                    'task_ids' => $task_ids,
+                    'suggested_description' => $description,
+                    'suggested_quantity' => count($task_ids),
+                    'suggested_unit' => 'tasks',
+                    'billing_bucket_id' => $bucket_id,
+                ]),
+                'notes' => '',
+                'sort_order' => 1,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+
+        update_option('wp_pq_invoice_draft_migration_120_applied', 1, false);
+    }
+
+    public static function migrate_work_statement_snapshots(): void
+    {
+        global $wpdb;
+
+        if (get_option('wp_pq_work_statement_snapshot_migration_120_applied')) {
+            return;
+        }
+
+        $items_table = $wpdb->prefix . 'pq_work_log_items';
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
+
+        $rows = $wpdb->get_results(
+            "SELECT wi.id, wi.task_id
+             FROM {$items_table} wi
+             WHERE wi.task_title IS NULL OR wi.task_title = ''",
+            ARRAY_A
+        );
+
+        foreach ((array) $rows as $row) {
+            $item_id = (int) ($row['id'] ?? 0);
+            $task_id = (int) ($row['task_id'] ?? 0);
+            if ($item_id <= 0 || $task_id <= 0) {
+                continue;
+            }
+
+            $task = $wpdb->get_row($wpdb->prepare(
+                "SELECT t.*, b.bucket_name, b.is_default
+                 FROM {$tasks_table} t
+                 LEFT JOIN {$buckets_table} b ON b.id = t.billing_bucket_id
+                 WHERE t.id = %d",
+                $task_id
+            ), ARRAY_A);
+            if (! $task) {
+                continue;
+            }
+
+            $wpdb->update($items_table, [
+                'task_title' => (string) ($task['title'] ?? ''),
+                'task_description' => (string) ($task['description'] ?? ''),
+                'task_status' => (string) ($task['status'] ?? ''),
+                'task_billing_status' => (string) ($task['billing_status'] ?? ''),
+                'task_bucket_name' => (string) ($task['bucket_name'] ?? ''),
+                'task_bucket_is_default' => (int) ($task['is_default'] ?? 0) === 1 ? 1 : 0,
+                'task_updated_at' => (string) ($task['updated_at'] ?? $task['created_at'] ?? current_time('mysql', true)),
+            ], ['id' => $item_id]);
+        }
+
+        update_option('wp_pq_work_statement_snapshot_migration_120_applied', 1, false);
     }
 
     public static function get_or_create_default_billing_bucket_id(int $client_id): int
