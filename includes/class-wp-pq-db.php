@@ -6,6 +6,11 @@ if (! defined('ABSPATH')) {
 
 class WP_PQ_DB
 {
+    private static array $client_memberships_cache = [];
+    private static array $job_member_ids_cache = [];
+    private static array $job_member_ids_for_user_cache = [];
+    private static array $user_client_memberships_cache = [];
+
     public static function create_tables(): void
     {
         global $wpdb;
@@ -907,6 +912,7 @@ class WP_PQ_DB
                     'updated_at' => $now,
                 ], ['id' => (int) $existing['id']]);
             }
+            self::clear_client_membership_cache($client_id, $user_id);
             if ($role === 'client_admin') {
                 self::ensure_client_admin_job_access($client_id, $user_id);
             }
@@ -921,6 +927,7 @@ class WP_PQ_DB
             'created_at' => $now,
             'updated_at' => $now,
         ]);
+        self::clear_client_membership_cache($client_id, $user_id);
 
         if ($role === 'client_admin') {
             self::ensure_client_admin_job_access($client_id, $user_id);
@@ -958,6 +965,7 @@ class WP_PQ_DB
             'created_at' => $now,
             'updated_at' => $now,
         ]);
+        self::clear_job_membership_cache($billing_bucket_id, $user_id);
     }
 
     private static function ensure_client_admin_job_access(int $client_id, int $user_id): void
@@ -1019,11 +1027,17 @@ class WP_PQ_DB
             return [];
         }
 
+        if (array_key_exists($client_id, self::$client_memberships_cache)) {
+            return self::$client_memberships_cache[$client_id];
+        }
+
         $table = $wpdb->prefix . 'pq_client_members';
-        return $wpdb->get_results($wpdb->prepare(
+        self::$client_memberships_cache[$client_id] = $wpdb->get_results($wpdb->prepare(
             "SELECT * FROM {$table} WHERE client_id = %d ORDER BY id ASC",
             $client_id
         ), ARRAY_A) ?: [];
+
+        return self::$client_memberships_cache[$client_id];
     }
 
     public static function get_client_admin_user_ids(int $client_id): array
@@ -1044,11 +1058,17 @@ class WP_PQ_DB
             return [];
         }
 
+        if (array_key_exists($billing_bucket_id, self::$job_member_ids_cache)) {
+            return self::$job_member_ids_cache[$billing_bucket_id];
+        }
+
         $table = $wpdb->prefix . 'pq_job_members';
-        return array_map('intval', (array) $wpdb->get_col($wpdb->prepare(
+        self::$job_member_ids_cache[$billing_bucket_id] = array_map('intval', (array) $wpdb->get_col($wpdb->prepare(
             "SELECT user_id FROM {$table} WHERE billing_bucket_id = %d",
             $billing_bucket_id
         )));
+
+        return self::$job_member_ids_cache[$billing_bucket_id];
     }
 
     public static function get_job_member_ids_for_user(int $user_id): array
@@ -1059,11 +1079,17 @@ class WP_PQ_DB
             return [];
         }
 
+        if (array_key_exists($user_id, self::$job_member_ids_for_user_cache)) {
+            return self::$job_member_ids_for_user_cache[$user_id];
+        }
+
         $table = $wpdb->prefix . 'pq_job_members';
-        return array_map('intval', (array) $wpdb->get_col($wpdb->prepare(
+        self::$job_member_ids_for_user_cache[$user_id] = array_map('intval', (array) $wpdb->get_col($wpdb->prepare(
             "SELECT billing_bucket_id FROM {$table} WHERE user_id = %d",
             $user_id
         )));
+
+        return self::$job_member_ids_for_user_cache[$user_id];
     }
 
     public static function get_user_client_memberships(int $user_id): array
@@ -1074,10 +1100,26 @@ class WP_PQ_DB
             return [];
         }
 
+        if (array_key_exists($user_id, self::$user_client_memberships_cache)) {
+            return self::$user_client_memberships_cache[$user_id];
+        }
+
         $table = $wpdb->prefix . 'pq_client_members';
-        return $wpdb->get_results($wpdb->prepare(
+        self::$user_client_memberships_cache[$user_id] = $wpdb->get_results($wpdb->prepare(
             "SELECT * FROM {$table} WHERE user_id = %d ORDER BY id ASC",
             $user_id
         ), ARRAY_A) ?: [];
+
+        return self::$user_client_memberships_cache[$user_id];
+    }
+
+    private static function clear_client_membership_cache(int $client_id, int $user_id): void
+    {
+        unset(self::$client_memberships_cache[$client_id], self::$user_client_memberships_cache[$user_id]);
+    }
+
+    private static function clear_job_membership_cache(int $billing_bucket_id, int $user_id): void
+    {
+        unset(self::$job_member_ids_cache[$billing_bucket_id], self::$job_member_ids_for_user_cache[$user_id]);
     }
 }

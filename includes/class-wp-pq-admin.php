@@ -219,10 +219,11 @@ class WP_PQ_Admin
             wp_die('Forbidden');
         }
 
-        $clients = self::get_billing_clients();
-        $client_details = self::get_client_directory_rows();
-        $linkable_users = self::get_linkable_users();
-        $member_users = self::get_member_candidate_users();
+        $directory_users = self::get_directory_users();
+        $clients = self::get_billing_clients($directory_users);
+        $client_details = self::get_client_directory_rows($clients, $directory_users);
+        $linkable_users = self::get_linkable_users($directory_users);
+        $member_users = self::get_member_candidate_users($directory_users);
         $can_manage_all = current_user_can(WP_PQ_Roles::CAP_APPROVE);
 
         echo '<div class="wrap wp-pq-wrap">';
@@ -285,7 +286,7 @@ class WP_PQ_Admin
                     'page' => 'wp-pq-statements',
                     'client_id' => (int) $client['id'],
                 ], admin_url('admin.php'));
-                $members = self::get_client_member_rows((int) $client['id']);
+                $members = (array) ($client['members'] ?? []);
                 echo '<section class="wp-pq-panel wp-pq-rollup-group">';
                 echo '<h2>' . esc_html((string) $client['name']) . '</h2>';
                 echo '<p class="wp-pq-panel-note">Delivered tasks: ' . (int) $client['delivered_count'] . ' · Unbilled: ' . (int) $client['unbilled_count'] . ' · Work statements: ' . (int) $client['work_log_count'] . ' · Invoice Drafts: ' . (int) $client['statement_count'] . '.</p>';
@@ -2038,9 +2039,15 @@ class WP_PQ_Admin
         return add_query_arg($args, admin_url('admin.php'));
     }
 
-    private static function get_billing_clients(): array
+    private static function get_billing_clients(array $directory_users = []): array
     {
         global $wpdb;
+
+        static $cache = [];
+        $cache_key = get_current_user_id() . ':' . (current_user_can(WP_PQ_Roles::CAP_APPROVE) ? 'all' : implode(',', self::managed_client_ids()));
+        if (isset($cache[$cache_key])) {
+            return $cache[$cache_key];
+        }
 
         $clients_table = $wpdb->prefix . 'pq_clients';
         $managed_client_ids = self::managed_client_ids();
@@ -2053,11 +2060,10 @@ class WP_PQ_Admin
         }
         $sql .= ' ORDER BY name ASC, id ASC';
         $rows = $wpdb->get_results($sql, ARRAY_A);
+        $users_by_id = self::get_directory_user_index($directory_users);
         $clients = [];
         foreach ((array) $rows as $row) {
-            $primary_contact = (int) ($row['primary_contact_user_id'] ?? 0) > 0
-                ? get_user_by('ID', (int) $row['primary_contact_user_id'])
-                : null;
+            $primary_contact = $users_by_id[(int) ($row['primary_contact_user_id'] ?? 0)] ?? null;
             $clients[] = [
                 'id' => (int) ($row['id'] ?? 0),
                 'name' => (string) ($row['name'] ?? ''),
@@ -2067,15 +2073,13 @@ class WP_PQ_Admin
             ];
         }
 
-        return $clients;
+        $cache[$cache_key] = $clients;
+        return $cache[$cache_key];
     }
 
-    private static function get_linkable_users(): array
+    private static function get_linkable_users(array $directory_users = []): array
     {
-        $users = get_users([
-            'orderby' => 'display_name',
-            'order' => 'ASC',
-        ]);
+        $users = ! empty($directory_users) ? $directory_users : self::get_directory_users();
 
         $rows = [];
         foreach ($users as $user) {
@@ -2587,21 +2591,25 @@ class WP_PQ_Admin
         return (string) ($user->display_name ?: $user->user_login);
     }
 
-    private static function get_client_directory_rows(): array
+    private static function get_client_directory_rows(array $clients = [], array $directory_users = []): array
     {
         global $wpdb;
 
-        $clients = self::get_billing_clients();
+        if (empty($clients)) {
+            $clients = self::get_billing_clients($directory_users);
+        }
         if (empty($clients)) {
             return [];
         }
 
+        $users_by_id = self::get_directory_user_index($directory_users);
         $client_ids = array_map(static fn(array $client): int => (int) $client['id'], $clients);
         $ids_in = implode(',', array_map('intval', $client_ids));
         $tasks_table = $wpdb->prefix . 'pq_tasks';
         $logs_table = $wpdb->prefix . 'pq_work_logs';
         $statements_table = $wpdb->prefix . 'pq_statements';
         $buckets_by_client = self::get_buckets_by_client();
+        $members_by_client = self::get_client_directory_members_by_client($client_ids, $buckets_by_client, $users_by_id);
 
         $task_counts = [];
         if ($ids_in !== '') {
@@ -2633,6 +2641,10 @@ class WP_PQ_Admin
                 ARRAY_A
             );
         }
+        $work_logs_by_client = [];
+        foreach ($work_log_rows as $row) {
+            $work_logs_by_client[(int) ($row['client_id'] ?? 0)][] = $row;
+        }
 
         $statement_rows = [];
         if ($ids_in !== '') {
@@ -2645,16 +2657,16 @@ class WP_PQ_Admin
                 ARRAY_A
             );
         }
+        $statements_by_client = [];
+        foreach ($statement_rows as $row) {
+            $statements_by_client[(int) ($row['client_id'] ?? 0)][] = $row;
+        }
 
         $rows = [];
         foreach ($clients as $client) {
             $client_id = (int) $client['id'];
-            $client_work_logs = array_values(array_filter($work_log_rows, static function (array $row) use ($client_id): bool {
-                return (int) ($row['client_id'] ?? 0) === $client_id;
-            }));
-            $client_statements = array_values(array_filter($statement_rows, static function (array $row) use ($client_id): bool {
-                return (int) ($row['client_id'] ?? 0) === $client_id;
-            }));
+            $client_work_logs = $work_logs_by_client[$client_id] ?? [];
+            $client_statements = $statements_by_client[$client_id] ?? [];
             $rows[] = [
                 'id' => $client_id,
                 'name' => (string) ($client['name'] ?? ''),
@@ -2665,6 +2677,7 @@ class WP_PQ_Admin
                 'work_log_count' => count($client_work_logs),
                 'statement_count' => count($client_statements),
                 'buckets' => $buckets_by_client[$client_id] ?? [],
+                'members' => $members_by_client[$client_id] ?? [],
                 'recent_work_logs' => array_slice($client_work_logs, 0, 3),
                 'recent_statements' => array_slice($client_statements, 0, 3),
             ];
@@ -2676,6 +2689,11 @@ class WP_PQ_Admin
     private static function get_buckets_by_client(): array
     {
         global $wpdb;
+
+        static $cache = null;
+        if (is_array($cache)) {
+            return $cache;
+        }
 
         $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
         $users_table = $wpdb->users;
@@ -2693,7 +2711,8 @@ class WP_PQ_Admin
             $by_client[(int) ($row['client_id'] ?? 0)][] = $row;
         }
 
-        return $by_client;
+        $cache = $by_client;
+        return $cache;
     }
 
     private static function get_rollup_groups(string $start_date, string $end_date, array $buckets_by_client): array
@@ -3270,12 +3289,9 @@ document.addEventListener('DOMContentLoaded', function () {
         return $email !== '' && strcasecmp($display, $email) !== 0 ? $display . ' <' . $email . '>' : $display;
     }
 
-    private static function get_member_candidate_users(): array
+    private static function get_member_candidate_users(array $directory_users = []): array
     {
-        $users = get_users([
-            'orderby' => 'display_name',
-            'order' => 'ASC',
-        ]);
+        $users = ! empty($directory_users) ? $directory_users : self::get_directory_users();
 
         $rows = [];
         foreach ($users as $user) {
@@ -3286,6 +3302,130 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         return $rows;
+    }
+
+    private static function get_directory_users(): array
+    {
+        static $cache = null;
+        if (is_array($cache)) {
+            return $cache;
+        }
+
+        $cache = get_users([
+            'orderby' => 'display_name',
+            'order' => 'ASC',
+        ]);
+
+        return $cache;
+    }
+
+    private static function get_directory_user_index(array $directory_users = []): array
+    {
+        $users = ! empty($directory_users) ? $directory_users : self::get_directory_users();
+        $index = [];
+        foreach ($users as $user) {
+            $index[(int) $user->ID] = $user;
+        }
+
+        return $index;
+    }
+
+    private static function get_client_directory_members_by_client(array $client_ids, array $buckets_by_client, array $users_by_id): array
+    {
+        global $wpdb;
+
+        if (empty($client_ids)) {
+            return [];
+        }
+
+        $client_id_list = implode(',', array_map('intval', array_values(array_unique(array_filter($client_ids)))));
+        if ($client_id_list === '') {
+            return [];
+        }
+
+        $memberships = $wpdb->get_results(
+            "SELECT * FROM {$wpdb->prefix}pq_client_members WHERE client_id IN ({$client_id_list}) ORDER BY client_id ASC, id ASC",
+            ARRAY_A
+        );
+
+        $memberships_by_client = [];
+        foreach ((array) $memberships as $membership) {
+            $memberships_by_client[(int) ($membership['client_id'] ?? 0)][] = $membership;
+        }
+
+        $bucket_ids = [];
+        $bucket_labels_by_client = [];
+        foreach ($buckets_by_client as $client_id => $buckets) {
+            foreach ((array) $buckets as $bucket) {
+                $bucket_id = (int) ($bucket['id'] ?? 0);
+                if ($bucket_id <= 0) {
+                    continue;
+                }
+                $bucket_ids[] = $bucket_id;
+                $bucket_labels_by_client[(int) $client_id][$bucket_id] = self::bucket_label_from_row($bucket);
+            }
+        }
+
+        $job_members_by_bucket = self::get_job_members_by_bucket_ids($bucket_ids);
+        $job_names_by_client_user = [];
+        foreach ($bucket_labels_by_client as $client_id => $labels) {
+            foreach ($labels as $bucket_id => $label) {
+                foreach ($job_members_by_bucket[$bucket_id] ?? [] as $user_id) {
+                    $job_names_by_client_user[(int) $client_id][(int) $user_id][] = $label;
+                }
+            }
+        }
+
+        $rows = [];
+        foreach ($memberships_by_client as $client_id => $client_memberships) {
+            foreach ($client_memberships as $membership) {
+                $user_id = (int) ($membership['user_id'] ?? 0);
+                $user = $users_by_id[$user_id] ?? null;
+                if (! $user) {
+                    continue;
+                }
+
+                $job_names = array_values(array_unique($job_names_by_client_user[(int) $client_id][$user_id] ?? []));
+                $rows[(int) $client_id][] = [
+                    'id' => $user_id,
+                    'name' => (string) $user->display_name,
+                    'email' => (string) $user->user_email,
+                    'role' => (string) ($membership['role'] ?? 'client_contributor'),
+                    'job_names' => $job_names,
+                ];
+            }
+
+            usort($rows[(int) $client_id], static fn(array $a, array $b): int => strcmp((string) $a['name'], (string) $b['name']));
+        }
+
+        return $rows;
+    }
+
+    private static function get_job_members_by_bucket_ids(array $bucket_ids): array
+    {
+        global $wpdb;
+
+        $bucket_ids = array_values(array_unique(array_filter(array_map('intval', $bucket_ids))));
+        if (empty($bucket_ids)) {
+            return [];
+        }
+
+        $rows = $wpdb->get_results(
+            "SELECT billing_bucket_id, user_id FROM {$wpdb->prefix}pq_job_members WHERE billing_bucket_id IN (" . implode(',', $bucket_ids) . ')',
+            ARRAY_A
+        );
+
+        $members_by_bucket = [];
+        foreach ((array) $rows as $row) {
+            $bucket_id = (int) ($row['billing_bucket_id'] ?? 0);
+            $user_id = (int) ($row['user_id'] ?? 0);
+            if ($bucket_id <= 0 || $user_id <= 0) {
+                continue;
+            }
+            $members_by_bucket[$bucket_id][] = $user_id;
+        }
+
+        return $members_by_bucket;
     }
 
     private static function get_client_member_rows(int $client_id): array
