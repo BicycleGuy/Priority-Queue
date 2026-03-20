@@ -252,7 +252,7 @@ class WP_PQ_API
         if ($new_bucket_name !== '' && current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
             $billing_bucket_id = self::create_bucket_for_client($client_id, $new_bucket_name);
         }
-        $action_owner_id = self::resolve_action_owner_id($request, $allowed_assign ? $owner_ids : []);
+        $action_owner_id = self::resolve_action_owner_id($request, $allowed_assign ? $owner_ids : [], $client_id, $client_user_id);
         $billable_default = self::default_billable_for_assignment($client_id, $action_owner_id, true);
         $is_billable = self::request_truthy($request->get_param('is_billable'), $billable_default) ? 1 : 0;
 
@@ -1443,7 +1443,7 @@ class WP_PQ_API
         return WP_PQ_DB::get_or_create_default_billing_bucket_id($client_id);
     }
 
-    private static function resolve_action_owner_id(WP_REST_Request $request, array $owner_ids): int
+    private static function resolve_action_owner_id(WP_REST_Request $request, array $owner_ids, int $client_id = 0, int $primary_contact_user_id = 0): int
     {
         $action_owner_id = max(0, (int) $request->get_param('action_owner_id'));
         if ($action_owner_id > 0 && get_user_by('ID', $action_owner_id)) {
@@ -1452,6 +1452,35 @@ class WP_PQ_API
 
         if (! empty($owner_ids)) {
             return (int) reset($owner_ids);
+        }
+
+        $default_owner_id = self::default_client_action_owner_id($client_id, $primary_contact_user_id);
+        if ($default_owner_id > 0) {
+            return $default_owner_id;
+        }
+
+        return 0;
+    }
+
+    private static function default_client_action_owner_id(int $client_id, int $primary_contact_user_id = 0): int
+    {
+        if ($client_id <= 0) {
+            return 0;
+        }
+
+        $client_admin_ids = array_values(array_filter(array_map('intval', WP_PQ_DB::get_client_admin_user_ids($client_id))));
+        if ($primary_contact_user_id > 0 && in_array($primary_contact_user_id, $client_admin_ids, true) && get_user_by('ID', $primary_contact_user_id)) {
+            return $primary_contact_user_id;
+        }
+
+        foreach ($client_admin_ids as $admin_user_id) {
+            if ($admin_user_id > 0 && get_user_by('ID', $admin_user_id)) {
+                return $admin_user_id;
+            }
+        }
+
+        if ($primary_contact_user_id > 0 && get_user_by('ID', $primary_contact_user_id)) {
+            return $primary_contact_user_id;
         }
 
         return 0;

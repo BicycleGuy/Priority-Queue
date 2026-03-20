@@ -259,7 +259,7 @@
 
 .wp-pq-bucket-group {
   border-top: 1px solid var(--pq-border);
-  padding-top: 10px;
+  padding: 12px 0;
 }
 
 .wp-pq-chip-row {
@@ -300,14 +300,47 @@
 }
 
 .wp-pq-job-row {
-  align-items: start;
-  display: flex;
+  align-items: center;
+  display: grid;
   gap: 12px;
-  justify-content: space-between;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .wp-pq-job-row .wp-pq-inline-action-form {
   margin-top: 0;
+}
+
+.wp-pq-job-summary {
+  min-width: 0;
+}
+
+.wp-pq-job-members,
+.wp-pq-job-row-note {
+  margin: 4px 0 0;
+}
+
+.wp-pq-job-assign-form {
+  justify-content: end;
+  min-width: 0;
+}
+
+.wp-pq-job-assign-form label {
+  margin-bottom: 0;
+  min-width: 240px;
+}
+
+@media (max-width: 900px) {
+  .wp-pq-job-row {
+    grid-template-columns: 1fr;
+  }
+
+  .wp-pq-job-assign-form {
+    justify-content: start;
+  }
+
+  .wp-pq-job-assign-form label {
+    min-width: min(240px, 100%);
+  }
 }
 
 .wp-pq-admin-modal-backdrop {

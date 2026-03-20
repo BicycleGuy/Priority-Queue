@@ -907,6 +907,9 @@ class WP_PQ_DB
                     'updated_at' => $now,
                 ], ['id' => (int) $existing['id']]);
             }
+            if ($role === 'client_admin') {
+                self::ensure_client_admin_job_access($client_id, $user_id);
+            }
             return;
         }
 
@@ -918,6 +921,10 @@ class WP_PQ_DB
             'created_at' => $now,
             'updated_at' => $now,
         ]);
+
+        if ($role === 'client_admin') {
+            self::ensure_client_admin_job_access($client_id, $user_id);
+        }
     }
 
     public static function ensure_job_member(int $billing_bucket_id, int $user_id): void
@@ -951,6 +958,27 @@ class WP_PQ_DB
             'created_at' => $now,
             'updated_at' => $now,
         ]);
+    }
+
+    private static function ensure_client_admin_job_access(int $client_id, int $user_id): void
+    {
+        global $wpdb;
+
+        if ($client_id <= 0 || $user_id <= 0) {
+            return;
+        }
+
+        $bucket_ids = $wpdb->get_col($wpdb->prepare(
+            "SELECT id FROM {$wpdb->prefix}pq_billing_buckets WHERE client_id = %d",
+            $client_id
+        ));
+        if (empty($bucket_ids)) {
+            return;
+        }
+
+        foreach ($bucket_ids as $bucket_id) {
+            self::ensure_job_member((int) $bucket_id, $user_id);
+        }
     }
 
     public static function get_client_name(int $client_id): string

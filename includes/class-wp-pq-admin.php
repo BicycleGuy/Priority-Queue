@@ -312,11 +312,6 @@ class WP_PQ_Admin
                 echo '  <label>Role<select name="client_role"><option value="client_admin">Client admin</option><option value="client_contributor" selected>Client contributor</option><option value="client_viewer">Client viewer</option></select></label>';
                 echo '  <button class="button" type="submit">Add Member</button>';
                 echo '</form>';
-                echo '<div class="wp-pq-chip-row">';
-                foreach ($client['buckets'] as $bucket) {
-                    echo '<span class="wp-pq-detail-pill">' . esc_html(self::bucket_label_from_row($bucket)) . '</span>';
-                }
-                echo '</div>';
                 if ($can_manage_all) {
                     echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-inline-action-form">';
                     wp_nonce_field('wp_pq_create_bucket');
@@ -328,29 +323,37 @@ class WP_PQ_Admin
                     echo '</form>';
                 }
                 foreach ($client['buckets'] as $bucket) {
-                    $job_members = self::get_job_member_rows((int) ($bucket['id'] ?? 0), $members);
-                    echo '<div class="wp-pq-bucket-group">';
+                    $bucket_id = (int) ($bucket['id'] ?? 0);
+                    $job_members = self::get_job_member_rows($bucket_id, $members);
+                    $assignable_members = self::get_assignable_job_member_rows($bucket_id, $members);
+                    echo '<div class="wp-pq-bucket-group" id="wp-pq-job-' . $bucket_id . '">';
+                    echo '<div class="wp-pq-job-row">';
+                    echo '<div class="wp-pq-job-summary">';
                     echo '<strong>' . esc_html(self::bucket_label_from_row($bucket)) . '</strong>';
                     if (! empty($job_members)) {
-                        echo '<div class="wp-pq-chip-row">';
-                        foreach ($job_members as $job_member) {
-                            echo '<span class="wp-pq-detail-pill">' . esc_html((string) $job_member['name']) . '</span>';
+                        echo '<p class="wp-pq-panel-note wp-pq-job-members">Access: ' . esc_html(implode(', ', array_map(static fn(array $job_member): string => (string) $job_member['name'], $job_members))) . '</p>';
+                    } else {
+                        echo '<p class="wp-pq-panel-note wp-pq-job-members">No one currently has access to this job.</p>';
+                    }
+                    echo '</div>';
+                    if (! empty($assignable_members)) {
+                        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-inline-action-form wp-pq-job-assign-form">';
+                        wp_nonce_field('wp_pq_assign_job_member_' . $bucket_id);
+                        echo '  <input type="hidden" name="action" value="wp_pq_assign_job_member">';
+                        echo '  <input type="hidden" name="client_id" value="' . (int) $client['id'] . '">';
+                        echo '  <input type="hidden" name="billing_bucket_id" value="' . $bucket_id . '">';
+                        echo '  <input type="hidden" name="redirect_page" value="wp-pq-client-directory">';
+                        echo '  <label>Assign member<select name="user_id" required><option value="">Choose member</option>';
+                        foreach ($assignable_members as $member) {
+                            echo '<option value="' . (int) $member['id'] . '">' . esc_html((string) $member['name'] . ' (' . self::humanize_label((string) $member['role']) . ')') . '</option>';
                         }
-                        echo '</div>';
+                        echo '  </select></label>';
+                        echo '  <button class="button" type="submit">Assign to Job</button>';
+                        echo '</form>';
+                    } else {
+                        echo '<p class="wp-pq-panel-note wp-pq-job-row-note">All current client members already have access.</p>';
                     }
-                    echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" class="wp-pq-inline-action-form">';
-                    wp_nonce_field('wp_pq_assign_job_member_' . (int) ($bucket['id'] ?? 0));
-                    echo '  <input type="hidden" name="action" value="wp_pq_assign_job_member">';
-                    echo '  <input type="hidden" name="client_id" value="' . (int) $client['id'] . '">';
-                    echo '  <input type="hidden" name="billing_bucket_id" value="' . (int) ($bucket['id'] ?? 0) . '">';
-                    echo '  <input type="hidden" name="redirect_page" value="wp-pq-client-directory">';
-                    echo '  <label>Assign member<select name="user_id" required><option value="">Choose member</option>';
-                    foreach ($members as $member) {
-                        echo '<option value="' . (int) $member['id'] . '">' . esc_html((string) $member['name'] . ' (' . self::humanize_label((string) $member['role']) . ')') . '</option>';
-                    }
-                    echo '  </select></label>';
-                    echo '  <button class="button" type="submit">Assign to Job</button>';
-                    echo '</form>';
+                    echo '</div>';
                     echo '</div>';
                 }
                 echo '<div class="wp-pq-inline-action-form">';
@@ -1401,8 +1404,13 @@ class WP_PQ_Admin
             exit;
         }
 
+        if (in_array($user_id, WP_PQ_DB::get_job_member_ids($bucket_id), true)) {
+            wp_safe_redirect(self::admin_redirect_url($redirect_page, 'client_saved', 'That member already has access to this job.', [], ['client_id' => $client_id]));
+            exit;
+        }
+
         WP_PQ_DB::ensure_job_member($bucket_id, $user_id);
-        wp_safe_redirect(self::admin_redirect_url($redirect_page, 'client_saved', 'Job membership saved.', [], ['client_id' => $client_id]));
+        wp_safe_redirect(self::admin_redirect_url($redirect_page, 'client_saved', 'Job access saved.', [], ['client_id' => $client_id]));
         exit;
     }
 
@@ -3308,6 +3316,14 @@ document.addEventListener('DOMContentLoaded', function () {
         $member_ids = WP_PQ_DB::get_job_member_ids($bucket_id);
         return array_values(array_filter($members, static function (array $member) use ($member_ids): bool {
             return in_array((int) ($member['id'] ?? 0), $member_ids, true);
+        }));
+    }
+
+    private static function get_assignable_job_member_rows(int $bucket_id, array $members): array
+    {
+        $member_ids = WP_PQ_DB::get_job_member_ids($bucket_id);
+        return array_values(array_filter($members, static function (array $member) use ($member_ids): bool {
+            return ! in_array((int) ($member['id'] ?? 0), $member_ids, true);
         }));
     }
 
