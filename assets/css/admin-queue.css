@@ -1223,7 +1223,7 @@
 }
 
 .wp-pq-board.is-dragging .wp-pq-board-column.is-collapsed {
-  flex-basis: 72px;
+  flex-basis: 112px;
 }
 
 .wp-pq-board.is-dragging .wp-pq-board-column.is-collapsed.is-drag-target {
@@ -1285,7 +1285,7 @@
 
 .wp-pq-board.is-dragging .wp-pq-board-column.is-collapsed .wp-pq-board-column-list {
   min-height: 160px;
-  padding-top: 6px;
+  padding: 6px 0 18px;
 }
 
 .wp-pq-board-column.is-collapsed .wp-pq-empty-state {
@@ -1310,9 +1310,9 @@
 }
 
 .wp-pq-board-column-list {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 7px;
-  align-content: start;
   min-height: 140px;
 }
 
