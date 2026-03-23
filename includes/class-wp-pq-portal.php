@@ -6,6 +6,8 @@ if (! defined('ABSPATH')) {
 
 class WP_PQ_Portal
 {
+    private static ?string $portal_url_cache = null;
+
     public static function init(): void
     {
         add_shortcode('pq_client_portal', [self::class, 'render_shortcode']);
@@ -21,6 +23,41 @@ class WP_PQ_Portal
         wp_register_script('wp-pq-fullcalendar', 'https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js', [], '6.1.19', true);
         wp_register_script('wp-pq-uppy', 'https://releases.transloadit.com/uppy/v3.27.1/uppy.min.js', [], '3.27.1', true);
         wp_register_script('wp-pq-admin', WP_PQ_PLUGIN_URL . 'assets/js/admin-queue.js', ['sortable-js', 'wp-pq-fullcalendar', 'wp-pq-uppy'], WP_PQ_VERSION, true);
+        wp_register_script('wp-pq-portal-manager', WP_PQ_PLUGIN_URL . 'assets/js/admin-portal-manager.js', ['wp-pq-admin'], WP_PQ_VERSION, true);
+    }
+
+    public static function portal_url(string $section = 'queue'): string
+    {
+        if (self::$portal_url_cache === null) {
+            $pages = get_posts([
+                'post_type' => 'page',
+                'post_status' => 'publish',
+                'posts_per_page' => 1,
+                's' => '[pq_client_portal]',
+            ]);
+
+            $url = '';
+            if (! empty($pages)) {
+                $candidate = get_permalink((int) $pages[0]->ID);
+                if (is_string($candidate) && $candidate !== '') {
+                    $url = $candidate;
+                }
+            }
+
+            if ($url === '') {
+                $url = home_url('/priority-portal/');
+            }
+
+            self::$portal_url_cache = $url;
+        }
+
+        $url = self::$portal_url_cache ?: home_url('/priority-portal/');
+        $section = sanitize_key($section);
+        if ($section === '' || $section === 'queue') {
+            return $url;
+        }
+
+        return add_query_arg('section', $section, $url);
     }
 
     public static function render_shortcode(): string
@@ -45,16 +82,23 @@ class WP_PQ_Portal
 
         wp_enqueue_script('wp-pq-admin');
 
+        $is_manager = current_user_can(WP_PQ_Roles::CAP_APPROVE);
+        if ($is_manager) {
+            wp_enqueue_script('wp-pq-portal-manager');
+        }
+
         wp_localize_script('wp-pq-admin', 'wpPqConfig', [
             'root' => esc_url_raw(rest_url('pq/v1/')),
             'coreRoot' => esc_url_raw(rest_url('wp/v2/')),
             'nonce' => wp_create_nonce('wp_rest'),
+            'portalUrl' => esc_url_raw(self::portal_url()),
             'canApprove' => current_user_can(WP_PQ_Roles::CAP_APPROVE),
             'canWork' => current_user_can(WP_PQ_Roles::CAP_WORK),
             'canAssign' => current_user_can(WP_PQ_Roles::CAP_ASSIGN),
             'canBatch' => current_user_can(WP_PQ_Roles::CAP_APPROVE),
             'canViewAll' => current_user_can(WP_PQ_Roles::CAP_VIEW_ALL),
             'currentUserId' => get_current_user_id(),
+            'isManager' => $is_manager,
         ]);
 
         ob_start();
@@ -73,6 +117,22 @@ class WP_PQ_Portal
         echo '        <p class="wp-pq-binder-label">Status</p>';
         echo '        <button class="button wp-pq-alerts-link" type="button" id="wp-pq-open-inbox"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">•</span><span>Alerts</span></span><span id="wp-pq-inbox-count" class="wp-pq-inline-count">0</span></button>';
         echo '      </div>';
+        if ($is_manager) {
+            echo '      <div class="wp-pq-binder-section">';
+            echo '        <p class="wp-pq-binder-label">Workspace</p>';
+            echo '        <div id="wp-pq-manager-nav" class="wp-pq-filter-nav wp-pq-manager-nav">';
+            echo '          <button class="button is-active" type="button" data-pq-section="queue"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">☰</span><span>Queue</span></span></button>';
+            echo '          <button class="button" type="button" data-pq-section="clients"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">◌</span><span>Clients</span></span></button>';
+            echo '          <button class="button" type="button" data-pq-section="billing-rollup"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">◔</span><span>Billing Rollup</span></span></button>';
+            echo '          <button class="button" type="button" data-pq-section="monthly-statements"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">◫</span><span>Monthly Statements</span></span></button>';
+            echo '          <button class="button" type="button" data-pq-section="work-statements"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">✎</span><span>Work Statements</span></span></button>';
+            echo '          <button class="button" type="button" data-pq-section="invoice-drafts"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">▣</span><span>Invoice Drafts</span></span></button>';
+            echo '          <button class="button" type="button" data-pq-section="ai-import"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">✦</span><span>AI Import</span></span></button>';
+            echo '          <button class="button" type="button" data-pq-section="preferences"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">○</span><span>Preferences</span></span></button>';
+            echo '        </div>';
+            echo '      </div>';
+        }
+        echo '      <div id="wp-pq-queue-binder-sections">';
         echo '      <div class="wp-pq-binder-section">';
         echo '        <p class="wp-pq-binder-label">Mode</p>';
         echo '        <div class="wp-pq-view-toggle">';
@@ -103,7 +163,8 @@ class WP_PQ_Portal
         echo '        </div>';
         echo '      </div>';
         echo '      <div class="wp-pq-binder-section wp-pq-binder-section-bottom">';
-        echo '        <button class="button" type="button" id="wp-pq-open-prefs"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">○</span><span>Preferences</span></span></button>';
+        echo '        <button class="button" type="button" id="wp-pq-open-prefs"' . ($is_manager ? ' hidden' : '') . '><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">○</span><span>Preferences</span></span></button>';
+        echo '      </div>';
         echo '      </div>';
         echo '    </aside>';
         echo '    <main class="wp-pq-workspace">';
@@ -159,6 +220,17 @@ class WP_PQ_Portal
 
         echo '  <div class="wp-pq-workspace-body">';
         echo '    <div class="wp-pq-workspace-main">';
+        echo '  <section class="wp-pq-panel wp-pq-manager-panel" id="wp-pq-manager-panel" hidden>';
+        echo '    <div class="wp-pq-section-heading">';
+        echo '      <div>';
+        echo '        <h3 id="wp-pq-manager-panel-title">Manager Workspace</h3>';
+        echo '        <p class="wp-pq-panel-note" id="wp-pq-manager-panel-note">Portal-based admin tools for clients, billing, reporting, invoice drafts, and import.</p>';
+        echo '      </div>';
+        echo '    </div>';
+        echo '    <div id="wp-pq-manager-toolbar" class="wp-pq-manager-toolbar"></div>';
+        echo '    <div id="wp-pq-manager-content" class="wp-pq-manager-content"></div>';
+        echo '  </section>';
+        echo '  <div id="wp-pq-queue-main-sections">';
         echo '  <section class="wp-pq-board-shell">';
         echo '    <div class="wp-pq-section-heading">';
         echo '      <div>';
@@ -187,6 +259,7 @@ class WP_PQ_Portal
         echo '    </div>';
         echo '    <ul id="wp-pq-inbox-list" class="wp-pq-stream"></ul>';
         echo '  </section>';
+        echo '    </div>';
         echo '    </div>';
         echo '    <div class="wp-pq-drawer-backdrop" id="wp-pq-drawer-backdrop" hidden></div>';
         echo '    <aside class="wp-pq-drawer" id="wp-pq-task-drawer" aria-hidden="true">';

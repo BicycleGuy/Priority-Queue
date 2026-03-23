@@ -3098,7 +3098,7 @@ class WP_PQ_API
         $ledger_table = $wpdb->prefix . 'pq_work_ledger_entries';
         $ids_in = implode(',', $task_ids);
         $rows = (array) $wpdb->get_results(
-            "SELECT id, task_id FROM {$ledger_table} WHERE task_id IN ({$ids_in})",
+            "SELECT id, task_id FROM {$ledger_table} WHERE task_id IN ({$ids_in}) AND is_closed = 1",
             ARRAY_A
         );
 
@@ -3149,6 +3149,7 @@ class WP_PQ_API
                 l.billable,
                 l.billing_mode,
                 l.billing_category,
+                l.is_closed,
                 l.invoice_status,
                 l.statement_month,
                 l.invoice_draft_id,
@@ -3165,7 +3166,8 @@ class WP_PQ_API
              LEFT JOIN {$tasks_table} t ON t.id = l.task_id
              LEFT JOIN {$clients_table} c ON c.id = l.client_id
              LEFT JOIN {$buckets_table} b ON b.id = l.billing_bucket_id
-             WHERE l.id IN ({$ids_in})",
+             WHERE l.id IN ({$ids_in})
+               AND l.is_closed = 1",
             ARRAY_A
         );
 
@@ -3732,6 +3734,7 @@ class WP_PQ_API
             'billable' => (int) ($task['is_billable'] ?? 1) === 1 ? 1 : 0,
             'billing_mode' => (string) ($task['billing_mode'] ?? '') !== '' ? (string) $task['billing_mode'] : (((int) ($task['is_billable'] ?? 1) === 1) ? 'fixed_fee' : 'non_billable'),
             'billing_category' => (string) ($task['billing_category'] ?? '') !== '' ? (string) $task['billing_category'] : 'general',
+            'is_closed' => 1,
             'invoice_status' => self::ledger_invoice_status_from_task($task),
             'statement_month' => substr($completion_date, 0, 7),
             'invoice_draft_id' => (int) ($task['statement_id'] ?? 0) > 0 ? (int) $task['statement_id'] : null,

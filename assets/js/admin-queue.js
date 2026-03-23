@@ -1882,6 +1882,15 @@
     if (openAiImportBtn) {
       openAiImportBtn.hidden = !window.wpPqConfig.canApprove;
       openAiImportBtn.addEventListener('click', () => {
+        const clientId = currentCreateClientId();
+        const bucketId = parseInt((createBucketEl && createBucketEl.value) || createFormState.billingBucketId || '0', 10) || 0;
+        if (window.wpPqPortalManager && typeof window.wpPqPortalManager.openSection === 'function') {
+          window.wpPqPortalManager.openSection('ai-import', {
+            clientId: clientId,
+            billingBucketId: bucketId,
+          });
+          return;
+        }
         window.location.href = buildAiImportUrl();
       });
     }

@@ -1,0 +1,1309 @@
+<?php
+
+if (! defined('ABSPATH')) {
+    exit;
+}
+
+class WP_PQ_Manager_API
+{
+    public static function init(): void
+    {
+        add_action('rest_api_init', [self::class, 'register_routes']);
+    }
+
+    public static function register_routes(): void
+    {
+        register_rest_route('pq/v1', '/manager/clients', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [self::class, 'get_clients'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'create_client'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/clients/(?P<id>\d+)', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [self::class, 'get_client'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'update_client'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/clients/(?P<id>\d+)/members', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'add_client_member'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/jobs', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'create_job'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/jobs/(?P<id>\d+)', [
+            'methods' => WP_REST_Server::DELETABLE,
+            'callback' => [self::class, 'delete_job'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/jobs/(?P<id>\d+)/members', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'assign_job_member'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/rollups', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [self::class, 'get_rollups'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/rollups/assign-job', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'assign_rollup_job'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/monthly-statements', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [self::class, 'get_monthly_statements'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/work-logs', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [self::class, 'get_work_logs'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'create_work_log'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/work-logs/(?P<id>\d+)', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [self::class, 'get_work_log'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'update_work_log'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/statements', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [self::class, 'get_statements'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'create_statement'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/statements/(?P<id>\d+)', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [self::class, 'get_statement'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'update_statement'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+            [
+                'methods' => WP_REST_Server::DELETABLE,
+                'callback' => [self::class, 'delete_statement'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/statements/(?P<id>\d+)/tasks/(?P<task_id>\d+)', [
+            'methods' => WP_REST_Server::DELETABLE,
+            'callback' => [self::class, 'remove_statement_task'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/statements/(?P<id>\d+)/lines', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'create_statement_line'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/statements/(?P<id>\d+)/lines/(?P<line_id>\d+)', [
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'update_statement_line'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+            [
+                'methods' => WP_REST_Server::DELETABLE,
+                'callback' => [self::class, 'delete_statement_line'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/statements/(?P<id>\d+)/payment', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'update_statement_payment'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/ai-import', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [self::class, 'get_ai_import_state'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/ai-import/parse', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'parse_ai_import'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/ai-import/revalidate', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'revalidate_ai_import'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/ai-import/import', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'import_ai_preview'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/ai-import/discard', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'discard_ai_preview'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
+        register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/reopen-completed', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'reopen_completed_task'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
+        register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/followup', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'create_followup_task'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+    }
+
+    public static function can_manage(): bool
+    {
+        return current_user_can(WP_PQ_Roles::CAP_APPROVE);
+    }
+
+    public static function get_clients(WP_REST_Request $request): WP_REST_Response
+    {
+        $directory_users = WP_PQ_Admin::get_directory_users();
+        $clients = WP_PQ_Admin::get_billing_clients($directory_users);
+        $rows = WP_PQ_Admin::get_client_directory_rows($clients, $directory_users);
+
+        return new WP_REST_Response([
+            'clients' => $rows,
+            'linkable_users' => WP_PQ_Admin::get_linkable_users($directory_users),
+            'member_candidates' => WP_PQ_Admin::get_member_candidate_users($directory_users),
+        ], 200);
+    }
+
+    public static function get_client(WP_REST_Request $request): WP_REST_Response
+    {
+        $client_id = (int) $request['id'];
+        $directory_users = WP_PQ_Admin::get_directory_users();
+        $clients = WP_PQ_Admin::get_billing_clients($directory_users);
+        $rows = WP_PQ_Admin::get_client_directory_rows($clients, $directory_users);
+        foreach ($rows as $row) {
+            if ((int) ($row['id'] ?? 0) === $client_id) {
+                return new WP_REST_Response(['client' => $row], 200);
+            }
+        }
+
+        return new WP_REST_Response(['message' => 'Client not found.'], 404);
+    }
+
+    public static function create_client(WP_REST_Request $request): WP_REST_Response
+    {
+        $user_id = (int) $request->get_param('user_id');
+        $client_name = sanitize_text_field((string) $request->get_param('client_name'));
+        $client_email = sanitize_email((string) $request->get_param('client_email'));
+        $initial_bucket_name = sanitize_text_field((string) $request->get_param('initial_bucket_name'));
+
+        if ($user_id > 0) {
+            $user = get_user_by('ID', $user_id);
+            if (! $user) {
+                return new WP_REST_Response(['message' => 'Choose an existing WordPress user to link as a client.'], 422);
+            }
+            $user->add_role('pq_client');
+            $client_id = WP_PQ_DB::get_or_create_client_id_for_user((int) $user->ID, (string) $user->display_name);
+            WP_PQ_DB::ensure_client_member($client_id, (int) $user->ID, 'client_admin');
+            if ($initial_bucket_name === '') {
+                $initial_bucket_name = WP_PQ_DB::suggest_default_bucket_name($client_id);
+            }
+            WP_PQ_Admin::create_bucket_for_client($client_id, $initial_bucket_name);
+            return self::client_response($client_id);
+        }
+
+        if ($client_name === '' || ! is_email($client_email)) {
+            return new WP_REST_Response(['message' => 'Enter a valid client name and email.'], 422);
+        }
+
+        $user = get_user_by('email', $client_email);
+        $created = false;
+        if (! $user) {
+            $base_login = sanitize_user((string) current(explode('@', $client_email)), true);
+            if ($base_login === '') {
+                $base_login = 'client';
+            }
+            $login = $base_login;
+            $suffix = 1;
+            while (username_exists($login)) {
+                $suffix++;
+                $login = $base_login . $suffix;
+            }
+            $user_id = wp_insert_user([
+                'user_login' => $login,
+                'user_pass' => wp_generate_password(24, true, true),
+                'user_email' => $client_email,
+                'display_name' => $client_name,
+                'nickname' => $client_name,
+                'role' => 'pq_client',
+            ]);
+            if (is_wp_error($user_id)) {
+                return new WP_REST_Response(['message' => $user_id->get_error_message()], 422);
+            }
+            $user = get_user_by('ID', (int) $user_id);
+            $created = true;
+        } else {
+            $user->add_role('pq_client');
+        }
+
+        $client_user_id = $user ? (int) $user->ID : 0;
+        if ($client_user_id <= 0) {
+            return new WP_REST_Response(['message' => 'Unable to create or link that client.'], 500);
+        }
+
+        $client_id = WP_PQ_DB::get_or_create_client_id_for_user($client_user_id, $client_name !== '' ? $client_name : (string) $user->display_name);
+        WP_PQ_DB::ensure_client_member($client_id, $client_user_id, 'client_admin');
+        if ($initial_bucket_name === '') {
+            $initial_bucket_name = $created ? trim($client_name) . ' - Main' : WP_PQ_DB::suggest_default_bucket_name($client_id);
+        }
+        WP_PQ_Admin::create_bucket_for_client($client_id, $initial_bucket_name);
+
+        $response = self::client_response($client_id);
+        $data = (array) $response->get_data();
+        $data['message'] = $created ? 'Client created and ready for billing.' : 'Existing user linked as a client.';
+        return new WP_REST_Response($data, 201);
+    }
+
+    public static function update_client(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+
+        $client_id = (int) $request['id'];
+        if ($client_id <= 0 || ! WP_PQ_Admin::can_manage_client($client_id)) {
+            return new WP_REST_Response(['message' => 'Client not found.'], 404);
+        }
+
+        $updates = [];
+        $name = sanitize_text_field((string) $request->get_param('name'));
+        if ($name !== '') {
+            $updates['name'] = $name;
+            $updates['slug'] = sanitize_title($name);
+        }
+
+        $primary_contact_user_id = (int) $request->get_param('primary_contact_user_id');
+        if ($primary_contact_user_id > 0) {
+            $updates['primary_contact_user_id'] = $primary_contact_user_id;
+            WP_PQ_DB::ensure_client_member($client_id, $primary_contact_user_id, 'client_admin');
+        }
+
+        if (! empty($updates)) {
+            $updates['updated_at'] = current_time('mysql', true);
+            $wpdb->update($wpdb->prefix . 'pq_clients', $updates, ['id' => $client_id]);
+        }
+
+        return self::client_response($client_id);
+    }
+
+    public static function add_client_member(WP_REST_Request $request): WP_REST_Response
+    {
+        $client_id = (int) $request['id'];
+        $user_id = (int) $request->get_param('user_id');
+        $role = sanitize_key((string) $request->get_param('client_role'));
+        if (! in_array($role, ['client_admin', 'client_contributor', 'client_viewer'], true)) {
+            $role = 'client_contributor';
+        }
+        if (! WP_PQ_Admin::can_manage_client($client_id) || $user_id <= 0 || ! get_user_by('ID', $user_id)) {
+            return new WP_REST_Response(['message' => 'Choose a valid user to add to this client.'], 422);
+        }
+
+        $user = get_user_by('ID', $user_id);
+        if ($user) {
+            $user->add_role('pq_client');
+        }
+        WP_PQ_DB::ensure_client_member($client_id, $user_id, $role);
+
+        return new WP_REST_Response(['ok' => true, 'message' => 'Client member saved.'], 200);
+    }
+
+    public static function create_job(WP_REST_Request $request): WP_REST_Response
+    {
+        $client_id = (int) $request->get_param('client_id');
+        $bucket_name = sanitize_text_field((string) $request->get_param('bucket_name'));
+        if ($client_id <= 0 || $bucket_name === '') {
+            return new WP_REST_Response(['message' => 'Choose a client and job name.'], 422);
+        }
+        $bucket_id = WP_PQ_Admin::create_bucket_for_client($client_id, $bucket_name);
+        if ($bucket_id <= 0) {
+            return new WP_REST_Response(['message' => 'Job could not be saved.'], 500);
+        }
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'bucket_id' => $bucket_id,
+            'message' => 'Job saved.',
+        ], 201);
+    }
+
+    public static function delete_job(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+
+        $bucket_id = (int) $request['id'];
+        if ($bucket_id <= 0) {
+            return new WP_REST_Response(['message' => 'Choose a job to delete.'], 422);
+        }
+        $counts = WP_PQ_Admin::get_bucket_dependency_counts($bucket_id);
+        if (! WP_PQ_Admin::bucket_can_be_deleted($counts)) {
+            return new WP_REST_Response(['message' => 'That job still has tasks, work statements, or invoice drafts attached to it.'], 422);
+        }
+
+        $wpdb->delete($wpdb->prefix . 'pq_billing_buckets', ['id' => $bucket_id]);
+        return new WP_REST_Response(['ok' => true, 'message' => 'Empty job deleted.'], 200);
+    }
+
+    public static function assign_job_member(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+
+        $bucket_id = (int) $request['id'];
+        $user_id = (int) $request->get_param('user_id');
+        $bucket = $bucket_id > 0 ? $wpdb->get_row($wpdb->prepare("SELECT id, client_id FROM {$wpdb->prefix}pq_billing_buckets WHERE id = %d", $bucket_id), ARRAY_A) : null;
+        $client_id = (int) ($bucket['client_id'] ?? 0);
+        if (! $bucket || ! WP_PQ_Admin::can_manage_client($client_id) || $user_id <= 0) {
+            return new WP_REST_Response(['message' => 'Choose a valid client member and job.'], 422);
+        }
+
+        $member_ids = array_map(static fn(array $membership): int => (int) ($membership['user_id'] ?? 0), WP_PQ_DB::get_client_memberships($client_id));
+        if (! in_array($user_id, $member_ids, true)) {
+            return new WP_REST_Response(['message' => 'Add the user to the client account before assigning them to a job.'], 422);
+        }
+
+        if (in_array($user_id, WP_PQ_DB::get_job_member_ids($bucket_id), true)) {
+            return new WP_REST_Response(['ok' => true, 'message' => 'That member already has access to this job.', 'noop' => true], 200);
+        }
+
+        WP_PQ_DB::ensure_job_member($bucket_id, $user_id);
+        return new WP_REST_Response(['ok' => true, 'message' => 'Job access saved.'], 200);
+    }
+
+    public static function get_rollups(WP_REST_Request $request): WP_REST_Response
+    {
+        $range = self::range_from_request($request);
+        $client_id = (int) $request->get_param('client_id');
+        $groups = WP_PQ_Admin::get_rollup_groups($range['start'], $range['end'], self::buckets_by_client());
+        if ($client_id > 0) {
+            $groups = array_values(array_filter($groups, static fn(array $group): bool => (int) ($group['client_id'] ?? 0) === $client_id));
+        }
+
+        return new WP_REST_Response([
+            'range' => $range,
+            'groups' => $groups,
+            'clients' => WP_PQ_Admin::get_billing_clients(WP_PQ_Admin::get_directory_users()),
+        ], 200);
+    }
+
+    public static function assign_rollup_job(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+
+        $task_id = (int) $request->get_param('task_id');
+        $ledger_entry_id = (int) $request->get_param('ledger_entry_id');
+        $bucket_id = (int) $request->get_param('billing_bucket_id');
+        if ($bucket_id <= 0 || ($task_id <= 0 && $ledger_entry_id <= 0)) {
+            return new WP_REST_Response(['message' => 'Choose completed work and a job.'], 422);
+        }
+
+        $bucket = $wpdb->get_row($wpdb->prepare("SELECT id, client_id FROM {$wpdb->prefix}pq_billing_buckets WHERE id = %d", $bucket_id), ARRAY_A);
+        $ledger_entry = $ledger_entry_id > 0 ? $wpdb->get_row($wpdb->prepare("SELECT id, task_id, client_id FROM {$wpdb->prefix}pq_work_ledger_entries WHERE id = %d", $ledger_entry_id), ARRAY_A) : null;
+        $task = $task_id > 0 ? $wpdb->get_row($wpdb->prepare("SELECT id, client_id FROM {$wpdb->prefix}pq_tasks WHERE id = %d", $task_id), ARRAY_A) : null;
+        if (! $bucket) {
+            return new WP_REST_Response(['message' => 'Choose a valid job.'], 422);
+        }
+
+        $now = current_time('mysql', true);
+        if ($ledger_entry && (int) ($ledger_entry['client_id'] ?? 0) === (int) ($bucket['client_id'] ?? 0)) {
+            $wpdb->update($wpdb->prefix . 'pq_work_ledger_entries', [
+                'billing_bucket_id' => $bucket_id,
+                'updated_at' => $now,
+            ], ['id' => $ledger_entry_id]);
+            if ($task_id <= 0) {
+                $task_id = (int) ($ledger_entry['task_id'] ?? 0);
+                if ($task_id > 0) {
+                    $task = $wpdb->get_row($wpdb->prepare("SELECT id, client_id FROM {$wpdb->prefix}pq_tasks WHERE id = %d", $task_id), ARRAY_A);
+                }
+            }
+        }
+
+        if ($task && (int) ($task['client_id'] ?? 0) === (int) ($bucket['client_id'] ?? 0)) {
+            $wpdb->update($wpdb->prefix . 'pq_tasks', [
+                'billing_bucket_id' => $bucket_id,
+                'updated_at' => $now,
+            ], ['id' => $task_id]);
+        }
+
+        return new WP_REST_Response(['ok' => true, 'message' => 'Completed work job updated.'], 200);
+    }
+
+    public static function get_monthly_statements(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+
+        $period = WP_PQ_API::normalize_statement_month((string) $request->get_param('month'));
+        $client_id = (int) $request->get_param('client_id');
+        $bucket_id = (int) $request->get_param('billing_bucket_id');
+        $invoice_status = sanitize_key((string) $request->get_param('invoice_status'));
+
+        $where = ['l.is_closed = 1', $wpdb->prepare('l.statement_month = %s', $period)];
+        if ($client_id > 0) {
+            $where[] = $wpdb->prepare('l.client_id = %d', $client_id);
+        }
+        if ($bucket_id > 0) {
+            $where[] = $wpdb->prepare('l.billing_bucket_id = %d', $bucket_id);
+        }
+        if ($invoice_status !== '' && in_array($invoice_status, ['unbilled', 'invoiced', 'paid', 'written_off'], true)) {
+            $where[] = $wpdb->prepare('l.invoice_status = %s', $invoice_status);
+        }
+
+        $rows = (array) $wpdb->get_results(
+            "SELECT l.*, owner.display_name AS owner_name, client.name AS client_name, bucket.bucket_name
+             FROM {$wpdb->prefix}pq_work_ledger_entries l
+             LEFT JOIN {$wpdb->users} owner ON owner.ID = l.owner_id
+             LEFT JOIN {$wpdb->prefix}pq_clients client ON client.id = l.client_id
+             LEFT JOIN {$wpdb->prefix}pq_billing_buckets bucket ON bucket.id = l.billing_bucket_id
+             WHERE " . implode(' AND ', $where) . "
+             ORDER BY client.name ASC, bucket.bucket_name ASC, l.completion_date DESC, l.id DESC",
+            ARRAY_A
+        );
+
+        $groups = [];
+        foreach ($rows as $row) {
+            $group_key = (int) ($row['client_id'] ?? 0) . ':' . (int) ($row['billing_bucket_id'] ?? 0) . ':' . (string) ($row['statement_month'] ?? $period);
+            if (! isset($groups[$group_key])) {
+                $groups[$group_key] = [
+                    'client_id' => (int) ($row['client_id'] ?? 0),
+                    'client_name' => (string) ($row['client_name'] ?? ''),
+                    'billing_bucket_id' => (int) ($row['billing_bucket_id'] ?? 0),
+                    'job_name' => (string) ($row['bucket_name'] ?? ''),
+                    'month' => (string) ($row['statement_month'] ?? $period),
+                    'entries' => [],
+                    'total_amount' => 0.0,
+                    'counts' => [
+                        'unbilled' => 0,
+                        'invoiced' => 0,
+                        'paid' => 0,
+                        'written_off' => 0,
+                    ],
+                ];
+            }
+            $groups[$group_key]['entries'][] = $row;
+            $groups[$group_key]['total_amount'] += (float) ($row['amount'] ?? 0);
+            $status_key = (string) ($row['invoice_status'] ?? 'unbilled');
+            if (! isset($groups[$group_key]['counts'][$status_key])) {
+                $groups[$group_key]['counts'][$status_key] = 0;
+            }
+            $groups[$group_key]['counts'][$status_key]++;
+        }
+
+        return new WP_REST_Response([
+            'month' => $period,
+            'groups' => array_values($groups),
+        ], 200);
+    }
+
+    public static function get_work_logs(WP_REST_Request $request): WP_REST_Response
+    {
+        $range = self::range_from_request($request);
+        return new WP_REST_Response([
+            'range' => $range,
+            'work_logs' => WP_PQ_Admin::get_work_log_summaries($range['start'], $range['end']),
+        ], 200);
+    }
+
+    public static function get_work_log(WP_REST_Request $request): WP_REST_Response
+    {
+        $work_log_id = (int) $request['id'];
+        $detail = WP_PQ_Admin::get_work_log_detail($work_log_id);
+        if (! $detail) {
+            return new WP_REST_Response(['message' => 'Work statement not found.'], 404);
+        }
+        return new WP_REST_Response(['work_log' => $detail], 200);
+    }
+
+    public static function create_work_log(WP_REST_Request $request): WP_REST_Response
+    {
+        $result = WP_PQ_API::create_work_log_snapshot([
+            'client_id' => (int) $request->get_param('client_id'),
+            'range_start' => WP_PQ_API::normalize_rollup_date((string) $request->get_param('range_start')),
+            'range_end' => WP_PQ_API::normalize_rollup_date((string) $request->get_param('range_end')),
+            'job_ids' => array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('job_ids'))))),
+            'statuses' => (array) $request->get_param('statuses'),
+            'notes' => sanitize_textarea_field((string) $request->get_param('notes')),
+        ], get_current_user_id());
+
+        if (is_wp_error($result)) {
+            return new WP_REST_Response(['message' => $result->get_error_message()], (int) ($result->get_error_data()['status'] ?? 422));
+        }
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => sprintf('Work statement %s created.', (string) ($result['code'] ?? '')),
+            'work_log' => WP_PQ_Admin::get_work_log_detail((int) ($result['id'] ?? 0)),
+        ], 201);
+    }
+
+    public static function update_work_log(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+
+        $work_log_id = (int) $request['id'];
+        if ($work_log_id <= 0) {
+            return new WP_REST_Response(['message' => 'Work statement not found.'], 404);
+        }
+        $wpdb->update($wpdb->prefix . 'pq_work_logs', [
+            'notes' => sanitize_textarea_field((string) $request->get_param('notes')),
+        ], ['id' => $work_log_id]);
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => 'Work statement updated.',
+            'work_log' => WP_PQ_Admin::get_work_log_detail($work_log_id),
+        ], 200);
+    }
+
+    public static function get_statements(WP_REST_Request $request): WP_REST_Response
+    {
+        $period = WP_PQ_API::normalize_statement_month((string) $request->get_param('period'));
+        return new WP_REST_Response([
+            'period' => $period,
+            'unbilled_entries' => WP_PQ_Admin::get_unbilled_ledger_entries($period),
+            'statements' => WP_PQ_Admin::get_statement_summaries($period),
+        ], 200);
+    }
+
+    public static function get_statement(WP_REST_Request $request): WP_REST_Response
+    {
+        $statement_id = (int) $request['id'];
+        $detail = WP_PQ_Admin::get_statement_detail($statement_id);
+        if (! $detail) {
+            return new WP_REST_Response(['message' => 'Invoice draft not found.'], 404);
+        }
+        return new WP_REST_Response(['statement' => $detail], 200);
+    }
+
+    public static function create_statement(WP_REST_Request $request): WP_REST_Response
+    {
+        $result = WP_PQ_API::create_invoice_draft([
+            'task_ids' => array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('task_ids'))))),
+            'entry_ids' => array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('entry_ids'))))),
+            'client_id' => (int) $request->get_param('client_id'),
+            'notes' => sanitize_textarea_field((string) $request->get_param('notes')),
+            'statement_month' => WP_PQ_API::normalize_statement_month((string) $request->get_param('statement_month')),
+        ], get_current_user_id());
+
+        if (is_wp_error($result)) {
+            return new WP_REST_Response(['message' => $result->get_error_message()], (int) ($result->get_error_data()['status'] ?? 422));
+        }
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => sprintf('Invoice Draft %s created.', (string) ($result['code'] ?? '')),
+            'statement' => WP_PQ_Admin::get_statement_detail((int) ($result['id'] ?? 0)),
+        ], 201);
+    }
+
+    public static function update_statement(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+
+        $statement_id = (int) $request['id'];
+        if ($statement_id <= 0) {
+            return new WP_REST_Response(['message' => 'Invoice draft not found.'], 404);
+        }
+
+        $update = [
+            'currency_code' => strtoupper(substr(sanitize_text_field((string) $request->get_param('currency_code') ?: 'USD'), 0, 10)),
+            'due_date' => null,
+            'notes' => sanitize_textarea_field((string) $request->get_param('notes')),
+            'updated_at' => current_time('mysql', true),
+        ];
+        $due_date = WP_PQ_API::normalize_rollup_date((string) $request->get_param('due_date'));
+        if ($due_date !== '') {
+            $update['due_date'] = $due_date;
+        }
+        $wpdb->update($wpdb->prefix . 'pq_statements', $update, ['id' => $statement_id]);
+        WP_PQ_API::recalculate_statement_total($statement_id);
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => 'Invoice draft updated.',
+            'statement' => WP_PQ_Admin::get_statement_detail($statement_id),
+        ], 200);
+    }
+
+    public static function delete_statement(WP_REST_Request $request): WP_REST_Response
+    {
+        $statement_id = (int) $request['id'];
+        $result = WP_PQ_API::delete_statement_draft($statement_id, get_current_user_id());
+        if (is_wp_error($result)) {
+            return new WP_REST_Response(['message' => $result->get_error_message()], (int) ($result->get_error_data()['status'] ?? 422));
+        }
+        return new WP_REST_Response(['ok' => true, 'message' => 'Invoice Draft deleted.'], 200);
+    }
+
+    public static function remove_statement_task(WP_REST_Request $request): WP_REST_Response
+    {
+        $statement_id = (int) $request['id'];
+        $task_id = (int) $request['task_id'];
+        $result = WP_PQ_API::remove_task_from_statement_draft($statement_id, $task_id, get_current_user_id());
+        if (is_wp_error($result)) {
+            return new WP_REST_Response(['message' => $result->get_error_message()], (int) ($result->get_error_data()['status'] ?? 422));
+        }
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => 'Task removed from invoice draft.',
+            'statement' => WP_PQ_Admin::get_statement_detail($statement_id),
+        ], 200);
+    }
+
+    public static function create_statement_line(WP_REST_Request $request): WP_REST_Response
+    {
+        $statement_id = (int) $request['id'];
+        $payload = self::statement_line_payload($request, false);
+        if (is_wp_error($payload)) {
+            return new WP_REST_Response(['message' => $payload->get_error_message()], (int) ($payload->get_error_data()['status'] ?? 422));
+        }
+
+        global $wpdb;
+        $now = current_time('mysql', true);
+        $wpdb->insert($wpdb->prefix . 'pq_statement_lines', array_merge($payload, [
+            'statement_id' => $statement_id,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]));
+        WP_PQ_API::recalculate_statement_total($statement_id);
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => 'Invoice draft line added.',
+            'statement' => WP_PQ_Admin::get_statement_detail($statement_id),
+        ], 201);
+    }
+
+    public static function update_statement_line(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+
+        $statement_id = (int) $request['id'];
+        $line_id = (int) $request['line_id'];
+        $payload = self::statement_line_payload($request, true);
+        if (is_wp_error($payload)) {
+            return new WP_REST_Response(['message' => $payload->get_error_message()], (int) ($payload->get_error_data()['status'] ?? 422));
+        }
+
+        $updated = $wpdb->update($wpdb->prefix . 'pq_statement_lines', array_merge($payload, [
+            'updated_at' => current_time('mysql', true),
+        ]), [
+            'id' => $line_id,
+            'statement_id' => $statement_id,
+        ]);
+        if ($updated === false) {
+            return new WP_REST_Response(['message' => 'Invoice draft line could not be updated.'], 500);
+        }
+        WP_PQ_API::recalculate_statement_total($statement_id);
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => 'Invoice draft line updated.',
+            'statement' => WP_PQ_Admin::get_statement_detail($statement_id),
+        ], 200);
+    }
+
+    public static function delete_statement_line(WP_REST_Request $request): WP_REST_Response
+    {
+        $statement_id = (int) $request['id'];
+        $line_id = (int) $request['line_id'];
+        $result = WP_PQ_API::delete_statement_line($statement_id, $line_id, get_current_user_id());
+        if (is_wp_error($result)) {
+            return new WP_REST_Response(['message' => $result->get_error_message()], (int) ($result->get_error_data()['status'] ?? 422));
+        }
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => 'Invoice draft line removed.',
+            'statement' => WP_PQ_Admin::get_statement_detail($statement_id),
+        ], 200);
+    }
+
+    public static function update_statement_payment(WP_REST_Request $request): WP_REST_Response
+    {
+        $statement_id = (int) $request['id'];
+        $payment_state = sanitize_key((string) $request->get_param('payment_status'));
+        if (! in_array($payment_state, ['paid', 'unpaid'], true)) {
+            return new WP_REST_Response(['message' => 'Choose a valid payment status.'], 422);
+        }
+
+        $result = self::set_statement_payment_state($statement_id, $payment_state === 'paid', get_current_user_id());
+        if (is_wp_error($result)) {
+            return new WP_REST_Response(['message' => $result->get_error_message()], (int) ($result->get_error_data()['status'] ?? 422));
+        }
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => $payment_state === 'paid' ? 'Invoice draft marked paid.' : 'Invoice draft marked unpaid.',
+            'statement' => WP_PQ_Admin::get_statement_detail($statement_id),
+        ], 200);
+    }
+
+    public static function get_ai_import_state(WP_REST_Request $request): WP_REST_Response
+    {
+        return new WP_REST_Response([
+            'preview' => WP_PQ_Admin::get_ai_import_preview(),
+        ], 200);
+    }
+
+    public static function parse_ai_import(WP_REST_Request $request): WP_REST_Response
+    {
+        $client_id = (int) $request->get_param('client_id');
+        $bucket_id = (int) $request->get_param('billing_bucket_id');
+        if ($client_id <= 0) {
+            return new WP_REST_Response(['message' => 'Choose a client before parsing.'], 422);
+        }
+
+        $source_text = trim((string) $request->get_param('source_text'));
+        $file_params = $request->get_file_params();
+        $upload = $file_params['source_file'] ?? null;
+        $file_path = '';
+        $file_name = '';
+        $mime_type = '';
+        if (is_array($upload) && ! empty($upload['tmp_name']) && (int) ($upload['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+            $file_path = (string) $upload['tmp_name'];
+            $file_name = sanitize_file_name((string) ($upload['name'] ?? 'document'));
+            $mime_type = sanitize_mime_type((string) ($upload['type'] ?? ''));
+        }
+
+        $client_name = WP_PQ_DB::get_client_name($client_id);
+        $jobs = array_map(static fn(array $job): string => (string) ($job['bucket_name'] ?? ''), WP_PQ_Admin::get_client_bucket_rows($client_id));
+        $parsed = WP_PQ_AI_Importer::parse_document([
+            'api_key' => (string) get_option('wp_pq_openai_api_key', ''),
+            'model' => (string) get_option('wp_pq_openai_model', 'gpt-4o-mini'),
+            'client_name' => $client_name,
+            'known_jobs' => $jobs,
+            'source_text' => $source_text,
+            'file_path' => $file_path,
+            'file_name' => $file_name,
+            'mime_type' => $mime_type,
+        ]);
+
+        if (is_wp_error($parsed)) {
+            return new WP_REST_Response(['message' => $parsed->get_error_message()], 422);
+        }
+        if (empty($parsed['tasks'])) {
+            return new WP_REST_Response(['message' => 'OpenAI did not find any importable tasks in that source.'], 422);
+        }
+
+        $preview = WP_PQ_Admin::build_ai_import_preview(
+            (array) ($parsed['tasks'] ?? []),
+            $client_id,
+            $bucket_id,
+            $file_name !== '' ? $file_name : 'Pasted text',
+            (string) ($parsed['summary'] ?? 'Parsed task list')
+        );
+        WP_PQ_Admin::store_ai_import_preview($preview);
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => sprintf('Parsed %d task%s.', count((array) ($preview['tasks'] ?? [])), count((array) ($preview['tasks'] ?? [])) === 1 ? '' : 's'),
+            'preview' => $preview,
+        ], 200);
+    }
+
+    public static function revalidate_ai_import(WP_REST_Request $request): WP_REST_Response
+    {
+        $preview = WP_PQ_Admin::get_ai_import_preview();
+        if (! $preview || empty($preview['raw_tasks'])) {
+            return new WP_REST_Response(['message' => 'Parse a task list before trying to revalidate it.'], 422);
+        }
+
+        $client_id = (int) $request->get_param('client_id');
+        $bucket_id = (int) $request->get_param('billing_bucket_id');
+        if ($client_id <= 0) {
+            return new WP_REST_Response(['message' => 'Choose a client before revalidating the import preview.'], 422);
+        }
+
+        $rebuilt = WP_PQ_Admin::build_ai_import_preview(
+            (array) $preview['raw_tasks'],
+            $client_id,
+            $bucket_id,
+            (string) ($preview['source_name'] ?? 'Pasted text'),
+            (string) ($preview['summary'] ?? 'Parsed task list')
+        );
+        WP_PQ_Admin::store_ai_import_preview($rebuilt);
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => 'Preview context updated.',
+            'preview' => $rebuilt,
+        ], 200);
+    }
+
+    public static function import_ai_preview(WP_REST_Request $request): WP_REST_Response
+    {
+        $preview = WP_PQ_Admin::get_ai_import_preview();
+        if (! $preview || empty($preview['tasks'])) {
+            return new WP_REST_Response(['message' => 'There is no parsed preview ready to import.'], 422);
+        }
+
+        $posted_client_id = (int) $request->get_param('client_id');
+        $posted_bucket_id = (int) $request->get_param('billing_bucket_id');
+        $client_id = (int) ($preview['client_id'] ?? 0);
+        $bucket_id = (int) ($preview['billing_bucket_id'] ?? 0);
+        if ($posted_client_id !== $client_id || $posted_bucket_id !== $bucket_id) {
+            return new WP_REST_Response(['message' => 'The selected client/job context changed. Revalidate the preview before importing again.'], 422);
+        }
+        if (! empty($preview['blocking_errors'])) {
+            return new WP_REST_Response(['message' => 'Fix the blocking import issues before importing.'], 422);
+        }
+        if (! empty($preview['requires_job_confirmation']) && ! $request->get_param('confirm_new_jobs')) {
+            return new WP_REST_Response(['message' => 'Confirm the new job creation before importing.'], 422);
+        }
+
+        $submitter_id = WP_PQ_DB::get_primary_contact_user_id($client_id);
+        $imported = 0;
+        $errors = [];
+        global $wpdb;
+
+        foreach ((array) $preview['tasks'] as $task) {
+            $task_bucket_id = self::resolve_preview_bucket_id($task, $client_id, $bucket_id);
+            $action_owner_id = (int) ($task['resolved_owner_id'] ?? 0);
+            $task_request = new WP_REST_Request('POST', '/pq/v1/tasks');
+            $task_request->set_param('title', (string) ($task['title'] ?? ''));
+            $task_request->set_param('description', (string) ($task['description'] ?? ''));
+            $task_request->set_param('priority', (string) ($task['priority'] ?? 'normal'));
+            $task_request->set_param('requested_deadline', (string) ($task['normalized_deadline'] ?? ''));
+            $task_request->set_param('needs_meeting', ! empty($task['needs_meeting']));
+            $task_request->set_param('client_id', $client_id);
+            $task_request->set_param('submitter_id', $submitter_id);
+            $task_request->set_param('billing_bucket_id', $task_bucket_id);
+            if ($action_owner_id > 0) {
+                $task_request->set_param('owner_ids', [$action_owner_id]);
+            }
+            if (($task['is_billable'] ?? null) !== null) {
+                $task_request->set_param('is_billable', ! empty($task['is_billable']));
+            }
+
+            $response = WP_PQ_API::create_task($task_request);
+            if ($response->get_status() >= 400) {
+                $data = (array) $response->get_data();
+                $errors[] = (string) ($data['message'] ?? 'Task import failed.');
+                continue;
+            }
+
+            $task_id = (int) (($response->get_data()['task_id'] ?? 0));
+            $status_hint = WP_PQ_Workflow::normalize_status((string) ($task['status_hint'] ?? 'pending_approval'));
+            if ($task_id > 0 && in_array($status_hint, ['needs_review', 'delivered', 'done'], true)) {
+                $update = [
+                    'status' => $status_hint,
+                    'delivered_at' => in_array($status_hint, ['delivered', 'done'], true) ? current_time('mysql', true) : null,
+                    'updated_at' => current_time('mysql', true),
+                ];
+                if ($status_hint === 'done') {
+                    $update['completed_at'] = current_time('mysql', true);
+                    $update['done_at'] = current_time('mysql', true);
+                    $update['archived_at'] = current_time('mysql', true);
+                }
+                $wpdb->update($wpdb->prefix . 'pq_tasks', $update, ['id' => $task_id]);
+            }
+            $imported++;
+        }
+
+        WP_PQ_Admin::clear_ai_import_preview();
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => sprintf('Imported %d task%s.', $imported, $imported === 1 ? '' : 's') . (! empty($errors) ? ' ' . count($errors) . ' item(s) could not be imported.' : ''),
+            'imported' => $imported,
+            'errors' => $errors,
+        ], 200);
+    }
+
+    public static function discard_ai_preview(WP_REST_Request $request): WP_REST_Response
+    {
+        WP_PQ_Admin::clear_ai_import_preview();
+        return new WP_REST_Response(['ok' => true, 'message' => 'Preview discarded.'], 200);
+    }
+
+    public static function reopen_completed_task(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+
+        $task_id = (int) $request['id'];
+        $target_status = WP_PQ_Workflow::normalize_status((string) $request->get_param('target_status'));
+        $note = sanitize_textarea_field((string) $request->get_param('note'));
+        if (! in_array($target_status, ['in_progress', 'needs_clarification', 'needs_review'], true)) {
+            return new WP_REST_Response(['message' => 'Choose a valid active workflow state.'], 422);
+        }
+
+        $task = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}pq_tasks WHERE id = %d", $task_id), ARRAY_A);
+        if (! $task) {
+            return new WP_REST_Response(['message' => 'Task not found.'], 404);
+        }
+        if (WP_PQ_Workflow::normalize_status((string) ($task['status'] ?? '')) !== 'done') {
+            return new WP_REST_Response(['message' => 'Only completed tasks can be reopened from this flow.'], 422);
+        }
+
+        $ledger_entry = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}pq_work_ledger_entries WHERE task_id = %d", $task_id), ARRAY_A);
+        $invoice_status = (string) ($ledger_entry['invoice_status'] ?? 'unbilled');
+        if ($ledger_entry && in_array($invoice_status, ['invoiced', 'paid'], true)) {
+            $reason_code = $invoice_status === 'paid' ? 'blocked_reopen_paid' : 'blocked_reopen_invoiced';
+            $wpdb->insert($wpdb->prefix . 'pq_task_status_history', [
+                'task_id' => $task_id,
+                'old_status' => 'done',
+                'new_status' => 'done',
+                'changed_by' => get_current_user_id(),
+                'reason_code' => $reason_code,
+                'note' => $note !== '' ? $note : 'Blocked reopen of completed work.',
+                'metadata' => wp_json_encode(['requested_target_status' => $target_status]),
+                'created_at' => current_time('mysql', true),
+            ]);
+            return new WP_REST_Response([
+                'message' => $invoice_status === 'paid'
+                    ? 'This completed work has already been paid. Reopen is blocked; create a follow-up task instead.'
+                    : 'This completed work is already invoiced. Reopen is blocked; create a follow-up task instead.',
+                'blocked' => true,
+                'invoice_status' => $invoice_status,
+                'suggest_followup' => true,
+            ], 409);
+        }
+
+        if ($ledger_entry) {
+            $wpdb->update($wpdb->prefix . 'pq_work_ledger_entries', [
+                'is_closed' => 0,
+                'updated_at' => current_time('mysql', true),
+            ], ['id' => (int) $ledger_entry['id']]);
+        }
+
+        $wpdb->update($wpdb->prefix . 'pq_tasks', [
+            'status' => $target_status,
+            'done_at' => null,
+            'archived_at' => null,
+            'completed_at' => null,
+            'revision_count' => ((int) ($task['revision_count'] ?? 0)) + 1,
+            'updated_at' => current_time('mysql', true),
+        ], ['id' => $task_id]);
+
+        $wpdb->insert($wpdb->prefix . 'pq_task_status_history', [
+            'task_id' => $task_id,
+            'old_status' => 'done',
+            'new_status' => $target_status,
+            'changed_by' => get_current_user_id(),
+            'reason_code' => 'reopened_after_done',
+            'note' => $note !== '' ? $note : 'Completed work reopened.',
+            'metadata' => wp_json_encode(['ledger_entry_id' => (int) ($ledger_entry['id'] ?? 0)]),
+            'created_at' => current_time('mysql', true),
+        ]);
+
+        $task = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}pq_tasks WHERE id = %d", $task_id), ARRAY_A);
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => 'Completed task reopened.',
+            'task' => $task,
+        ], 200);
+    }
+
+    public static function create_followup_task(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+
+        $task_id = (int) $request['id'];
+        $target_status = WP_PQ_Workflow::normalize_status((string) $request->get_param('target_status'));
+        $note = sanitize_textarea_field((string) $request->get_param('note'));
+        if (! in_array($target_status, ['in_progress', 'needs_clarification', 'needs_review'], true)) {
+            return new WP_REST_Response(['message' => 'Choose a valid active workflow state.'], 422);
+        }
+
+        $task = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}pq_tasks WHERE id = %d", $task_id), ARRAY_A);
+        if (! $task) {
+            return new WP_REST_Response(['message' => 'Task not found.'], 404);
+        }
+        if (WP_PQ_Workflow::normalize_status((string) ($task['status'] ?? '')) !== 'done') {
+            return new WP_REST_Response(['message' => 'Only completed tasks can spawn a follow-up from this flow.'], 422);
+        }
+
+        $now = current_time('mysql', true);
+        $insert = [
+            'title' => 'Follow-up: ' . trim((string) ($task['title'] ?? 'Untitled task')),
+            'description' => (string) ($task['description'] ?? ''),
+            'status' => $target_status,
+            'priority' => (string) ($task['priority'] ?? 'normal'),
+            'queue_position' => 0,
+            'due_at' => $task['due_at'] ?: null,
+            'requested_deadline' => $task['requested_deadline'] ?: null,
+            'submitter_id' => (int) ($task['submitter_id'] ?? get_current_user_id()),
+            'client_id' => (int) ($task['client_id'] ?? 0) ?: null,
+            'client_user_id' => (int) ($task['client_user_id'] ?? 0) ?: null,
+            'action_owner_id' => (int) ($task['action_owner_id'] ?? 0) ?: null,
+            'owner_ids' => (string) ($task['owner_ids'] ?? ''),
+            'needs_meeting' => (int) ($task['needs_meeting'] ?? 0) === 1 ? 1 : 0,
+            'is_billable' => (int) ($task['is_billable'] ?? 1) === 1 ? 1 : 0,
+            'billing_bucket_id' => (int) ($task['billing_bucket_id'] ?? 0) ?: null,
+            'billing_mode' => (string) ($task['billing_mode'] ?? ''),
+            'billing_category' => (string) ($task['billing_category'] ?? ''),
+            'work_summary' => (string) ($task['work_summary'] ?? ''),
+            'hours' => $task['hours'] !== null ? $task['hours'] : null,
+            'rate' => $task['rate'] !== null ? $task['rate'] : null,
+            'amount' => $task['amount'] !== null ? $task['amount'] : null,
+            'revision_count' => 0,
+            'non_billable_reason' => (string) ($task['non_billable_reason'] ?? ''),
+            'expense_reference' => (string) ($task['expense_reference'] ?? ''),
+            'delivered_at' => null,
+            'completed_at' => null,
+            'done_at' => null,
+            'archived_at' => null,
+            'billing_status' => (int) ($task['is_billable'] ?? 1) === 1 ? 'unbilled' : 'not_billable',
+            'work_log_id' => null,
+            'work_logged_at' => null,
+            'statement_id' => null,
+            'statement_batched_at' => null,
+            'source_task_id' => $task_id,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ];
+
+        $wpdb->insert($wpdb->prefix . 'pq_tasks', $insert);
+        $new_task_id = (int) $wpdb->insert_id;
+        if ($new_task_id <= 0) {
+            return new WP_REST_Response(['message' => 'Follow-up task could not be created.'], 500);
+        }
+
+        $wpdb->insert($wpdb->prefix . 'pq_task_status_history', [
+            'task_id' => $task_id,
+            'old_status' => 'done',
+            'new_status' => 'done',
+            'changed_by' => get_current_user_id(),
+            'reason_code' => 'followup_created_from_done',
+            'note' => $note !== '' ? $note : 'Follow-up task created from completed work.',
+            'metadata' => wp_json_encode(['followup_task_id' => $new_task_id, 'target_status' => $target_status]),
+            'created_at' => $now,
+        ]);
+
+        $wpdb->insert($wpdb->prefix . 'pq_task_status_history', [
+            'task_id' => $new_task_id,
+            'old_status' => null,
+            'new_status' => $target_status,
+            'changed_by' => get_current_user_id(),
+            'reason_code' => 'followup_created_from_done',
+            'note' => $note !== '' ? $note : 'Created from completed work follow-up.',
+            'metadata' => wp_json_encode(['source_task_id' => $task_id]),
+            'created_at' => $now,
+        ]);
+
+        $new_task = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}pq_tasks WHERE id = %d", $new_task_id), ARRAY_A);
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => 'Follow-up task created.',
+            'task' => $new_task,
+        ], 201);
+    }
+
+    private static function range_from_request(WP_REST_Request $request): array
+    {
+        $month = WP_PQ_API::normalize_statement_month((string) $request->get_param('month'));
+        $custom_start = WP_PQ_API::normalize_rollup_date((string) $request->get_param('start_date'));
+        $custom_end = WP_PQ_API::normalize_rollup_date((string) $request->get_param('end_date'));
+        if ($custom_start !== '' && $custom_end !== '' && $custom_start <= $custom_end) {
+            return [
+                'month' => substr($custom_end, 0, 7),
+                'start' => $custom_start,
+                'end' => $custom_end,
+                'custom_start' => $custom_start,
+                'custom_end' => $custom_end,
+            ];
+        }
+
+        $month_ts = strtotime($month . '-01');
+        return [
+            'month' => $month,
+            'start' => wp_date('Y-m-01', $month_ts),
+            'end' => wp_date('Y-m-t', $month_ts),
+            'custom_start' => '',
+            'custom_end' => '',
+        ];
+    }
+
+    private static function client_response(int $client_id): WP_REST_Response
+    {
+        $request = new WP_REST_Request('GET', '/pq/v1/manager/clients/' . $client_id);
+        $request->set_param('id', $client_id);
+        return self::get_client($request);
+    }
+
+    private static function buckets_by_client(): array
+    {
+        global $wpdb;
+
+        $rows = (array) $wpdb->get_results(
+            "SELECT b.*, c.name AS client_name
+             FROM {$wpdb->prefix}pq_billing_buckets b
+             LEFT JOIN {$wpdb->prefix}pq_clients c ON c.id = b.client_id
+             ORDER BY c.name ASC, b.is_default DESC, b.bucket_name ASC",
+            ARRAY_A
+        );
+
+        $by_client = [];
+        foreach ($rows as $row) {
+            $by_client[(int) ($row['client_id'] ?? 0)][] = $row;
+        }
+        return $by_client;
+    }
+
+    private static function resolve_preview_bucket_id(array $task, int $client_id, int $selected_bucket_id): int
+    {
+        if ($selected_bucket_id > 0) {
+            return $selected_bucket_id;
+        }
+
+        $matched_bucket_id = (int) ($task['matched_bucket_id'] ?? 0);
+        if ($matched_bucket_id > 0) {
+            return $matched_bucket_id;
+        }
+
+        $job_name = trim((string) ($task['job_name'] ?? ''));
+        if ($job_name !== '') {
+            return WP_PQ_Admin::create_bucket_for_client($client_id, $job_name);
+        }
+
+        return WP_PQ_DB::get_or_create_default_billing_bucket_id($client_id);
+    }
+
+    private static function statement_line_payload(WP_REST_Request $request, bool $allow_partial)
+    {
+        $line_type = sanitize_key((string) $request->get_param('line_type'));
+        if ($line_type === '') {
+            $line_type = 'manual_adjustment';
+        }
+
+        $description = sanitize_textarea_field((string) $request->get_param('description'));
+        if (! $allow_partial && $description === '') {
+            return new WP_Error('pq_missing_line_description', 'Add a line description.', ['status' => 422]);
+        }
+
+        $payload = [
+            'line_type' => $line_type,
+            'source_kind' => sanitize_key((string) $request->get_param('source_kind') ?: 'manual'),
+            'description' => $description,
+            'quantity' => self::format_decimal($request->get_param('quantity')),
+            'unit' => sanitize_text_field((string) $request->get_param('unit')),
+            'unit_rate' => self::format_decimal($request->get_param('unit_rate')),
+            'line_amount' => self::format_decimal($request->get_param('line_amount')),
+            'billing_bucket_id' => (int) $request->get_param('billing_bucket_id') > 0 ? (int) $request->get_param('billing_bucket_id') : null,
+            'notes' => sanitize_textarea_field((string) $request->get_param('notes')),
+            'sort_order' => max(0, (int) $request->get_param('sort_order')),
+        ];
+
+        if ($request->get_param('linked_task_ids') !== null) {
+            $linked_task_ids = array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('linked_task_ids')))));
+            $payload['linked_task_ids'] = ! empty($linked_task_ids) ? wp_json_encode($linked_task_ids) : null;
+        }
+
+        if ($request->get_param('source_snapshot') !== null) {
+            $payload['source_snapshot'] = ! empty($request->get_param('source_snapshot')) ? wp_json_encode($request->get_param('source_snapshot')) : null;
+        }
+
+        return $payload;
+    }
+
+    private static function format_decimal($value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        return number_format((float) $value, 2, '.', '');
+    }
+
+    private static function set_statement_payment_state(int $statement_id, bool $is_paid, int $user_id)
+    {
+        global $wpdb;
+
+        if ($statement_id <= 0) {
+            return new WP_Error('pq_missing_statement', 'Invoice draft not found.', ['status' => 404]);
+        }
+
+        $statement = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}pq_statements WHERE id = %d", $statement_id), ARRAY_A);
+        if (! $statement) {
+            return new WP_Error('pq_missing_statement', 'Invoice draft not found.', ['status' => 404]);
+        }
+
+        $now = current_time('mysql', true);
+        $wpdb->update($wpdb->prefix . 'pq_statements', [
+            'payment_status' => $is_paid ? 'paid' : 'unpaid',
+            'paid_at' => $is_paid ? $now : null,
+            'paid_by' => $is_paid ? $user_id : null,
+            'updated_at' => $now,
+        ], ['id' => $statement_id]);
+
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$wpdb->prefix}pq_work_ledger_entries
+             SET invoice_status = %s,
+                 updated_at = %s
+             WHERE invoice_draft_id = %d",
+            $is_paid ? 'paid' : 'invoiced',
+            $now,
+            $statement_id
+        ));
+
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$wpdb->prefix}pq_tasks
+             SET billing_status = %s,
+                 updated_at = %s
+             WHERE statement_id = %d",
+            $is_paid ? 'paid' : 'batched',
+            $now,
+            $statement_id
+        ));
+
+        return true;
+    }
+}

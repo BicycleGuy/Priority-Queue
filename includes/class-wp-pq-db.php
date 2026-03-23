@@ -111,6 +111,7 @@ class WP_PQ_DB
             work_logged_at DATETIME NULL,
             statement_id BIGINT UNSIGNED NULL,
             statement_batched_at DATETIME NULL,
+            source_task_id BIGINT UNSIGNED NULL,
             google_event_id VARCHAR(191) NULL,
             google_event_url VARCHAR(500) NULL,
             google_event_synced_at DATETIME NULL,
@@ -127,6 +128,7 @@ class WP_PQ_DB
             KEY billing_status (billing_status),
             KEY work_log_id (work_log_id),
             KEY statement_id (statement_id),
+            KEY source_task_id (source_task_id),
             KEY queue_position (queue_position),
             KEY google_event_id (google_event_id)
         ) {$charset_collate};");
@@ -255,6 +257,9 @@ class WP_PQ_DB
             currency_code VARCHAR(10) NULL,
             total_amount DECIMAL(12,2) NULL,
             due_date DATE NULL,
+            payment_status VARCHAR(20) NOT NULL DEFAULT 'unpaid',
+            paid_at DATETIME NULL,
+            paid_by BIGINT UNSIGNED NULL,
             created_by BIGINT UNSIGNED NOT NULL,
             notes LONGTEXT NULL,
             created_at DATETIME NOT NULL,
@@ -264,7 +269,8 @@ class WP_PQ_DB
             KEY statement_month (statement_month),
             KEY client_id (client_id),
             KEY client_user_id (client_user_id),
-            KEY billing_bucket_id (billing_bucket_id)
+            KEY billing_bucket_id (billing_bucket_id),
+            KEY payment_status (payment_status)
         ) {$charset_collate};");
 
         dbDelta("CREATE TABLE {$statement_items} (
@@ -350,6 +356,7 @@ class WP_PQ_DB
             billable TINYINT(1) NOT NULL DEFAULT 1,
             billing_mode VARCHAR(40) NULL,
             billing_category VARCHAR(80) NULL,
+            is_closed TINYINT(1) NOT NULL DEFAULT 1,
             invoice_status VARCHAR(30) NOT NULL DEFAULT 'unbilled',
             statement_month VARCHAR(7) NULL,
             invoice_draft_id BIGINT UNSIGNED NULL,
@@ -362,6 +369,7 @@ class WP_PQ_DB
             UNIQUE KEY task_id (task_id),
             KEY client_id (client_id),
             KEY billing_bucket_id (billing_bucket_id),
+            KEY is_closed (is_closed),
             KEY invoice_status (invoice_status),
             KEY statement_month (statement_month),
             KEY invoice_draft_id (invoice_draft_id)
@@ -918,6 +926,72 @@ class WP_PQ_DB
         }
 
         update_option('wp_pq_work_statement_snapshot_migration_120_applied', 1, false);
+    }
+
+    public static function migrate_portal_manager_model(): void
+    {
+        global $wpdb;
+
+        if (get_option('wp_pq_portal_manager_migration_160_applied')) {
+            return;
+        }
+
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $statements_table = $wpdb->prefix . 'pq_statements';
+
+        $wpdb->query(
+            "UPDATE {$statements_table}
+             SET payment_status = COALESCE(NULLIF(payment_status, ''), 'unpaid')"
+        );
+
+        $wpdb->query(
+            "UPDATE {$statements_table} s
+             LEFT JOIN {$wpdb->prefix}pq_work_ledger_entries l ON l.invoice_draft_id = s.id
+             SET s.payment_status = 'paid',
+                 s.paid_at = COALESCE(s.paid_at, NOW())
+             WHERE l.invoice_status = 'paid'
+               AND COALESCE(s.payment_status, 'unpaid') <> 'paid'"
+        );
+
+        $wpdb->query(
+            "UPDATE {$tasks_table}
+             SET source_task_id = NULL
+             WHERE source_task_id IS NOT NULL
+               AND source_task_id <= 0"
+        );
+
+        update_option('wp_pq_portal_manager_migration_160_applied', 1, false);
+    }
+
+    public static function migrate_ledger_closure_model(): void
+    {
+        global $wpdb;
+
+        if (get_option('wp_pq_ledger_closure_migration_161_applied')) {
+            return;
+        }
+
+        $ledger_table = $wpdb->prefix . 'pq_work_ledger_entries';
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+
+        $wpdb->query(
+            "UPDATE {$ledger_table}
+             SET is_closed = 1
+             WHERE is_closed IS NULL"
+        );
+
+        $wpdb->query(
+            "UPDATE {$ledger_table} l
+             LEFT JOIN {$tasks_table} t ON t.id = l.task_id
+             SET l.is_closed = CASE
+                    WHEN t.id IS NULL THEN 1
+                    WHEN t.status = 'done' THEN 1
+                    ELSE 0
+                 END,
+                 l.updated_at = COALESCE(l.updated_at, NOW())"
+        );
+
+        update_option('wp_pq_ledger_closure_migration_161_applied', 1, false);
     }
 
     public static function get_or_create_default_billing_bucket_id(int $client_id): int

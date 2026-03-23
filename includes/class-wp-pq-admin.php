@@ -10,6 +10,7 @@ class WP_PQ_Admin
     {
         add_action('admin_menu', [self::class, 'register_menu']);
         add_action('admin_init', [self::class, 'register_settings']);
+        add_action('admin_init', [self::class, 'redirect_retired_admin_pages']);
         add_action('admin_post_wp_pq_google_oauth_start', [self::class, 'handle_google_oauth_start']);
         add_action('admin_post_wp_pq_create_client', [self::class, 'handle_create_client']);
         add_action('admin_post_wp_pq_link_client', [self::class, 'handle_link_client']);
@@ -38,109 +39,28 @@ class WP_PQ_Admin
 
     public static function register_menu(): void
     {
-        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE) && ! self::can_manage_any_clients()) {
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
             return;
         }
 
         add_menu_page(
-            'Priority Queue',
-            'Priority Queue',
-            'read',
-            'wp-pq-queue',
-            [self::class, 'render_page'],
-            'dashicons-list-view',
-            26
-        );
-
-        add_submenu_page(
-            'wp-pq-queue',
-            'Priority Queue Clients',
-            'Clients',
-            'read',
-            'wp-pq-client-directory',
-            [self::class, 'render_clients_page']
-        );
-
-        add_users_page(
-            'Priority Queue Clients',
-            'PQ Clients',
-            'list_users',
-            'wp-pq-client-directory',
-            [self::class, 'render_clients_page']
-        );
-
-        add_submenu_page(
-            'wp-pq-queue',
-            'Priority Queue Billing Rollup',
-            'Billing Rollup',
-            WP_PQ_Roles::CAP_APPROVE,
-            'wp-pq-rollups',
-            [self::class, 'render_rollups_page']
-        );
-
-        add_submenu_page(
-            'wp-pq-queue',
-            'Priority Queue Work Statements',
-            'Work Statements',
-            WP_PQ_Roles::CAP_APPROVE,
-            'wp-pq-work-logs',
-            [self::class, 'render_work_logs_page']
-        );
-
-        add_submenu_page(
-            'wp-pq-queue',
-            'Priority Queue Invoice Drafts',
-            'Invoice Drafts',
-            WP_PQ_Roles::CAP_APPROVE,
-            'wp-pq-statements',
-            [self::class, 'render_statements_page']
-        );
-
-        add_submenu_page(
-            'wp-pq-queue',
-            'Priority Queue AI Import',
-            'AI Import',
-            WP_PQ_Roles::CAP_APPROVE,
-            'wp-pq-ai-import',
-            [self::class, 'render_ai_import_page']
-        );
-
-        add_submenu_page(
-            'wp-pq-queue',
             'Priority Queue Settings',
-            'Settings',
+            'Priority Queue',
             WP_PQ_Roles::CAP_APPROVE,
             'wp-pq-settings',
-            [self::class, 'render_settings_page']
+            [self::class, 'render_settings_page'],
+            'dashicons-list-view',
+            26
         );
     }
 
     public static function enqueue_assets(string $hook): void
     {
-        if ($hook !== 'toplevel_page_wp-pq-queue' && strpos($hook, 'wp-pq-settings') === false && strpos($hook, 'wp-pq-statements') === false && strpos($hook, 'wp-pq-work-logs') === false && strpos($hook, 'wp-pq-rollups') === false && strpos($hook, 'wp-pq-client-directory') === false && strpos($hook, 'wp-pq-ai-import') === false) {
+        if (strpos($hook, 'wp-pq-settings') === false) {
             return;
         }
 
         wp_enqueue_style('wp-pq-admin', WP_PQ_PLUGIN_URL . 'assets/css/admin-queue.css', [], WP_PQ_VERSION);
-        if (strpos($hook, 'wp-pq-statements') !== false || strpos($hook, 'wp-pq-work-logs') !== false || strpos($hook, 'wp-pq-rollups') !== false || strpos($hook, 'wp-pq-client-directory') !== false || strpos($hook, 'wp-pq-ai-import') !== false) {
-            return;
-        }
-
-        wp_enqueue_script('sortable-js', 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js', [], '1.15.6', true);
-        wp_enqueue_script('wp-pq-admin', WP_PQ_PLUGIN_URL . 'assets/js/admin-queue.js', ['wp-api-fetch', 'sortable-js'], WP_PQ_VERSION, true);
-
-        wp_localize_script('wp-pq-admin', 'wpPqConfig', [
-            'root' => esc_url_raw(rest_url('pq/v1/')),
-            'coreRoot' => esc_url_raw(rest_url('wp/v2/')),
-            'adminUrl' => esc_url_raw(admin_url('admin.php')),
-            'nonce' => wp_create_nonce('wp_rest'),
-            'canApprove' => current_user_can(WP_PQ_Roles::CAP_APPROVE),
-            'canWork' => current_user_can(WP_PQ_Roles::CAP_WORK),
-            'canAssign' => current_user_can(WP_PQ_Roles::CAP_ASSIGN),
-            'canBatch' => current_user_can(WP_PQ_Roles::CAP_APPROVE),
-            'canViewAll' => current_user_can(WP_PQ_Roles::CAP_VIEW_ALL),
-            'currentUserId' => get_current_user_id(),
-        ]);
     }
 
     public static function register_settings(): void
@@ -157,61 +77,44 @@ class WP_PQ_Admin
     {
         array_unshift(
             $links,
-            '<a href="' . esc_url(admin_url('admin.php?page=wp-pq-client-directory')) . '">Clients</a>',
-            '<a href="' . esc_url(admin_url('admin.php?page=wp-pq-rollups')) . '">Billing Rollup</a>',
-            '<a href="' . esc_url(admin_url('admin.php?page=wp-pq-work-logs')) . '">Work Statements</a>',
-            '<a href="' . esc_url(admin_url('admin.php?page=wp-pq-statements')) . '">Invoice Drafts</a>',
-            '<a href="' . esc_url(admin_url('admin.php?page=wp-pq-ai-import')) . '">AI Import</a>',
+            '<a href="' . esc_url(WP_PQ_Portal::portal_url()) . '">Open Portal</a>',
             '<a href="' . esc_url(admin_url('admin.php?page=wp-pq-settings')) . '">Settings</a>'
         );
         return $links;
     }
 
-    public static function render_page(): void
+    public static function redirect_retired_admin_pages(): void
     {
+        if (! is_admin() || wp_doing_ajax()) {
+            return;
+        }
+
+        $page = isset($_GET['page']) ? sanitize_key((string) $_GET['page']) : '';
+        if ($page === '' || $page === 'wp-pq-settings') {
+            return;
+        }
+
+        $section_map = self::retired_admin_section_map();
+        if (! isset($section_map[$page])) {
+            return;
+        }
+
         if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
-            if (self::can_manage_any_clients()) {
-                self::render_clients_page();
-                return;
-            }
             wp_die('Forbidden');
         }
 
-        echo '<div class="wrap wp-pq-wrap">';
-        echo '<h1>Priority Queue</h1>';
-        echo '<p>Workflow scaffold: queue, approvals, owners, status transitions, files, and notifications.</p>';
-        echo self::admin_section_nav('queue');
+        wp_safe_redirect(WP_PQ_Portal::portal_url((string) $section_map[$page]));
+        exit;
+    }
 
-        echo '<div class="wp-pq-grid">';
-        echo '  <section class="wp-pq-panel">';
-        echo '    <h2>Create Request</h2>';
-        echo '    <form id="wp-pq-create-form">';
-        echo '      <label>Title <input type="text" name="title" required></label>';
-        echo '      <label>Description <textarea name="description" rows="3"></textarea></label>';
-        echo '      <label>Priority';
-        echo '        <select name="priority">';
-        echo '          <option value="low">Low</option>';
-        echo '          <option value="normal" selected>Normal</option>';
-        echo '          <option value="high">High</option>';
-        echo '          <option value="urgent">Urgent</option>';
-        echo '        </select>';
-        echo '      </label>';
-        echo '      <label>Due Date <input type="datetime-local" name="due_at" step="900"></label>';
-        echo '      <label>Requested Deadline <input type="datetime-local" name="requested_deadline" step="900"></label>';
-        echo '      <label class="inline"><input type="checkbox" name="needs_meeting"> Meeting Requested</label>';
-        echo '      <label>Owner IDs (comma-separated) <input type="text" name="owner_ids" placeholder="12,34"></label>';
-        echo '      <button class="button button-primary" type="submit">Create Request</button>';
-        echo '    </form>';
-        echo '  </section>';
+    public static function render_page(): void
+    {
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            wp_die('Forbidden');
+        }
 
-        echo '  <section class="wp-pq-panel">';
-        echo '    <h2>Queue</h2>';
-        echo '    <p class="desc">Drag to reorder. Clients only move their own tasks; managers can move all tasks.</p>';
-        echo '    <ul id="wp-pq-task-list" class="wp-pq-task-list"></ul>';
-        echo '  </section>';
-
-        echo '</div>';
-        echo '</div>';
+        wp_safe_redirect(WP_PQ_Portal::portal_url('queue'));
+        exit;
     }
 
     public static function render_clients_page(): void
@@ -1982,17 +1885,9 @@ class WP_PQ_Admin
     private static function admin_section_nav(string $current): string
     {
         $items = [
-            'queue' => ['label' => 'Queue', 'url' => admin_url('admin.php?page=wp-pq-queue')],
-            'clients' => ['label' => 'Clients', 'url' => admin_url('admin.php?page=wp-pq-client-directory')],
+            'portal' => ['label' => 'Open Portal', 'url' => WP_PQ_Portal::portal_url('queue')],
+            'settings' => ['label' => 'Settings', 'url' => admin_url('admin.php?page=wp-pq-settings')],
         ];
-
-        if (current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
-            $items['rollups'] = ['label' => 'Billing Rollup', 'url' => admin_url('admin.php?page=wp-pq-rollups')];
-            $items['work_logs'] = ['label' => 'Work Statements', 'url' => admin_url('admin.php?page=wp-pq-work-logs')];
-            $items['statements'] = ['label' => 'Invoice Drafts', 'url' => admin_url('admin.php?page=wp-pq-statements')];
-            $items['ai_import'] = ['label' => 'AI Import', 'url' => admin_url('admin.php?page=wp-pq-ai-import')];
-            $items['settings'] = ['label' => 'Settings', 'url' => admin_url('admin.php?page=wp-pq-settings')];
-        }
 
         $html = '<nav class="wp-pq-admin-nav">';
         foreach ($items as $key => $item) {
@@ -2002,6 +1897,18 @@ class WP_PQ_Admin
         $html .= '</nav>';
 
         return $html;
+    }
+
+    private static function retired_admin_section_map(): array
+    {
+        return [
+            'wp-pq-queue' => 'queue',
+            'wp-pq-client-directory' => 'clients',
+            'wp-pq-rollups' => 'billing-rollup',
+            'wp-pq-work-logs' => 'work-statements',
+            'wp-pq-statements' => 'invoice-drafts',
+            'wp-pq-ai-import' => 'ai-import',
+        ];
     }
 
     private static function get_rollup_range_from_request(array $source): array
@@ -2069,7 +1976,7 @@ class WP_PQ_Admin
         return add_query_arg($args, admin_url('admin.php'));
     }
 
-    private static function get_billing_clients(array $directory_users = []): array
+    public static function get_billing_clients(array $directory_users = []): array
     {
         global $wpdb;
 
@@ -2107,7 +2014,7 @@ class WP_PQ_Admin
         return $cache[$cache_key];
     }
 
-    private static function get_linkable_users(array $directory_users = []): array
+    public static function get_linkable_users(array $directory_users = []): array
     {
         $users = ! empty($directory_users) ? $directory_users : self::get_directory_users();
 
@@ -2125,7 +2032,7 @@ class WP_PQ_Admin
         return $rows;
     }
 
-    private static function get_client_bucket_rows(int $client_id): array
+    public static function get_client_bucket_rows(int $client_id): array
     {
         global $wpdb;
 
@@ -2447,7 +2354,7 @@ class WP_PQ_Admin
         return $html;
     }
 
-    private static function get_bucket_dependency_counts(int $bucket_id): array
+    public static function get_bucket_dependency_counts(int $bucket_id): array
     {
         global $wpdb;
         $tasks_table = $wpdb->prefix . 'pq_tasks';
@@ -2470,14 +2377,14 @@ class WP_PQ_Admin
         ];
     }
 
-    private static function bucket_can_be_deleted(array $counts): bool
+    public static function bucket_can_be_deleted(array $counts): bool
     {
         return (int) ($counts['task_count'] ?? 0) === 0
             && (int) ($counts['work_log_count'] ?? 0) === 0
             && (int) ($counts['statement_count'] ?? 0) === 0;
     }
 
-    private static function build_ai_import_preview(array $raw_tasks, int $client_id, int $bucket_id, string $source_name, string $summary): array
+    public static function build_ai_import_preview(array $raw_tasks, int $client_id, int $bucket_id, string $source_name, string $summary): array
     {
         $client_name = WP_PQ_DB::get_client_name($client_id);
         $jobs = self::get_client_bucket_rows($client_id);
@@ -2621,7 +2528,7 @@ class WP_PQ_Admin
         return (string) ($user->display_name ?: $user->user_login);
     }
 
-    private static function get_client_directory_rows(array $clients = [], array $directory_users = []): array
+    public static function get_client_directory_rows(array $clients = [], array $directory_users = []): array
     {
         global $wpdb;
 
@@ -2648,6 +2555,7 @@ class WP_PQ_Admin
                 "SELECT client_id, COUNT(*) AS delivered_count
                  FROM {$ledger_table}
                  WHERE client_id IN ({$ids_in})
+                   AND is_closed = 1
                  GROUP BY client_id",
                 ARRAY_A
             );
@@ -2662,6 +2570,7 @@ class WP_PQ_Admin
                 "SELECT client_id, COUNT(*) AS unbilled_count
                  FROM {$ledger_table}
                  WHERE client_id IN ({$ids_in})
+                   AND is_closed = 1
                    AND billable = 1
                    AND invoice_status = 'unbilled'
                  GROUP BY client_id",
@@ -2776,7 +2685,7 @@ class WP_PQ_Admin
         return $cache;
     }
 
-    private static function get_rollup_groups(string $start_date, string $end_date, array $buckets_by_client): array
+    public static function get_rollup_groups(string $start_date, string $end_date, array $buckets_by_client): array
     {
         global $wpdb;
 
@@ -2815,6 +2724,7 @@ class WP_PQ_Admin
              LEFT JOIN {$users_table} client_user ON client_user.ID = COALESCE(t.client_user_id, c.primary_contact_user_id)
              LEFT JOIN {$buckets_table} b ON b.id = l.billing_bucket_id
              WHERE DATE(l.completion_date) BETWEEN %s AND %s
+               AND l.is_closed = 1
              ORDER BY client_user.display_name ASC, b.bucket_name ASC, l.completion_date DESC, l.id DESC",
             $start_date,
             $end_date
@@ -2850,7 +2760,7 @@ class WP_PQ_Admin
         return array_values($groups);
     }
 
-    private static function get_work_log_summaries(string $start_date, string $end_date): array
+    public static function get_work_log_summaries(string $start_date, string $end_date): array
     {
         global $wpdb;
 
@@ -2879,7 +2789,7 @@ class WP_PQ_Admin
         return $rows;
     }
 
-    private static function get_work_log_detail(int $work_log_id): ?array
+    public static function get_work_log_detail(int $work_log_id): ?array
     {
         global $wpdb;
 
@@ -2930,7 +2840,7 @@ class WP_PQ_Admin
         return $work_log;
     }
 
-    private static function get_statement_summaries_for_range(string $start_date, string $end_date): array
+    public static function get_statement_summaries_for_range(string $start_date, string $end_date): array
     {
         global $wpdb;
 
@@ -2963,7 +2873,7 @@ class WP_PQ_Admin
         return $rows;
     }
 
-    private static function get_unbilled_ledger_entries(string $period): array
+    public static function get_unbilled_ledger_entries(string $period): array
     {
         global $wpdb;
 
@@ -2995,6 +2905,7 @@ class WP_PQ_Admin
              LEFT JOIN {$users_table} owner ON owner.ID = l.owner_id
              LEFT JOIN {$wpdb->prefix}pq_billing_buckets b ON b.id = l.billing_bucket_id
              WHERE l.billable = 1
+               AND l.is_closed = 1
                AND l.invoice_status = 'unbilled'
                AND l.statement_month = %s
              ORDER BY l.completion_date DESC, l.id DESC",
@@ -3004,7 +2915,7 @@ class WP_PQ_Admin
         return $rows;
     }
 
-    private static function get_statement_summaries(string $period): array
+    public static function get_statement_summaries(string $period): array
     {
         global $wpdb;
 
@@ -3037,7 +2948,7 @@ class WP_PQ_Admin
         return $rows;
     }
 
-    private static function get_statement_detail(int $statement_id): ?array
+    public static function get_statement_detail(int $statement_id): ?array
     {
         global $wpdb;
 
@@ -3140,18 +3051,18 @@ class WP_PQ_Admin
         return 'wp_pq_ai_import_preview_' . get_current_user_id();
     }
 
-    private static function store_ai_import_preview(array $preview): void
+    public static function store_ai_import_preview(array $preview): void
     {
         set_transient(self::ai_import_preview_key(), $preview, HOUR_IN_SECONDS);
     }
 
-    private static function get_ai_import_preview(): ?array
+    public static function get_ai_import_preview(): ?array
     {
         $preview = get_transient(self::ai_import_preview_key());
         return is_array($preview) ? $preview : null;
     }
 
-    private static function clear_ai_import_preview(): void
+    public static function clear_ai_import_preview(): void
     {
         delete_transient(self::ai_import_preview_key());
     }
@@ -3284,7 +3195,7 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>";
     }
 
-    private static function create_bucket_for_client(int $client_id, string $bucket_name): int
+    public static function create_bucket_for_client(int $client_id, string $bucket_name): int
     {
         global $wpdb;
 
@@ -3332,7 +3243,7 @@ document.addEventListener('DOMContentLoaded', function () {
         return $bucket_id;
     }
 
-    private static function can_manage_any_clients(): bool
+    public static function can_manage_any_clients(): bool
     {
         return current_user_can(WP_PQ_Roles::CAP_APPROVE) || ! empty(self::managed_client_ids());
     }
@@ -3358,7 +3269,7 @@ document.addEventListener('DOMContentLoaded', function () {
         return array_values(array_unique(array_filter($client_ids)));
     }
 
-    private static function can_manage_client(int $client_id, int $user_id = 0): bool
+    public static function can_manage_client(int $client_id, int $user_id = 0): bool
     {
         if ($client_id <= 0) {
             return false;
@@ -3386,7 +3297,7 @@ document.addEventListener('DOMContentLoaded', function () {
         return $email !== '' && strcasecmp($display, $email) !== 0 ? $display . ' <' . $email . '>' : $display;
     }
 
-    private static function get_member_candidate_users(array $directory_users = []): array
+    public static function get_member_candidate_users(array $directory_users = []): array
     {
         $users = ! empty($directory_users) ? $directory_users : self::get_directory_users();
 
@@ -3401,7 +3312,7 @@ document.addEventListener('DOMContentLoaded', function () {
         return $rows;
     }
 
-    private static function get_directory_users(): array
+    public static function get_directory_users(): array
     {
         static $cache = null;
         if (is_array($cache)) {
