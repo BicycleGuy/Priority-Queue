@@ -80,6 +80,7 @@
 }
 
 .wp-pq-wrap input[type='text'],
+.wp-pq-wrap input[type='number'],
 .wp-pq-wrap input[type='datetime-local'],
 .wp-pq-wrap input[type='file'],
 .wp-pq-wrap textarea,
@@ -2078,6 +2079,18 @@ body.wp-pq-drawer-open {
   bottom: 0;
   padding-top: 10px;
   background: linear-gradient(180deg, rgba(255,255,255,0), #fff 24px);
+}
+
+#wp-pq-completion-form {
+  margin-top: 10px;
+}
+
+#wp-pq-completion-form .wp-pq-panel-note {
+  margin: -2px 0 6px;
+}
+
+#wp-pq-completion-form [data-completion-field][hidden] {
+  display: none !important;
 }
 
 @media (max-width: 1240px) {

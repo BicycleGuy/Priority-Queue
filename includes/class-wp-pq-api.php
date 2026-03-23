@@ -50,6 +50,12 @@ class WP_PQ_API
             'permission_callback' => static fn() => is_user_logged_in(),
         ]);
 
+        register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/done', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'mark_task_done'],
+            'permission_callback' => static fn() => is_user_logged_in(),
+        ]);
+
         register_rest_route('pq/v1', '/tasks/(?P<id>\d+)', [
             'methods' => WP_REST_Server::DELETABLE,
             'callback' => [self::class, 'delete_task'],
@@ -481,6 +487,10 @@ class WP_PQ_API
             return new WP_REST_Response(['message' => 'Invalid move target status.'], 422);
         }
 
+        if ($resolved_target_status === 'done') {
+            return new WP_REST_Response(['message' => 'Use Mark Done so completion details can be captured before closing the task.'], 422);
+        }
+
         if (self::is_billing_locked_reopen($task, $current_status, $resolved_target_status)) {
             return new WP_REST_Response(['message' => 'This delivered task is still tied to billing. Remove it from the invoice draft first.'], 422);
         }
@@ -532,10 +542,14 @@ class WP_PQ_API
         $notes = ['board_move'];
 
         if ($resolved_target_status !== $current_status) {
+            $reason_code = self::transition_reason_code($current_status, $resolved_target_status);
             $status_update = array_merge([
                 'status' => $resolved_target_status,
                 'updated_at' => current_time('mysql', true),
             ], self::status_timestamp_updates($resolved_target_status));
+            if ($reason_code === 'revisions_requested') {
+                $status_update['revision_count'] = max(0, (int) ($task['revision_count'] ?? 0)) + 1;
+            }
             if ($meeting_requested) {
                 $status_update['needs_meeting'] = 1;
             }
@@ -604,7 +618,7 @@ class WP_PQ_API
                 $resolved_target_status,
                 $user_id,
                 implode(';', $notes),
-                self::transition_reason_code($current_status, $resolved_target_status)
+                $reason_code
             );
             self::emit_status_event($task_id, $current_status, $resolved_target_status);
         } else {
@@ -707,6 +721,10 @@ class WP_PQ_API
             return new WP_REST_Response(['message' => 'Invalid status.'], 422);
         }
 
+        if ($new_status === 'done') {
+            return new WP_REST_Response(['message' => 'Use Mark Done so completion details can be captured before closing the task.'], 422);
+        }
+
         $user_id = get_current_user_id();
         if (! self::can_access_task($task, $user_id)) {
             return new WP_REST_Response(['message' => 'Forbidden.'], 403);
@@ -722,10 +740,14 @@ class WP_PQ_API
             return new WP_REST_Response(['message' => 'Status transition not allowed.'], 422);
         }
 
+        $reason_code = self::transition_reason_code($current_status, $new_status);
         $update_data = array_merge([
             'status' => $new_status,
             'updated_at' => current_time('mysql', true),
         ], self::status_timestamp_updates($new_status));
+        if ($reason_code === 'revisions_requested') {
+            $update_data['revision_count'] = max(0, (int) ($task['revision_count'] ?? 0)) + 1;
+        }
 
         if ((bool) $request->get_param('needs_meeting')) {
             $update_data['needs_meeting'] = 1;
@@ -740,7 +762,7 @@ class WP_PQ_API
             $new_status,
             $user_id,
             (string) $request->get_param('note'),
-            self::transition_reason_code($current_status, $new_status)
+            $reason_code
         );
 
         $message_body = trim((string) $request->get_param('message_body'));
@@ -758,6 +780,121 @@ class WP_PQ_API
         return new WP_REST_Response([
             'ok' => true,
             'task' => self::get_enriched_task($task_id),
+        ], 200);
+    }
+
+    public static function mark_task_done(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $history_table = $wpdb->prefix . 'pq_task_status_history';
+        $task_id = (int) $request->get_param('id');
+        $task = self::get_task_row($task_id);
+
+        if (! $task) {
+            return new WP_REST_Response(['message' => 'Task not found.'], 404);
+        }
+
+        $user_id = get_current_user_id();
+        if (! self::can_access_task($task, $user_id)) {
+            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        }
+
+        $current_status = WP_PQ_Workflow::normalize_status((string) ($task['status'] ?? ''));
+        if ($current_status === 'done') {
+            return new WP_REST_Response(['message' => 'This task is already marked done.'], 409);
+        }
+
+        if (! WP_PQ_Workflow::can_transition($current_status, 'done', $user_id)) {
+            return new WP_REST_Response(['message' => 'Only delivered tasks can be marked done.'], 422);
+        }
+
+        $payload = self::normalize_completion_payload((array) $request->get_json_params());
+        $validated = self::validate_completion_payload($task, $payload);
+        if (is_wp_error($validated)) {
+            return new WP_REST_Response(['message' => $validated->get_error_message()], (int) ($validated->get_error_data()['status'] ?? 422));
+        }
+
+        $now = current_time('mysql', true);
+        $delivered_at = (string) ($task['delivered_at'] ?? '');
+        if ($delivered_at === '') {
+            $delivered_at = $now;
+        }
+
+        $update_data = [
+            'status' => 'done',
+            'is_billable' => ! empty($validated['billable']) ? 1 : 0,
+            'billing_status' => self::completion_billing_status($task, $validated),
+            'billing_mode' => $validated['billing_mode'] !== '' ? $validated['billing_mode'] : null,
+            'billing_category' => $validated['billing_category'] !== '' ? $validated['billing_category'] : null,
+            'work_summary' => $validated['work_summary'] !== '' ? $validated['work_summary'] : null,
+            'hours' => $validated['hours'],
+            'rate' => $validated['rate'],
+            'amount' => $validated['amount'],
+            'non_billable_reason' => $validated['non_billable_reason'] !== '' ? $validated['non_billable_reason'] : null,
+            'expense_reference' => $validated['expense_reference'] !== '' ? $validated['expense_reference'] : null,
+            'delivered_at' => $delivered_at,
+            'completed_at' => $now,
+            'done_at' => $now,
+            'archived_at' => $now,
+            'updated_at' => $now,
+        ];
+
+        $started_transaction = false;
+        if ($wpdb->query('START TRANSACTION') !== false) {
+            $started_transaction = true;
+        }
+
+        $updated = $wpdb->update($tasks_table, $update_data, ['id' => $task_id]);
+        if ($updated === false) {
+            if ($started_transaction) {
+                $wpdb->query('ROLLBACK');
+            }
+            return new WP_REST_Response(['message' => 'Could not mark this task done.'], 500);
+        }
+
+        $updated_task = self::get_task_row($task_id);
+        if (! $updated_task) {
+            if ($started_transaction) {
+                $wpdb->query('ROLLBACK');
+            }
+            return new WP_REST_Response(['message' => 'Task could not be reloaded after completion.'], 500);
+        }
+
+        $ledger_entry = self::upsert_work_ledger_entry($updated_task);
+        if (is_wp_error($ledger_entry)) {
+            if ($started_transaction) {
+                $wpdb->query('ROLLBACK');
+            }
+            return new WP_REST_Response(['message' => $ledger_entry->get_error_message()], (int) ($ledger_entry->get_error_data()['status'] ?? 422));
+        }
+
+        self::insert_status_history(
+            $history_table,
+            $task_id,
+            $current_status,
+            'done',
+            $user_id,
+            (string) $request->get_param('note'),
+            'marked_done',
+            [
+                'billing_mode' => $validated['billing_mode'],
+                'billing_category' => $validated['billing_category'],
+                'invoice_status' => (string) ($ledger_entry['invoice_status'] ?? ''),
+            ]
+        );
+
+        if ($started_transaction) {
+            $wpdb->query('COMMIT');
+        }
+
+        self::sync_task_calendar_event((array) $updated_task);
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'task' => self::get_enriched_task($task_id),
+            'ledger_entry' => $ledger_entry,
         ], 200);
     }
 
@@ -2763,6 +2900,7 @@ class WP_PQ_API
         $wpdb->delete($wpdb->prefix . 'pq_task_meetings', ['task_id' => $task_id]);
         $wpdb->delete($wpdb->prefix . 'pq_task_files', ['task_id' => $task_id]);
         $wpdb->delete($wpdb->prefix . 'pq_task_status_history', ['task_id' => $task_id]);
+        $wpdb->delete($wpdb->prefix . 'pq_work_ledger_entries', ['task_id' => $task_id]);
         $wpdb->delete($wpdb->prefix . 'pq_tasks', ['id' => $task_id]);
     }
 
@@ -3253,6 +3391,241 @@ class WP_PQ_API
         ], ['id' => $task_id]);
     }
 
+    private static function allowed_completion_billing_modes(): array
+    {
+        return ['hourly', 'fixed_fee', 'pass_through_expense', 'non_billable'];
+    }
+
+    private static function normalize_completion_payload(array $payload): array
+    {
+        $billing_mode = sanitize_key((string) ($payload['billing_mode'] ?? ''));
+        if (! in_array($billing_mode, self::allowed_completion_billing_modes(), true)) {
+            $billing_mode = '';
+        }
+
+        return [
+            'billing_mode' => $billing_mode,
+            'billing_category' => sanitize_text_field((string) ($payload['billing_category'] ?? '')),
+            'work_summary' => trim(sanitize_textarea_field((string) ($payload['work_summary'] ?? ''))),
+            'hours' => self::sanitize_decimal_value($payload['hours'] ?? null, 2),
+            'rate' => self::sanitize_decimal_value($payload['rate'] ?? null, 2),
+            'amount' => self::sanitize_decimal_value($payload['amount'] ?? null, 2),
+            'non_billable_reason' => trim(sanitize_textarea_field((string) ($payload['non_billable_reason'] ?? ''))),
+            'expense_reference' => sanitize_text_field((string) ($payload['expense_reference'] ?? '')),
+        ];
+    }
+
+    private static function validate_completion_payload(array $task, array $payload)
+    {
+        $billing_mode = $payload['billing_mode'] !== ''
+            ? $payload['billing_mode']
+            : ((string) ($task['billing_mode'] ?? '') !== '' ? sanitize_key((string) $task['billing_mode']) : ((int) ($task['is_billable'] ?? 1) === 1 ? 'fixed_fee' : 'non_billable'));
+        if (! in_array($billing_mode, self::allowed_completion_billing_modes(), true)) {
+            return new WP_Error('pq_invalid_billing_mode', 'Choose a valid billing mode before marking the task done.', ['status' => 422]);
+        }
+
+        $client_id = (int) ($task['client_id'] ?? 0);
+        $billing_bucket_id = (int) ($task['billing_bucket_id'] ?? 0);
+        if ($client_id <= 0 || $billing_bucket_id <= 0) {
+            return new WP_Error('pq_missing_completion_context', 'Tasks must have a client and job before they can be marked done.', ['status' => 422]);
+        }
+
+        $work_summary = trim((string) $payload['work_summary']);
+        if ($work_summary === '') {
+            $work_summary = trim((string) ($task['work_summary'] ?? ''));
+        }
+        if ($work_summary === '') {
+            $work_summary = trim((string) ($task['description'] ?? ''));
+        }
+        if ($work_summary === '') {
+            $work_summary = trim((string) ($task['title'] ?? ''));
+        }
+        if ($work_summary === '') {
+            return new WP_Error('pq_missing_work_summary', 'Add a work summary before marking this task done.', ['status' => 422]);
+        }
+
+        $billing_category = trim((string) $payload['billing_category']);
+        if ($billing_category === '') {
+            $billing_category = trim((string) ($task['billing_category'] ?? ''));
+        }
+
+        $is_billable = $billing_mode !== 'non_billable';
+        $billing_locked = (int) ($task['statement_id'] ?? 0) > 0 || in_array((string) ($task['billing_status'] ?? ''), ['batched', 'statement_sent', 'paid'], true);
+        if ($billing_locked && ! $is_billable) {
+            return new WP_Error('pq_billing_mode_conflict', 'This task is already tied to invoicing and cannot be marked non-billable now.', ['status' => 422]);
+        }
+
+        if ($is_billable && $billing_category === '') {
+            return new WP_Error('pq_missing_billing_category', 'Add a billing category before marking this task done.', ['status' => 422]);
+        }
+
+        if ($billing_mode === 'hourly' && (float) ($payload['hours'] ?? 0) <= 0) {
+            return new WP_Error('pq_missing_hours', 'Hourly work requires hours before the task can be marked done.', ['status' => 422]);
+        }
+
+        if ($billing_mode === 'pass_through_expense' && (float) ($payload['amount'] ?? 0) <= 0 && trim((string) $payload['expense_reference']) === '') {
+            return new WP_Error('pq_missing_expense_reference', 'Pass-through expenses need an amount or expense reference before the task can be marked done.', ['status' => 422]);
+        }
+
+        return [
+            'billable' => $is_billable,
+            'billing_mode' => $billing_mode,
+            'billing_category' => $billing_category,
+            'work_summary' => $work_summary,
+            'hours' => $payload['hours'],
+            'rate' => $payload['rate'],
+            'amount' => $payload['amount'],
+            'non_billable_reason' => trim((string) $payload['non_billable_reason']),
+            'expense_reference' => trim((string) $payload['expense_reference']),
+        ];
+    }
+
+    private static function sanitize_decimal_value($value, int $precision = 2): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            return null;
+        }
+
+        if (! is_numeric($raw)) {
+            return null;
+        }
+
+        return number_format((float) $raw, $precision, '.', '');
+    }
+
+    private static function completion_billing_status(array $task, array $validated): string
+    {
+        $current_status = (string) ($task['billing_status'] ?? '');
+        if (! empty($validated['billable'])) {
+            if (in_array($current_status, ['batched', 'statement_sent', 'paid'], true)) {
+                return $current_status;
+            }
+            return 'unbilled';
+        }
+
+        return in_array($current_status, ['batched', 'statement_sent', 'paid'], true)
+            ? $current_status
+            : 'not_billable';
+    }
+
+    private static function get_work_ledger_entry_by_task_id(int $task_id): ?array
+    {
+        global $wpdb;
+
+        if ($task_id <= 0) {
+            return null;
+        }
+
+        $table = $wpdb->prefix . 'pq_work_ledger_entries';
+        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE task_id = %d LIMIT 1", $task_id), ARRAY_A);
+
+        return $row ?: null;
+    }
+
+    private static function ledger_payload_from_task(array $task): array
+    {
+        $completion_date = (string) ($task['done_at'] ?? '');
+        if ($completion_date === '') {
+            $completion_date = (string) ($task['completed_at'] ?? '');
+        }
+        if ($completion_date === '') {
+            $completion_date = (string) ($task['delivered_at'] ?? '');
+        }
+        if ($completion_date === '') {
+            $completion_date = (string) ($task['updated_at'] ?? current_time('mysql', true));
+        }
+
+        $work_summary = trim((string) ($task['work_summary'] ?? ''));
+        if ($work_summary === '') {
+            $work_summary = trim((string) ($task['description'] ?? ''));
+        }
+        if ($work_summary === '') {
+            $work_summary = trim((string) ($task['title'] ?? ''));
+        }
+
+        return [
+            'task_id' => (int) ($task['id'] ?? 0),
+            'client_id' => (int) ($task['client_id'] ?? 0) > 0 ? (int) $task['client_id'] : null,
+            'billing_bucket_id' => (int) ($task['billing_bucket_id'] ?? 0) > 0 ? (int) $task['billing_bucket_id'] : null,
+            'title_snapshot' => (string) ($task['title'] ?? ''),
+            'work_summary' => $work_summary,
+            'owner_id' => (int) ($task['action_owner_id'] ?? 0) > 0 ? (int) $task['action_owner_id'] : ((int) ($task['submitter_id'] ?? 0) > 0 ? (int) $task['submitter_id'] : null),
+            'completion_date' => $completion_date,
+            'billable' => (int) ($task['is_billable'] ?? 1) === 1 ? 1 : 0,
+            'billing_mode' => (string) ($task['billing_mode'] ?? '') !== '' ? (string) $task['billing_mode'] : (((int) ($task['is_billable'] ?? 1) === 1) ? 'fixed_fee' : 'non_billable'),
+            'billing_category' => (string) ($task['billing_category'] ?? '') !== '' ? (string) $task['billing_category'] : 'general',
+            'invoice_status' => self::ledger_invoice_status_from_task($task),
+            'statement_month' => substr($completion_date, 0, 7),
+            'invoice_draft_id' => (int) ($task['statement_id'] ?? 0) > 0 ? (int) $task['statement_id'] : null,
+            'hours' => self::sanitize_decimal_value($task['hours'] ?? null, 2),
+            'rate' => self::sanitize_decimal_value($task['rate'] ?? null, 2),
+            'amount' => self::sanitize_decimal_value($task['amount'] ?? null, 2),
+        ];
+    }
+
+    private static function ledger_invoice_status_from_task(array $task): string
+    {
+        if ((int) ($task['is_billable'] ?? 1) !== 1) {
+            return 'written_off';
+        }
+
+        $billing_status = (string) ($task['billing_status'] ?? 'unbilled');
+        if ($billing_status === 'paid') {
+            return 'paid';
+        }
+
+        if ((int) ($task['statement_id'] ?? 0) > 0 || in_array($billing_status, ['batched', 'statement_sent'], true)) {
+            return 'invoiced';
+        }
+
+        if ($billing_status === 'not_billable') {
+            return 'written_off';
+        }
+
+        return 'unbilled';
+    }
+
+    private static function upsert_work_ledger_entry(array $task)
+    {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'pq_work_ledger_entries';
+        $payload = self::ledger_payload_from_task($task);
+        $existing = self::get_work_ledger_entry_by_task_id((int) ($task['id'] ?? 0));
+        $now = current_time('mysql', true);
+
+        if ($existing) {
+            $existing_status = (string) ($existing['invoice_status'] ?? '');
+            if (in_array($existing_status, ['invoiced', 'paid'], true)) {
+                return new WP_Error('pq_locked_ledger_entry', 'This task already has invoiced ledger data and needs manual reconciliation before it can be finalized again.', ['status' => 409]);
+            }
+
+            $updated = $wpdb->update($table, array_merge($payload, [
+                'updated_at' => $now,
+            ]), ['id' => (int) $existing['id']]);
+            if ($updated === false) {
+                return new WP_Error('pq_ledger_update_failed', 'The work ledger entry could not be updated.', ['status' => 500]);
+            }
+
+            return self::get_work_ledger_entry_by_task_id((int) ($task['id'] ?? 0));
+        }
+
+        $inserted = $wpdb->insert($table, array_merge($payload, [
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]));
+        if (! $inserted) {
+            return new WP_Error('pq_ledger_insert_failed', 'The work ledger entry could not be created.', ['status' => 500]);
+        }
+
+        return self::get_work_ledger_entry_by_task_id((int) ($task['id'] ?? 0));
+    }
+
     private static function statement_line_task_ids(array $line): array
     {
         $task_ids = json_decode((string) ($line['linked_task_ids'] ?? ''), true);
@@ -3356,7 +3729,7 @@ class WP_PQ_API
         ]);
     }
 
-    private static function insert_status_history(string $history_table, int $task_id, string $old_status, string $new_status, int $user_id, string $note = '', string $reason_code = ''): void
+    private static function insert_status_history(string $history_table, int $task_id, string $old_status, string $new_status, int $user_id, string $note = '', string $reason_code = '', ?array $metadata = null): void
     {
         global $wpdb;
 
@@ -3368,7 +3741,7 @@ class WP_PQ_API
             'changed_by' => $user_id,
             'reason_code' => $reason_code !== '' ? $reason_code : null,
             'note' => $clean_note !== '' ? sanitize_textarea_field($clean_note) : null,
-            'metadata' => null,
+            'metadata' => ! empty($metadata) ? wp_json_encode($metadata) : null,
             'created_at' => current_time('mysql', true),
         ]);
     }
@@ -3571,7 +3944,18 @@ class WP_PQ_API
         $row['client_id'] = isset($row['client_id']) ? (int) $row['client_id'] : 0;
         $row['client_user_id'] = isset($row['client_user_id']) ? (int) $row['client_user_id'] : 0;
         $row['action_owner_id'] = isset($row['action_owner_id']) ? (int) $row['action_owner_id'] : 0;
+        $row['revision_count'] = isset($row['revision_count']) ? (int) $row['revision_count'] : 0;
         $row['billing_status'] = (string) ($row['billing_status'] ?? ($row['is_billable'] ? 'unbilled' : 'not_billable'));
+        $row['billing_mode'] = (string) ($row['billing_mode'] ?? '');
+        $row['billing_category'] = (string) ($row['billing_category'] ?? '');
+        $row['work_summary'] = (string) ($row['work_summary'] ?? '');
+        $row['hours'] = isset($row['hours']) && $row['hours'] !== null ? (string) $row['hours'] : '';
+        $row['rate'] = isset($row['rate']) && $row['rate'] !== null ? (string) $row['rate'] : '';
+        $row['amount'] = isset($row['amount']) && $row['amount'] !== null ? (string) $row['amount'] : '';
+        $row['non_billable_reason'] = (string) ($row['non_billable_reason'] ?? '');
+        $row['expense_reference'] = (string) ($row['expense_reference'] ?? '');
+        $row['done_at'] = (string) ($row['done_at'] ?? '');
+        $row['archived_at'] = (string) ($row['archived_at'] ?? '');
         $row['statement_id'] = isset($row['statement_id']) ? (int) $row['statement_id'] : 0;
         $row['statement_code'] = (string) ($row['statement_code'] ?? '');
         $row['statement_batched_at'] = (string) ($row['statement_batched_at'] ?? '');

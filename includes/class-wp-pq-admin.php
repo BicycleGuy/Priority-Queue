@@ -135,6 +135,7 @@ class WP_PQ_Admin
             'adminUrl' => esc_url_raw(admin_url('admin.php')),
             'nonce' => wp_create_nonce('wp_rest'),
             'canApprove' => current_user_can(WP_PQ_Roles::CAP_APPROVE),
+            'canWork' => current_user_can(WP_PQ_Roles::CAP_WORK),
             'canAssign' => current_user_can(WP_PQ_Roles::CAP_ASSIGN),
             'canBatch' => current_user_can(WP_PQ_Roles::CAP_APPROVE),
             'canViewAll' => current_user_can(WP_PQ_Roles::CAP_VIEW_ALL),

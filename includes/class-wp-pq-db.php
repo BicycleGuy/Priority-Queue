@@ -35,6 +35,7 @@ class WP_PQ_DB
         $statement_lines = $wpdb->prefix . 'pq_statement_lines';
         $work_logs = $wpdb->prefix . 'pq_work_logs';
         $work_log_items = $wpdb->prefix . 'pq_work_log_items';
+        $ledger_entries = $wpdb->prefix . 'pq_work_ledger_entries';
 
         dbDelta("CREATE TABLE {$clients} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -92,6 +93,15 @@ class WP_PQ_DB
             needs_meeting TINYINT(1) NOT NULL DEFAULT 0,
             is_billable TINYINT(1) NOT NULL DEFAULT 1,
             billing_bucket_id BIGINT UNSIGNED NULL,
+            billing_mode VARCHAR(40) NULL,
+            billing_category VARCHAR(80) NULL,
+            work_summary LONGTEXT NULL,
+            hours DECIMAL(10,2) NULL,
+            rate DECIMAL(12,2) NULL,
+            amount DECIMAL(12,2) NULL,
+            revision_count INT UNSIGNED NOT NULL DEFAULT 0,
+            non_billable_reason LONGTEXT NULL,
+            expense_reference VARCHAR(191) NULL,
             delivered_at DATETIME NULL,
             completed_at DATETIME NULL,
             done_at DATETIME NULL,
@@ -327,6 +337,35 @@ class WP_PQ_DB
             UNIQUE KEY work_log_task (work_log_id, task_id),
             KEY task_id (task_id)
         ) {$charset_collate};");
+
+        dbDelta("CREATE TABLE {$ledger_entries} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            task_id BIGINT UNSIGNED NOT NULL,
+            client_id BIGINT UNSIGNED NULL,
+            billing_bucket_id BIGINT UNSIGNED NULL,
+            title_snapshot VARCHAR(255) NOT NULL,
+            work_summary LONGTEXT NULL,
+            owner_id BIGINT UNSIGNED NULL,
+            completion_date DATETIME NOT NULL,
+            billable TINYINT(1) NOT NULL DEFAULT 1,
+            billing_mode VARCHAR(40) NULL,
+            billing_category VARCHAR(80) NULL,
+            invoice_status VARCHAR(30) NOT NULL DEFAULT 'unbilled',
+            statement_month VARCHAR(7) NULL,
+            invoice_draft_id BIGINT UNSIGNED NULL,
+            hours DECIMAL(10,2) NULL,
+            rate DECIMAL(12,2) NULL,
+            amount DECIMAL(12,2) NULL,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY task_id (task_id),
+            KEY client_id (client_id),
+            KEY billing_bucket_id (billing_bucket_id),
+            KEY invoice_status (invoice_status),
+            KEY statement_month (statement_month),
+            KEY invoice_draft_id (invoice_draft_id)
+        ) {$charset_collate};");
     }
 
     public static function migrate_legacy_statuses(): void
@@ -450,6 +489,87 @@ class WP_PQ_DB
         }
 
         update_option('wp_pq_task_context_migration_087_applied', 1, false);
+    }
+
+    public static function migrate_workflow_ledger_model(): void
+    {
+        global $wpdb;
+
+        if (get_option('wp_pq_workflow_ledger_migration_131_applied')) {
+            return;
+        }
+
+        $tasks = $wpdb->prefix . 'pq_tasks';
+        $history = $wpdb->prefix . 'pq_task_status_history';
+        $ledger = $wpdb->prefix . 'pq_work_ledger_entries';
+
+        $wpdb->query(
+            "UPDATE {$tasks} t
+             SET revision_count = (
+                 SELECT COUNT(*)
+                 FROM {$history} h
+                 WHERE h.task_id = t.id
+                   AND h.reason_code = 'revisions_requested'
+             )"
+        );
+
+        $wpdb->query(
+            "INSERT INTO {$ledger} (
+                task_id,
+                client_id,
+                billing_bucket_id,
+                title_snapshot,
+                work_summary,
+                owner_id,
+                completion_date,
+                billable,
+                billing_mode,
+                billing_category,
+                invoice_status,
+                statement_month,
+                invoice_draft_id,
+                hours,
+                rate,
+                amount,
+                created_at,
+                updated_at
+            )
+            SELECT
+                t.id,
+                NULLIF(t.client_id, 0),
+                NULLIF(t.billing_bucket_id, 0),
+                t.title,
+                COALESCE(NULLIF(t.work_summary, ''), NULLIF(t.description, ''), t.title),
+                NULLIF(COALESCE(t.action_owner_id, t.submitter_id), 0),
+                COALESCE(t.done_at, t.completed_at, t.updated_at, t.created_at),
+                CASE WHEN t.is_billable = 1 THEN 1 ELSE 0 END,
+                CASE
+                    WHEN t.billing_mode IS NOT NULL AND t.billing_mode <> '' THEN t.billing_mode
+                    WHEN t.is_billable = 1 THEN 'fixed_fee'
+                    ELSE 'non_billable'
+                END,
+                COALESCE(NULLIF(t.billing_category, ''), 'general'),
+                CASE
+                    WHEN t.is_billable <> 1 THEN 'written_off'
+                    WHEN t.billing_status = 'paid' THEN 'paid'
+                    WHEN t.statement_id IS NOT NULL AND t.statement_id > 0 THEN 'invoiced'
+                    WHEN t.billing_status IN ('batched', 'statement_sent') THEN 'invoiced'
+                    ELSE 'unbilled'
+                END,
+                DATE_FORMAT(COALESCE(t.done_at, t.completed_at, t.updated_at, t.created_at), '%Y-%m'),
+                NULLIF(t.statement_id, 0),
+                t.hours,
+                t.rate,
+                t.amount,
+                COALESCE(t.done_at, t.completed_at, t.updated_at, t.created_at),
+                COALESCE(t.updated_at, t.done_at, t.completed_at, t.created_at)
+            FROM {$tasks} t
+            LEFT JOIN {$ledger} l ON l.task_id = t.id
+            WHERE l.id IS NULL
+              AND t.status = 'done'"
+        );
+
+        update_option('wp_pq_workflow_ledger_migration_131_applied', 1, false);
     }
 
     public static function migrate_client_accounts(): void

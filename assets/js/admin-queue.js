@@ -180,6 +180,21 @@
   const applyMoveBtn = document.getElementById('wp-pq-apply-move');
   const moveMeetingOption = document.getElementById('wp-pq-move-meeting-option');
   const moveEmailOption = document.getElementById('wp-pq-move-email-option');
+  const completionModalBackdrop = document.getElementById('wp-pq-completion-modal-backdrop');
+  const completionModal = document.getElementById('wp-pq-completion-modal');
+  const completionForm = document.getElementById('wp-pq-completion-form');
+  const completionSummaryEl = document.getElementById('wp-pq-completion-summary');
+  const completionModeNoteEl = document.getElementById('wp-pq-completion-mode-note');
+  const completionBillingModeEl = document.getElementById('wp-pq-completion-billing-mode');
+  const completionBillingCategoryEl = document.getElementById('wp-pq-completion-billing-category');
+  const completionWorkSummaryEl = document.getElementById('wp-pq-completion-work-summary');
+  const completionHoursEl = document.getElementById('wp-pq-completion-hours');
+  const completionRateEl = document.getElementById('wp-pq-completion-rate');
+  const completionAmountEl = document.getElementById('wp-pq-completion-amount');
+  const completionExpenseReferenceEl = document.getElementById('wp-pq-completion-expense-reference');
+  const completionNonBillableReasonEl = document.getElementById('wp-pq-completion-non-billable-reason');
+  const closeCompletionModalBtn = document.getElementById('wp-pq-close-completion-modal');
+  const cancelCompletionBtn = document.getElementById('wp-pq-cancel-completion');
   const deleteModalBackdrop = document.getElementById('wp-pq-delete-modal-backdrop');
   const deleteModal = document.getElementById('wp-pq-delete-modal');
   const deleteSummaryEl = document.getElementById('wp-pq-delete-summary');
@@ -196,6 +211,7 @@
   let pendingStatusAction = null;
   let pendingRevisionAction = null;
   let pendingDeleteTaskId = 0;
+  let pendingCompletionTaskId = 0;
   let participantCache = [];
   let currentView = 'board';
   let prefsLoaded = false;
@@ -1190,6 +1206,7 @@
   function renderStatusButtons(task) {
     const buttons = [];
     const billingLocked = parseInt(task.statement_id || 0, 10) > 0 || ['batched', 'statement_sent', 'paid'].includes(String(task.billing_status || ''));
+    const canOperate = !!window.wpPqConfig.canApprove || !!window.wpPqConfig.canWork;
     if (window.wpPqConfig.canApprove && task.status === 'pending_approval') {
       buttons.push(buttonHtml(task.id, 'approved', 'Approve'));
       buttons.push(buttonHtml(task.id, 'needs_clarification', 'Needs Clarification'));
@@ -1197,24 +1214,26 @@
     if (window.wpPqConfig.canApprove && task.status === 'needs_clarification') {
       buttons.push(buttonHtml(task.id, 'approved', 'Approve'));
     }
-    if (task.status === 'approved') {
+    if (canOperate && task.status === 'approved') {
       buttons.push(buttonHtml(task.id, 'in_progress', 'Start Work'));
       if (window.wpPqConfig.canApprove) {
         buttons.push(buttonHtml(task.id, 'needs_clarification', 'Needs Clarification'));
       }
     }
-    if (task.status === 'in_progress') {
+    if (canOperate && task.status === 'in_progress') {
       buttons.push(buttonHtml(task.id, 'needs_review', 'Send to Review'));
       if (window.wpPqConfig.canApprove) {
         buttons.push(buttonHtml(task.id, 'needs_clarification', 'Needs Clarification'));
       }
     }
-    if (task.status === 'needs_review') {
+    if (canOperate && task.status === 'needs_review') {
       buttons.push(buttonHtml(task.id, 'in_progress', 'Resume Work'));
       buttons.push(buttonHtml(task.id, 'delivered', 'Mark Delivered'));
     }
-    if (task.status === 'delivered') {
-      buttons.push(buttonHtml(task.id, 'done', 'Mark Done'));
+    if (canOperate && task.status === 'delivered') {
+      if (completionModal) {
+        buttons.push(buttonHtml(task.id, 'done', 'Mark Done'));
+      }
       if (!billingLocked) {
         buttons.push(buttonHtml(task.id, 'in_progress', 'Resume Work'));
         if (window.wpPqConfig.canApprove) {
@@ -1311,7 +1330,7 @@
 
   function shouldPromptForMoveDecision(sourceStatus, targetStatus) {
     const effectiveStatus = targetStatus || sourceStatus;
-    return ['pending_approval', 'needs_clarification', 'approved', 'in_progress', 'needs_review', 'delivered', 'done'].includes(effectiveStatus);
+    return ['pending_approval', 'needs_clarification', 'approved', 'in_progress', 'needs_review', 'delivered'].includes(effectiveStatus);
   }
 
   function moveDecisionConfig(move) {
@@ -1353,11 +1372,6 @@
         title: 'Mark as Delivered?',
         body: 'This records the task as delivered to the requester or client. It stays reversible until you explicitly mark it done.',
         cta: 'Mark Delivered',
-      },
-      done: {
-        title: 'Mark Done?',
-        body: 'This closes the task, records it as complete, and removes it from the active board.',
-        cta: 'Mark Done',
       },
     };
 
@@ -1554,6 +1568,108 @@
     if (resetBoard) {
       await loadTasks();
     }
+  }
+
+  function completionModeConfig(mode) {
+    const configs = {
+      hourly: {
+        note: 'Hourly work needs a work summary, billing category, and hours. Rate and amount stay optional.',
+        show: ['hours', 'rate'],
+        requireCategory: true,
+        requireHours: true,
+      },
+      fixed_fee: {
+        note: 'Fixed-fee work needs a short summary and billing category. Amount can stay optional until invoicing.',
+        show: ['rate', 'amount'],
+        requireCategory: true,
+        requireHours: false,
+      },
+      pass_through_expense: {
+        note: 'Pass-through expenses need a work summary, billing category, and either an amount or an expense reference.',
+        show: ['amount', 'expense_reference'],
+        requireCategory: true,
+        requireHours: false,
+      },
+      non_billable: {
+        note: 'Non-billable work still needs a summary for the ledger, but it will stay out of invoice prep.',
+        show: ['non_billable_reason'],
+        requireCategory: false,
+        requireHours: false,
+      },
+    };
+
+    return configs[mode] || configs.fixed_fee;
+  }
+
+  function syncCompletionForm(mode) {
+    if (!completionForm) return;
+
+    const normalizedMode = String(mode || (completionBillingModeEl ? completionBillingModeEl.value : '') || 'fixed_fee');
+    const config = completionModeConfig(normalizedMode);
+    const rows = {
+      billing_category: completionBillingCategoryEl ? completionBillingCategoryEl.closest('label') : null,
+      hours: completionHoursEl ? completionHoursEl.closest('label') : null,
+      rate: completionRateEl ? completionRateEl.closest('label') : null,
+      amount: completionAmountEl ? completionAmountEl.closest('label') : null,
+      expense_reference: completionExpenseReferenceEl ? completionExpenseReferenceEl.closest('label') : null,
+      non_billable_reason: completionNonBillableReasonEl ? completionNonBillableReasonEl.closest('label') : null,
+    };
+
+    Object.keys(rows).forEach((key) => {
+      if (rows[key]) {
+        rows[key].hidden = false;
+      }
+    });
+
+    if (rows.billing_category) rows.billing_category.hidden = !config.requireCategory;
+    if (rows.hours) rows.hours.hidden = !config.show.includes('hours');
+    if (rows.rate) rows.rate.hidden = !config.show.includes('rate');
+    if (rows.amount) rows.amount.hidden = !config.show.includes('amount');
+    if (rows.expense_reference) rows.expense_reference.hidden = !config.show.includes('expense_reference');
+    if (rows.non_billable_reason) rows.non_billable_reason.hidden = !config.show.includes('non_billable_reason');
+
+    if (completionModeNoteEl) completionModeNoteEl.textContent = config.note;
+    if (completionBillingCategoryEl) completionBillingCategoryEl.required = !!config.requireCategory;
+    if (completionHoursEl) completionHoursEl.required = !!config.requireHours;
+  }
+
+  function openCompletionModal(taskId) {
+    if (!completionModal || !completionModalBackdrop || !completionForm) return;
+
+    const task = getTaskById(taskId);
+    if (!task) return;
+
+    pendingCompletionTaskId = taskId;
+    completionForm.reset();
+
+    const defaultMode = String(task.billing_mode || '').trim()
+      || ((!task.is_billable || String(task.billing_status || '') === 'not_billable') ? 'non_billable' : 'fixed_fee');
+    if (completionBillingModeEl) completionBillingModeEl.value = defaultMode;
+    if (completionBillingCategoryEl) completionBillingCategoryEl.value = String(task.billing_category || task.bucket_name || '');
+    if (completionWorkSummaryEl) completionWorkSummaryEl.value = String(task.work_summary || task.description || task.title || '');
+    if (completionHoursEl) completionHoursEl.value = String(task.hours || '');
+    if (completionRateEl) completionRateEl.value = String(task.rate || '');
+    if (completionAmountEl) completionAmountEl.value = String(task.amount || '');
+    if (completionExpenseReferenceEl) completionExpenseReferenceEl.value = String(task.expense_reference || '');
+    if (completionNonBillableReasonEl) completionNonBillableReasonEl.value = String(task.non_billable_reason || '');
+    if (completionSummaryEl) {
+      completionSummaryEl.textContent = 'Capture the completion details for "' + task.title + '" before it moves out of the active workflow and into the work ledger.';
+    }
+
+    syncCompletionForm(defaultMode);
+    completionModal.hidden = false;
+    completionModal.setAttribute('aria-hidden', 'false');
+    completionModalBackdrop.hidden = false;
+    if (completionWorkSummaryEl) completionWorkSummaryEl.focus();
+  }
+
+  function closeCompletionModal() {
+    pendingCompletionTaskId = 0;
+    if (completionModal) {
+      completionModal.hidden = true;
+      completionModal.setAttribute('aria-hidden', 'true');
+    }
+    if (completionModalBackdrop) completionModalBackdrop.hidden = true;
   }
 
   function openDeleteModal(taskId) {
@@ -2726,7 +2842,15 @@
       if (!id || !status) return;
 
       const task = getTaskById(id);
-      if (['needs_clarification', 'done'].includes(status) && task) {
+      if (status === 'done' && task) {
+        selectedTaskId = id;
+        pendingMove = null;
+        pendingStatusAction = null;
+        openCompletionModal(id);
+        return;
+      }
+
+      if (status === 'needs_clarification' && task) {
         selectedTaskId = id;
         pendingMove = null;
         pendingStatusAction = {
@@ -2758,6 +2882,10 @@
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && deleteModal && !deleteModal.hidden) {
         closeDeleteModal();
+        return;
+      }
+      if (e.key === 'Escape' && completionModal && !completionModal.hidden) {
+        closeCompletionModal();
         return;
       }
       if (e.key === 'Escape' && revisionModal && !revisionModal.hidden) {
@@ -2896,6 +3024,59 @@
     });
   }
 
+  function wireCompletionModal() {
+    if (closeCompletionModalBtn) {
+      closeCompletionModalBtn.addEventListener('click', closeCompletionModal);
+    }
+
+    if (cancelCompletionBtn) {
+      cancelCompletionBtn.addEventListener('click', closeCompletionModal);
+    }
+
+    if (completionModalBackdrop) {
+      completionModalBackdrop.addEventListener('click', closeCompletionModal);
+    }
+
+    if (completionBillingModeEl) {
+      completionBillingModeEl.addEventListener('change', () => {
+        syncCompletionForm(completionBillingModeEl.value);
+      });
+    }
+
+    if (!completionForm) return;
+
+    completionForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!pendingCompletionTaskId) return;
+
+      const formData = new FormData(completionForm);
+      const taskId = pendingCompletionTaskId;
+      try {
+        selectedTaskId = taskId;
+        await api('tasks/' + taskId + '/done', {
+          method: 'POST',
+          body: JSON.stringify({
+            billing_mode: formData.get('billing_mode') || '',
+            billing_category: formData.get('billing_category') || '',
+            work_summary: formData.get('work_summary') || '',
+            hours: formData.get('hours') || '',
+            rate: formData.get('rate') || '',
+            amount: formData.get('amount') || '',
+            expense_reference: formData.get('expense_reference') || '',
+            non_billable_reason: formData.get('non_billable_reason') || '',
+          }),
+        });
+        closeCompletionModal();
+        removeTaskById(taskId);
+        closeDrawer();
+        await loadTasks();
+        alert('Task marked done and added to the work ledger.', 'success');
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  }
+
   function wireRevisionModal() {
     if (closeRevisionModalBtn) {
       closeRevisionModalBtn.addEventListener('click', () => {
@@ -2997,6 +3178,7 @@
   wireStatusActions();
   wireDrawerControls();
   wireMoveModal();
+  wireCompletionModal();
   wireDeleteModal();
   wireRevisionModal();
   wireTogglePanel(openCreateBtn, createPanel, closeCreateBtn);

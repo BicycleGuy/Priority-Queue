@@ -50,6 +50,7 @@ class WP_PQ_Portal
             'coreRoot' => esc_url_raw(rest_url('wp/v2/')),
             'nonce' => wp_create_nonce('wp_rest'),
             'canApprove' => current_user_can(WP_PQ_Roles::CAP_APPROVE),
+            'canWork' => current_user_can(WP_PQ_Roles::CAP_WORK),
             'canAssign' => current_user_can(WP_PQ_Roles::CAP_ASSIGN),
             'canBatch' => current_user_can(WP_PQ_Roles::CAP_APPROVE),
             'canViewAll' => current_user_can(WP_PQ_Roles::CAP_VIEW_ALL),
@@ -351,6 +352,41 @@ class WP_PQ_Portal
         echo '        <div class="wp-pq-modal-actions">';
         echo '          <button class="button" type="button" id="wp-pq-cancel-move">Cancel</button>';
         echo '          <button class="button button-primary" type="submit" id="wp-pq-apply-move">Apply Change</button>';
+        echo '        </div>';
+        echo '      </form>';
+        echo '    </div>';
+        echo '  </section>';
+        echo '  <div class="wp-pq-modal-backdrop" id="wp-pq-completion-modal-backdrop" hidden></div>';
+        echo '  <section class="wp-pq-modal" id="wp-pq-completion-modal" hidden aria-hidden="true" aria-labelledby="wp-pq-completion-title">';
+        echo '    <div class="wp-pq-modal-card">';
+        echo '      <div class="wp-pq-section-heading">';
+        echo '        <div>';
+        echo '          <p class="wp-pq-kicker">Completion</p>';
+        echo '          <h3 id="wp-pq-completion-title">Mark this task done</h3>';
+        echo '          <p class="wp-pq-panel-note" id="wp-pq-completion-summary">Capture the billing details needed to close this task and write it to the work ledger.</p>';
+        echo '        </div>';
+        echo '        <button class="button" type="button" id="wp-pq-close-completion-modal">Cancel</button>';
+        echo '      </div>';
+        echo '      <form id="wp-pq-completion-form" class="wp-pq-create-grid">';
+        echo '        <label>Billing mode';
+        echo '          <select name="billing_mode" id="wp-pq-completion-billing-mode" required>';
+        echo '            <option value="fixed_fee">Fixed fee</option>';
+        echo '            <option value="hourly">Hourly</option>';
+        echo '            <option value="pass_through_expense">Pass-through expense</option>';
+        echo '            <option value="non_billable">Non-billable</option>';
+        echo '          </select>';
+        echo '        </label>';
+        echo '        <label>Billing category <input type="text" name="billing_category" id="wp-pq-completion-billing-category" placeholder="Support, retainer, reimbursement, etc."></label>';
+        echo '        <label class="wp-pq-span-2">Work summary <textarea name="work_summary" id="wp-pq-completion-work-summary" rows="4" required></textarea></label>';
+        echo '        <p class="wp-pq-panel-note wp-pq-span-2" id="wp-pq-completion-mode-note">Fixed-fee work needs a short summary and billing category. Hours, rate, and amount stay optional.</p>';
+        echo '        <label data-completion-field="hours">Hours <input type="number" name="hours" id="wp-pq-completion-hours" min="0" step="0.25" inputmode="decimal" placeholder="0.00"></label>';
+        echo '        <label data-completion-field="rate">Rate <input type="number" name="rate" id="wp-pq-completion-rate" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></label>';
+        echo '        <label data-completion-field="amount">Amount <input type="number" name="amount" id="wp-pq-completion-amount" min="0" step="0.01" inputmode="decimal" placeholder="0.00"></label>';
+        echo '        <label data-completion-field="expense_reference">Expense reference <input type="text" name="expense_reference" id="wp-pq-completion-expense-reference" placeholder="Vendor invoice, support pass-through, receipt ID"></label>';
+        echo '        <label class="wp-pq-span-2" data-completion-field="non_billable_reason">Non-billable reason <textarea name="non_billable_reason" id="wp-pq-completion-non-billable-reason" rows="3" placeholder="Internal support, goodwill, admin cleanup, etc."></textarea></label>';
+        echo '        <div class="wp-pq-modal-actions wp-pq-span-2">';
+        echo '          <button class="button" type="button" id="wp-pq-cancel-completion">Cancel</button>';
+        echo '          <button class="button button-primary" type="submit" id="wp-pq-apply-completion">Mark Done</button>';
         echo '        </div>';
         echo '      </form>';
         echo '    </div>';
