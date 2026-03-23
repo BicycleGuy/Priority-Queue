@@ -229,6 +229,7 @@
   let notificationsCache = [];
   let boardDragActive = false;
   let boardDragLockUntil = 0;
+  let activeTaskRecord = null;
 
   async function api(path, options) {
     let resp;
@@ -320,6 +321,9 @@
     tasksCache = tasksCache.filter((task) => task.id !== taskId);
     selectedApprovalTaskIds.delete(taskId);
     selectedBatchTaskIds.delete(taskId);
+    if (activeTaskRecord && activeTaskRecord.id === taskId) {
+      activeTaskRecord = null;
+    }
     if (selectedTaskId === taskId) {
       selectedTaskId = null;
     }
@@ -601,13 +605,22 @@
     const index = tasksCache.findIndex((item) => item.id === task.id);
     if (index >= 0) {
       tasksCache[index] = task;
+      if (activeTaskRecord && activeTaskRecord.id === task.id) {
+        activeTaskRecord = task;
+      }
       return;
     }
     tasksCache.push(task);
+    if (activeTaskRecord && activeTaskRecord.id === task.id) {
+      activeTaskRecord = task;
+    }
   }
 
   function replaceTasks(tasks) {
     tasksCache = Array.isArray(tasks) ? tasks.slice() : [];
+    if (activeTaskRecord && activeTaskRecord.id) {
+      activeTaskRecord = getTaskById(activeTaskRecord.id) || activeTaskRecord;
+    }
   }
 
   function pruneBatchSelection() {
@@ -1215,30 +1228,30 @@
       buttons.push(buttonHtml(task.id, 'approved', 'Approve'));
     }
     if (canOperate && task.status === 'approved') {
-      buttons.push(buttonHtml(task.id, 'in_progress', 'Start Work'));
+      buttons.push(buttonHtml(task.id, 'in_progress', 'In Progress'));
       if (window.wpPqConfig.canApprove) {
         buttons.push(buttonHtml(task.id, 'needs_clarification', 'Needs Clarification'));
       }
     }
     if (canOperate && task.status === 'in_progress') {
-      buttons.push(buttonHtml(task.id, 'needs_review', 'Send to Review'));
+      buttons.push(buttonHtml(task.id, 'needs_review', 'Needs Review'));
       if (window.wpPqConfig.canApprove) {
         buttons.push(buttonHtml(task.id, 'needs_clarification', 'Needs Clarification'));
       }
     }
     if (canOperate && task.status === 'needs_review') {
-      buttons.push(buttonHtml(task.id, 'in_progress', 'Resume Work'));
-      buttons.push(buttonHtml(task.id, 'delivered', 'Mark Delivered'));
+      buttons.push(buttonHtml(task.id, 'in_progress', 'In Progress'));
+      buttons.push(buttonHtml(task.id, 'delivered', 'Delivered'));
     }
     if (canOperate && task.status === 'delivered') {
       if (completionModal) {
         buttons.push(buttonHtml(task.id, 'done', 'Mark Done'));
       }
       if (!billingLocked) {
-        buttons.push(buttonHtml(task.id, 'in_progress', 'Resume Work'));
+        buttons.push(buttonHtml(task.id, 'in_progress', 'In Progress'));
         if (window.wpPqConfig.canApprove) {
-          buttons.push(buttonHtml(task.id, 'needs_review', 'Return to Review'));
-          buttons.push(buttonHtml(task.id, 'needs_clarification', 'Return to Clarification'));
+          buttons.push(buttonHtml(task.id, 'needs_review', 'Needs Review'));
+          buttons.push(buttonHtml(task.id, 'needs_clarification', 'Needs Clarification'));
         }
       }
     }
@@ -1636,7 +1649,7 @@
   function openCompletionModal(taskId) {
     if (!completionModal || !completionModalBackdrop || !completionForm) return;
 
-    const task = getTaskById(taskId);
+    const task = getKnownTask(taskId);
     if (!task) return;
 
     pendingCompletionTaskId = taskId;
@@ -1719,7 +1732,26 @@
     return tasksCache.find((task) => task.id === taskId) || null;
   }
 
+  function getKnownTask(taskId) {
+    const cacheTask = getTaskById(taskId);
+    if (cacheTask) return cacheTask;
+    if (activeTaskRecord && activeTaskRecord.id === taskId) return activeTaskRecord;
+    if (selectedTaskId === taskId) {
+      return {
+        id: taskId,
+        title: currentTaskEl ? String(currentTaskEl.textContent || '').trim() || ('Task #' + taskId) : ('Task #' + taskId),
+        description: currentTaskDescriptionEl ? String(currentTaskDescriptionEl.textContent || '').trim() : '',
+        bucket_name: '',
+        is_billable: true,
+        billing_status: 'unbilled',
+        billing_mode: 'fixed_fee',
+      };
+    }
+    return null;
+  }
+
   function resetTaskSummary() {
+    activeTaskRecord = null;
     if (currentTaskStatusEl) currentTaskStatusEl.textContent = 'Select a task';
     if (currentTaskEl) currentTaskEl.textContent = currentTaskStatusEl ? 'Task Details' : 'Select a task from the queue.';
     if (currentTaskMetaEl) currentTaskMetaEl.textContent = 'Choose a board card or calendar item to open its workspace.';
@@ -1736,6 +1768,7 @@
   }
 
   async function updateTaskSummary(task) {
+    activeTaskRecord = task ? { ...task } : null;
     if (currentTaskStatusEl) currentTaskStatusEl.textContent = humanizeToken(task.status);
     if (currentTaskEl) currentTaskEl.textContent = currentTaskStatusEl ? task.title : 'Selected task: #' + task.id + ' - ' + task.title;
     if (currentTaskMetaEl) currentTaskMetaEl.innerHTML = taskContextMarkup(task);
@@ -2841,8 +2874,7 @@
       const status = btn.dataset.status;
       if (!id || !status) return;
 
-      const task = getTaskById(id);
-      if (status === 'done' && task) {
+      if (status === 'done') {
         selectedTaskId = id;
         pendingMove = null;
         pendingStatusAction = null;
@@ -2850,6 +2882,7 @@
         return;
       }
 
+      const task = getKnownTask(id);
       if (status === 'needs_clarification' && task) {
         selectedTaskId = id;
         pendingMove = null;
