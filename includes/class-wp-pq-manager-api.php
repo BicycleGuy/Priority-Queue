@@ -169,6 +169,12 @@ class WP_PQ_Manager_API
             'permission_callback' => [self::class, 'can_manage'],
         ]);
 
+        register_rest_route('pq/v1', '/manager/statements/(?P<id>\d+)/email-client', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'email_statement_to_client'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
         register_rest_route('pq/v1', '/manager/ai-import', [
             'methods' => WP_REST_Server::READABLE,
             'callback' => [self::class, 'get_ai_import_state'],
@@ -637,9 +643,15 @@ class WP_PQ_Manager_API
 
     public static function create_statement(WP_REST_Request $request): WP_REST_Response
     {
+        $entry_ids = array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('entry_ids')))));
+        $task_ids = array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('task_ids')))));
+        if (empty($entry_ids) && empty($task_ids)) {
+            return new WP_REST_Response(['message' => 'Choose at least one eligible completed work entry before creating an invoice draft.'], 422);
+        }
+
         $result = WP_PQ_API::create_invoice_draft([
-            'task_ids' => array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('task_ids'))))),
-            'entry_ids' => array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('entry_ids'))))),
+            'task_ids' => $task_ids,
+            'entry_ids' => $entry_ids,
             'client_id' => (int) $request->get_param('client_id'),
             'notes' => sanitize_textarea_field((string) $request->get_param('notes')),
             'statement_month' => WP_PQ_API::normalize_statement_month((string) $request->get_param('statement_month')),
@@ -795,6 +807,33 @@ class WP_PQ_Manager_API
             'ok' => true,
             'message' => $payment_state === 'paid' ? 'Invoice draft marked paid.' : 'Invoice draft marked unpaid.',
             'statement' => WP_PQ_Admin::get_statement_detail($statement_id),
+        ], 200);
+    }
+
+    public static function email_statement_to_client(WP_REST_Request $request): WP_REST_Response
+    {
+        $statement_id = (int) $request['id'];
+        $statement = WP_PQ_Admin::get_statement_detail($statement_id);
+        if (! $statement) {
+            return new WP_REST_Response(['message' => 'Invoice draft not found.'], 404);
+        }
+
+        $client_email = sanitize_email((string) ($statement['client_email'] ?? ''));
+        if (! is_email($client_email)) {
+            return new WP_REST_Response(['message' => 'This client does not have a valid email address on file.'], 422);
+        }
+
+        $subject = sprintf('Invoice Draft %s', (string) ($statement['statement_code'] ?? $statement_id));
+        $message = self::statement_email_html($statement);
+        $headers = ['Content-Type: text/html; charset=UTF-8'];
+        $sent = wp_mail($client_email, $subject, $message, $headers);
+        if (! $sent) {
+            return new WP_REST_Response(['message' => 'Invoice draft email could not be sent.'], 500);
+        }
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => sprintf('Invoice draft emailed to %s.', $client_email),
         ], 200);
     }
 
@@ -1261,6 +1300,49 @@ class WP_PQ_Manager_API
             return null;
         }
         return number_format((float) $value, 2, '.', '');
+    }
+
+    private static function statement_email_html(array $statement): string
+    {
+        $line_rows = '';
+        foreach ((array) ($statement['lines'] ?? []) as $line) {
+            $line_rows .= '<tr>'
+                . '<td style="padding:8px;border:1px solid #d7deea;">' . esc_html((string) ($line['description'] ?? '')) . '</td>'
+                . '<td style="padding:8px;border:1px solid #d7deea;">' . esc_html((string) ($line['line_type'] ?? '')) . '</td>'
+                . '<td style="padding:8px;border:1px solid #d7deea;">' . esc_html(trim((string) ($line['quantity'] ?? '') . ' ' . (string) ($line['unit'] ?? ''))) . '</td>'
+                . '<td style="padding:8px;border:1px solid #d7deea;">' . esc_html((string) ($line['unit_rate'] ?? '')) . '</td>'
+                . '<td style="padding:8px;border:1px solid #d7deea;">' . esc_html((string) ($line['line_amount'] ?? '')) . '</td>'
+                . '</tr>';
+        }
+
+        if ($line_rows === '') {
+            $line_rows = '<tr><td colspan="5" style="padding:8px;border:1px solid #d7deea;">No line items are attached to this draft yet.</td></tr>';
+        }
+
+        $notes = trim((string) ($statement['notes'] ?? ''));
+
+        return '<div style="font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif;color:#172033;line-height:1.5;">'
+            . '<h1 style="margin:0 0 12px;">' . esc_html((string) ($statement['statement_code'] ?? 'Invoice Draft')) . '</h1>'
+            . '<p style="margin:0 0 16px;color:#52607a;">'
+            . esc_html((string) ($statement['client_name'] ?? ''))
+            . ' · '
+            . esc_html((string) ($statement['job_summary'] ?? ''))
+            . ' · '
+            . esc_html((string) ($statement['statement_month'] ?? ''))
+            . '</p>'
+            . ($notes !== '' ? '<p style="margin:0 0 16px;">' . nl2br(esc_html($notes)) . '</p>' : '')
+            . '<table style="width:100%;border-collapse:collapse;">'
+            . '<thead><tr>'
+            . '<th style="padding:8px;border:1px solid #d7deea;text-align:left;">Description</th>'
+            . '<th style="padding:8px;border:1px solid #d7deea;text-align:left;">Type</th>'
+            . '<th style="padding:8px;border:1px solid #d7deea;text-align:left;">Qty</th>'
+            . '<th style="padding:8px;border:1px solid #d7deea;text-align:left;">Rate</th>'
+            . '<th style="padding:8px;border:1px solid #d7deea;text-align:left;">Amount</th>'
+            . '</tr></thead>'
+            . '<tbody>' . $line_rows . '</tbody>'
+            . '</table>'
+            . '<p style="margin:16px 0 0;"><strong>Total:</strong> ' . esc_html((string) ($statement['total_amount'] ?? '0.00')) . ' ' . esc_html((string) ($statement['currency_code'] ?? 'USD')) . '</p>'
+            . '</div>';
     }
 
     private static function set_statement_payment_state(int $statement_id, bool $is_paid, int $user_id)

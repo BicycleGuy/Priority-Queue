@@ -24,8 +24,12 @@
     section: 'queue',
     lastNonPreferenceSection: 'queue',
     clients: null,
+    selectedClientId: 0,
+    clientsSearch: '',
     workLogDetail: null,
     statementDetail: null,
+    invoiceDraftMode: 'review',
+    invoiceDraftClientId: 0,
     aiPreview: null,
     aiContext: { client_id: 0, billing_bucket_id: 0 },
   };
@@ -41,11 +45,11 @@
     },
     'billing-rollup': {
       title: 'Billing Rollup',
-      note: 'Overview only. Completed work is grouped from ledger entries and can be reassigned to the correct job.',
+      note: 'Overview only. Completed work is grouped from ledger entries, and job corrections save automatically.',
     },
     'monthly-statements': {
       title: 'Monthly Statements',
-      note: 'Ledger-based reporting grouped by client, job, and month.',
+      note: 'Read-only ledger reporting grouped by client, job, and month.',
     },
     'work-statements': {
       title: 'Work Statements',
@@ -53,7 +57,7 @@
     },
     'invoice-drafts': {
       title: 'Invoice Drafts',
-      note: 'Ledger-backed billing drafts with line items and payment-state tracking.',
+      note: 'Create, review, and send ledger-backed invoice drafts without the old admin clutter.',
     },
     'ai-import': {
       title: 'AI Import',
@@ -61,7 +65,7 @@
     },
     preferences: {
       title: 'Preferences',
-      note: 'Notification preferences stay in the portal too.',
+      note: 'Preferences stays lightweight for now, with notifications first and more layout controls later.',
     },
   };
 
@@ -237,6 +241,10 @@
     return blank + currentClients().map((client) => `<option value="${client.id}"${Number(selectedId) === Number(client.id) ? ' selected' : ''}>${esc(client.name)}</option>`).join('');
   }
 
+  function sortedClients() {
+    return currentClients().slice().sort((left, right) => String(left.name || '').localeCompare(String(right.name || '')));
+  }
+
   function clientJobOptions(clientId, selectedId, includeBlank) {
     const client = currentClients().find((item) => Number(item.id) === Number(clientId));
     const jobs = client && Array.isArray(client.buckets) ? client.buckets : [];
@@ -272,6 +280,26 @@
     const data = await ensureClients();
     const linkable = data.linkable_users || [];
     const candidates = data.member_candidates || [];
+    const params = new URLSearchParams(window.location.search);
+    const queryClientId = Number(params.get('client_id') || 0);
+    const search = String(state.clientsSearch || '').trim().toLowerCase();
+    const allClients = sortedClients();
+    const filteredClients = allClients.filter((client) => {
+      if (!search) return true;
+      const haystack = [
+        client.name || '',
+        client.email || '',
+        client.label || '',
+      ].join(' ').toLowerCase();
+      return haystack.includes(search);
+    });
+    const selectedFromState = Number(state.selectedClientId || queryClientId || 0);
+    const selectedClient = filteredClients.find((client) => Number(client.id) === selectedFromState)
+      || allClients.find((client) => Number(client.id) === selectedFromState)
+      || filteredClients[0]
+      || allClients[0]
+      || null;
+    state.selectedClientId = Number(selectedClient?.id || 0);
 
     managerToolbar.innerHTML = `
       <div class="wp-pq-manager-toolbar-grid">
@@ -296,9 +324,23 @@
       </div>
     `;
 
-    managerContent.innerHTML = currentClients().map((client) => {
-      const clientMemberOptions = (client.members || []).map((member) => `<option value="${member.user_id}"${Number(member.user_id) === Number(client.primary_contact_user_id || 0) ? ' selected' : ''}>${esc(member.name || member.email || 'Member')}</option>`).join('');
-      const memberRows = (client.members || []).map((member) => `
+    const browserList = filteredClients.map((client) => {
+      const letter = String(client.name || '?').trim().charAt(0).toUpperCase() || '#';
+      return `
+        <button class="wp-pq-manager-list-item wp-pq-client-browser-item${Number(client.id) === Number(selectedClient?.id || 0) ? ' is-active' : ''}" type="button" data-open-client="${client.id}">
+          <strong>${esc(client.name || 'Client')}</strong>
+          <span>${esc(client.email || 'No primary contact email')}</span>
+          <small>${letter} · ${Number(client.delivered_count || 0)} completed · ${Number(client.unbilled_count || 0)} unbilled</small>
+        </button>
+      `;
+    }).join('');
+
+    const letters = Array.from(new Set(filteredClients.map((client) => (String(client.name || '?').trim().charAt(0).toUpperCase() || '#'))));
+
+    let detailHtml = '<div class="wp-pq-empty-state">No client matches that search.</div>';
+    if (selectedClient) {
+      const clientMemberOptions = (selectedClient.members || []).map((member) => `<option value="${member.user_id}"${Number(member.user_id) === Number(selectedClient.primary_contact_user_id || 0) ? ' selected' : ''}>${esc(member.name || member.email || 'Member')}</option>`).join('');
+      const memberRows = (selectedClient.members || []).map((member) => `
         <tr>
           <td>${esc(member.name || '')}</td>
           <td>${esc(member.email || '')}</td>
@@ -306,15 +348,15 @@
           <td>${esc((member.job_names || []).join(', ') || 'All default access')}</td>
         </tr>
       `).join('');
-      const jobs = (client.buckets || []).map((bucket) => {
-        const memberChoices = (client.members || []).map((member) => `<option value="${member.user_id}">${esc(member.name || member.email || 'Member')}</option>`).join('');
+      const jobs = (selectedClient.buckets || []).map((bucket) => {
+        const memberChoices = (selectedClient.members || []).map((member) => `<option value="${member.user_id}">${esc(member.name || member.email || 'Member')}</option>`).join('');
         return `
           <div class="wp-pq-job-row wp-pq-manager-subcard">
             <div class="wp-pq-job-summary">
               <strong>${esc(bucket.bucket_name || 'Job')}</strong>
               <p class="wp-pq-job-row-note">${bucket.is_default ? 'Default job' : 'Secondary job'}${bucket.description ? ' · ' + esc(bucket.description) : ''}</p>
             </div>
-            <form class="wp-pq-inline-action-form wp-pq-job-assign-form" data-action="assign-job-member" data-bucket-id="${bucket.id}" data-client-id="${client.id}">
+            <form class="wp-pq-inline-action-form wp-pq-job-assign-form" data-action="assign-job-member" data-bucket-id="${bucket.id}" data-client-id="${selectedClient.id}">
               <label>
                 <select name="user_id" required>
                   <option value="0">Choose member</option>
@@ -327,19 +369,20 @@
           </div>
         `;
       }).join('');
-      return `
-        <section class="wp-pq-panel wp-pq-manager-card" data-client-id="${client.id}">
+
+      detailHtml = `
+        <section class="wp-pq-panel wp-pq-manager-card" data-client-id="${selectedClient.id}">
           <div class="wp-pq-section-heading">
             <div>
-              <h3>${esc(client.name)}</h3>
-              <p class="wp-pq-panel-note">Delivered tasks: ${Number(client.delivered_count || 0)} · Unbilled: ${Number(client.unbilled_count || 0)} · Work statements: ${Number(client.work_log_count || 0)} · Invoice Drafts: ${Number(client.statement_count || 0)}</p>
+              <h3>${esc(selectedClient.name || 'Client')}</h3>
+              <p class="wp-pq-panel-note">${esc(selectedClient.email || 'No primary contact email')} · Completed work ${Number(selectedClient.delivered_count || 0)} · Unbilled ${Number(selectedClient.unbilled_count || 0)} · Work Statements ${Number(selectedClient.work_log_count || 0)} · Invoice Drafts ${Number(selectedClient.statement_count || 0)}</p>
             </div>
           </div>
           <div class="wp-pq-manager-card-grid">
             <div>
               <h4>Client Details</h4>
-              <form class="wp-pq-inline-action-form" data-action="update-client" data-client-id="${client.id}">
-                <label><input type="text" name="name" value="${esc(client.name || '')}" required></label>
+              <form class="wp-pq-inline-action-form" data-action="update-client" data-client-id="${selectedClient.id}">
+                <label><input type="text" name="name" value="${esc(selectedClient.name || '')}" required></label>
                 <label>
                   <select name="primary_contact_user_id">
                     <option value="0">Primary contact</option>
@@ -353,7 +396,7 @@
                 <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Jobs</th></tr></thead>
                 <tbody>${memberRows || '<tr><td colspan="4">No members yet.</td></tr>'}</tbody>
               </table>
-              <form class="wp-pq-inline-action-form" data-action="add-client-member" data-client-id="${client.id}">
+              <form class="wp-pq-inline-action-form" data-action="add-client-member" data-client-id="${selectedClient.id}">
                 <label>
                   <select name="user_id" required>
                     <option value="0">Choose user</option>
@@ -372,7 +415,7 @@
             </div>
             <div>
               <h4>Jobs</h4>
-              <form class="wp-pq-inline-action-form" data-action="create-job" data-client-id="${client.id}">
+              <form class="wp-pq-inline-action-form" data-action="create-job" data-client-id="${selectedClient.id}">
                 <label><input type="text" name="bucket_name" placeholder="Add a new job" required></label>
                 <button class="button" type="submit">Add Job</button>
               </form>
@@ -381,7 +424,28 @@
           </div>
         </section>
       `;
-    }).join('') || '<div class="wp-pq-empty-state">No clients yet.</div>';
+    }
+
+    managerContent.innerHTML = `
+      <div class="wp-pq-manager-browser-layout">
+        <section class="wp-pq-panel wp-pq-manager-browser-panel">
+          <div class="wp-pq-manager-browser-head">
+            <label>Find client
+              <input type="search" id="wp-pq-client-browser-search" value="${esc(state.clientsSearch || '')}" placeholder="Search by client name">
+            </label>
+          </div>
+          <div class="wp-pq-manager-browser-body">
+            <div class="wp-pq-manager-list-panel wp-pq-client-browser-list">
+              ${browserList || '<div class="wp-pq-empty-state">No clients yet.</div>'}
+            </div>
+            <div class="wp-pq-client-alpha-rail">
+              ${letters.map((letter) => `<button type="button" class="button wp-pq-client-alpha-btn" data-client-alpha="${esc(letter)}">${esc(letter)}</button>`).join('')}
+            </div>
+          </div>
+        </section>
+        <div>${detailHtml}</div>
+      </div>
+    `;
   }
 
   async function renderBillingRollup() {
@@ -399,7 +463,6 @@
         <label>Client
           <select name="client_id">${clientOptions(clientId, true)}</select>
         </label>
-        <button class="button" type="submit">Refresh</button>
       </form>
     `;
 
@@ -424,12 +487,13 @@
                 <td>${esc(entry.owner_name || 'Unassigned')}</td>
                 <td>${esc(entry.invoice_status || 'unbilled')}</td>
                 <td>
-                  <form class="wp-pq-inline-action-form" data-action="assign-rollup-job">
-                    <input type="hidden" name="ledger_entry_id" value="${entry.ledger_entry_id}">
-                    <input type="hidden" name="task_id" value="${entry.task_id || 0}">
-                    <select name="billing_bucket_id">${(group.bucket_options || []).map((bucket) => `<option value="${bucket.id}"${Number(bucket.id) === Number(entry.billing_bucket_id) ? ' selected' : ''}>${esc(bucket.bucket_name || 'Job')}</option>`).join('')}</select>
-                    <button class="button" type="submit">Update Job</button>
-                  </form>
+                  <select
+                    class="wp-pq-rollup-job-select"
+                    data-action="assign-rollup-job"
+                    data-ledger-entry-id="${entry.ledger_entry_id}"
+                    data-task-id="${entry.task_id || 0}"
+                    data-current-bucket-id="${entry.billing_bucket_id || 0}"
+                  >${(group.bucket_options || []).map((bucket) => `<option value="${bucket.id}"${Number(bucket.id) === Number(entry.billing_bucket_id) ? ' selected' : ''}>${esc(bucket.bucket_name || 'Job')}</option>`).join('')}</select>
                 </td>
               </tr>
             `).join('')}
@@ -511,7 +575,6 @@
             <option value="written_off"${status === 'written_off' ? ' selected' : ''}>Written off</option>
           </select>
         </label>
-        <button class="button" type="submit">Refresh</button>
         <button class="button wp-pq-secondary-action" type="button" id="wp-pq-monthly-export-csv">Export CSV</button>
         <button class="button wp-pq-secondary-action" type="button" id="wp-pq-monthly-print">Print PDF</button>
       </form>
@@ -526,7 +589,7 @@
           </div>
         </div>
         <table class="wp-pq-admin-table wp-pq-manager-table">
-          <thead><tr><th>Date</th><th>Work</th><th>Owner</th><th>Billing</th><th>Hours / Rate / Amount</th><th>Invoice Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Date</th><th>Work</th><th>Owner</th><th>Billing</th><th>Hours / Rate / Amount</th><th>Invoice Status</th></tr></thead>
           <tbody>
             ${(group.entries || []).map((entry) => `
               <tr>
@@ -536,14 +599,6 @@
                 <td>${esc(entry.billing_mode || '')} · ${esc(entry.billing_category || '')}</td>
                 <td>${esc(entry.hours || '')} ${entry.hours ? 'hrs · ' : ''}${esc(entry.rate || '')}${entry.rate ? ' rate · ' : ''}${esc(entry.amount || '')}</td>
                 <td>${esc(entry.invoice_status || '')}</td>
-                <td>
-                  ${Number(entry.task_id || 0) > 0 ? `
-                    <form class="wp-pq-inline-action-form wp-pq-manager-inline-form" data-action="reopen-completed-task" data-task-id="${entry.task_id}">
-                      <select name="target_status">${reopenTargetOptions('in_progress')}</select>
-                      <button class="button" type="submit">${entry.invoice_status === 'unbilled' ? 'Reopen' : 'Reopen / Follow-up'}</button>
-                    </form>
-                  ` : '<span class="wp-pq-panel-note">No source task</span>'}
-                </td>
               </tr>
             `).join('')}
           </tbody>
@@ -756,44 +811,78 @@
     await ensureClients();
     const params = new URLSearchParams(window.location.search);
     const period = params.get('period') || new Date().toISOString().slice(0, 7);
+    const queryStatementId = Number(params.get('statement_id') || 0);
+    const queryClientId = Number(params.get('client_id') || 0);
+    const mode = state.invoiceDraftMode === 'create' ? 'create' : 'review';
     const data = await api(`manager/statements?period=${encodeURIComponent(period)}`);
+    const statements = Array.isArray(data.statements) ? data.statements : [];
+    const selectedStatementId = mode === 'create'
+      ? 0
+      : Number(selectedId || queryStatementId || statements[0]?.id || 0);
+    const composerClientId = Number(queryClientId || state.invoiceDraftClientId || 0);
 
     managerToolbar.innerHTML = `
-      <form id="wp-pq-statement-create-form" class="wp-pq-manager-toolbar-grid">
-        <label>Period <input type="month" name="statement_month" value="${esc(data.period)}"></label>
-        <label>Client
-          <select name="client_id" id="wp-pq-statement-client" required>
-            <option value="0">Choose client</option>
-            ${clientOptions(0, false)}
-          </select>
-        </label>
-        <label class="wp-pq-span-2">Notes <textarea name="notes" rows="2"></textarea></label>
-        <div class="wp-pq-panel wp-pq-manager-subcard wp-pq-span-2">
-          <strong>Completed work entries</strong>
-          <div class="wp-pq-manager-entry-list">
-            ${(data.unbilled_entries || []).map((entry) => `
-              <label class="wp-pq-manager-checkbox-row" data-client-id="${entry.client_id}">
-                <input type="checkbox" name="entry_ids" value="${entry.id}">
-                <span><strong>${esc(entry.title || '')}</strong><small>${esc(entry.bucket_name || '')} · ${esc(String(entry.completion_date || '').slice(0, 10))}</small></span>
-              </label>
-            `).join('') || '<div class="wp-pq-empty-state">No unbilled completed work in this period.</div>'}
-          </div>
+      <form id="wp-pq-statement-period-form" class="wp-pq-period-form">
+        <label>Period <input type="month" name="period" value="${esc(data.period)}"></label>
+        <div class="wp-pq-manager-inline-actions">
+          ${mode === 'create'
+            ? '<button class="button wp-pq-secondary-action" type="button" data-action="cancel-create-statement">Cancel</button>'
+            : '<button class="button button-primary" type="button" data-action="start-create-statement">New Invoice Draft</button>'}
         </div>
-        <button class="button button-primary" type="submit">Create Invoice Draft</button>
       </form>
     `;
 
-    const draftsHtml = (data.statements || []).map((statement) => `
-      <button class="wp-pq-manager-list-item${Number(selectedId) === Number(statement.id) ? ' is-active' : ''}" type="button" data-open-statement="${statement.id}">
+    const draftsHtml = statements.map((statement) => `
+      <button class="wp-pq-manager-list-item${Number(selectedStatementId) === Number(statement.id) ? ' is-active' : ''}" type="button" data-open-statement="${statement.id}">
         <strong>${esc(statement.statement_code || 'Invoice Draft')}</strong>
         <span>${esc(statement.client_name || '')} · ${esc(statement.job_summary || '')}</span>
-        <small>${esc(statement.created_at || '')} · ${Number(statement.entry_count || 0)} entries · ${statement.payment_status || 'unpaid'}</small>
+        <small>${esc(statement.created_at || '')} · ${Number(statement.entry_count || 0)} entries · ${statement.payment_status || 'unpaid'}${Number(statement.entry_count || 0) === 0 ? ' · Empty draft' : ''}</small>
       </button>
-    `).join('') || '<div class="wp-pq-empty-state">No invoice drafts for this period.</div>';
+    `).join('') || '<div class="wp-pq-empty-state">No invoice drafts for this period yet.</div>';
 
-    let detailHtml = '<div class="wp-pq-empty-state">Select an invoice draft to inspect it.</div>';
-    if (selectedId) {
-      const detailResponse = await api(`manager/statements/${selectedId}`);
+    let detailHtml = '<div class="wp-pq-empty-state">Select an invoice draft to review it, or start a new one.</div>';
+    state.statementDetail = null;
+    if (mode === 'create') {
+      state.invoiceDraftClientId = composerClientId;
+      const eligibleEntries = (data.unbilled_entries || []).filter((entry) => Number(entry.client_id || 0) === composerClientId);
+      detailHtml = `
+        <section class="wp-pq-panel wp-pq-manager-card">
+          <div class="wp-pq-section-heading">
+            <div>
+              <h3>Create Invoice Draft</h3>
+              <p class="wp-pq-panel-note">Pick a client, choose billable completed work, and create a draft only when there is something real to send.</p>
+            </div>
+          </div>
+          <form id="wp-pq-statement-create-form" class="wp-pq-manager-toolbar-grid">
+            <input type="hidden" name="statement_month" value="${esc(data.period)}">
+            <label>Client
+              <select name="client_id" id="wp-pq-statement-client" required>
+                <option value="0">Choose client</option>
+                ${clientOptions(composerClientId, false)}
+              </select>
+            </label>
+            <label class="wp-pq-span-2">Notes <textarea name="notes" rows="3"></textarea></label>
+            <div class="wp-pq-panel wp-pq-manager-subcard wp-pq-span-2">
+              <strong>Eligible completed work</strong>
+              <div class="wp-pq-manager-entry-list">
+                ${composerClientId <= 0
+                  ? '<div class="wp-pq-empty-state">Choose a client to see billable completed work for this period.</div>'
+                  : eligibleEntries.length
+                    ? eligibleEntries.map((entry) => `
+                        <label class="wp-pq-manager-checkbox-row" data-client-id="${entry.client_id}">
+                          <input type="checkbox" name="entry_ids" value="${entry.id}">
+                          <span><strong>${esc(entry.title || '')}</strong><small>${esc(entry.bucket_name || '')} · ${esc(String(entry.completion_date || '').slice(0, 10))}</small></span>
+                        </label>
+                      `).join('')
+                    : '<div class="wp-pq-empty-state">No billable completed work is ready for this client in this period.</div>'}
+              </div>
+            </div>
+            <button class="button button-primary" type="submit"${composerClientId <= 0 || eligibleEntries.length === 0 ? ' disabled' : ''}>Create Invoice Draft</button>
+          </form>
+        </section>
+      `;
+    } else if (selectedStatementId > 0) {
+      const detailResponse = await api(`manager/statements/${selectedStatementId}`);
       state.statementDetail = detailResponse.statement;
       const statement = state.statementDetail;
       detailHtml = `
@@ -806,80 +895,45 @@
             <div class="wp-pq-manager-inline-actions">
               <button class="button wp-pq-secondary-action" type="button" id="wp-pq-statement-export">Export CSV</button>
               <button class="button wp-pq-secondary-action" type="button" id="wp-pq-statement-print">Print PDF</button>
+              <button class="button" type="button" data-action="email-statement"${statement.client_email ? '' : ' disabled'}>${statement.client_email ? 'Email Client' : 'No Client Email'}</button>
               <button class="button" type="button" data-action="toggle-payment" data-payment-status="${statement.payment_status === 'paid' ? 'unpaid' : 'paid'}">${statement.payment_status === 'paid' ? 'Mark Unpaid' : 'Mark Paid'}</button>
               <button class="button wp-pq-secondary-action" type="button" data-action="delete-statement">Delete Draft</button>
             </div>
           </div>
-          <form id="wp-pq-statement-update-form">
-            <label>Currency <input type="text" name="currency_code" value="${esc(statement.currency_code || 'USD')}"></label>
-            <label>Due date <input type="date" name="due_date" value="${esc(statement.due_date || '')}"></label>
-            <label class="wp-pq-span-2">Notes <textarea name="notes" rows="3">${esc(statement.notes || '')}</textarea></label>
-            <button class="button" type="submit">Save Draft Details</button>
-          </form>
+          <div class="wp-pq-manager-detail-copy">
+            <p><strong>Client email:</strong> ${esc(statement.client_email || 'No client email on file')}</p>
+            <p><strong>Notes:</strong> ${esc(statement.notes || 'None')}</p>
+          </div>
           <div class="wp-pq-manager-split wp-pq-manager-split-tight">
             <section class="wp-pq-panel wp-pq-manager-subcard">
               <h4>Line items</h4>
               <table class="wp-pq-admin-table wp-pq-manager-table">
-                <thead><tr><th>Description</th><th>Type</th><th>Qty</th><th>Rate</th><th>Amount</th><th></th></tr></thead>
+                <thead><tr><th>Description</th><th>Type</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
                 <tbody>
-                  ${(statement.lines || []).map((line) => `
+                  ${(statement.lines || []).length ? (statement.lines || []).map((line) => `
                     <tr>
                       <td>${esc(line.description || '')}<div class="wp-pq-panel-note">${esc(line.notes || '')}</div></td>
                       <td>${esc(line.line_type || '')}</td>
                       <td>${esc(line.quantity || '')} ${esc(line.unit || '')}</td>
                       <td>${esc(line.unit_rate || '')}</td>
                       <td>${esc(line.line_amount || '')}</td>
-                      <td>
-                        <button class="button wp-pq-secondary-action" type="button" data-action="delete-line" data-line-id="${line.id}">Delete</button>
-                      </td>
                     </tr>
-                  `).join('')}
+                  `).join('') : '<tr><td colspan="5">This draft has no line items yet.</td></tr>'}
                 </tbody>
               </table>
-              <form id="wp-pq-statement-line-form" class="wp-pq-manager-inline-form">
-                <label>Description <input type="text" name="description" required></label>
-                <label>Type
-                  <select name="line_type">
-                    <option value="manual_adjustment">Manual adjustment</option>
-                    <option value="fixed_fee">Fixed fee</option>
-                    <option value="retainer">Retainer</option>
-                    <option value="hourly_overage">Hourly overage</option>
-                    <option value="pass_through_expense">Pass-through expense</option>
-                    <option value="subscription_service">Subscription/service</option>
-                    <option value="task_rollup">Work rollup</option>
-                  </select>
-                </label>
-                <label>Quantity <input type="number" name="quantity" min="0" step="0.01"></label>
-                <label>Unit <input type="text" name="unit"></label>
-                <label>Unit rate <input type="number" name="unit_rate" min="0" step="0.01"></label>
-                <label>Amount <input type="number" name="line_amount" min="0" step="0.01"></label>
-                <label class="wp-pq-span-2">Notes <textarea name="notes" rows="2"></textarea></label>
-                <button class="button" type="submit">Add Line</button>
-              </form>
             </section>
             <section class="wp-pq-panel wp-pq-manager-subcard">
               <h4>Linked completed work</h4>
               <table class="wp-pq-admin-table wp-pq-manager-table">
-                <thead><tr><th>Task</th><th>Status</th><th>Job</th><th>Actions</th></tr></thead>
+                <thead><tr><th>Task</th><th>Status</th><th>Job</th></tr></thead>
                 <tbody>
-                  ${(statement.tasks || []).map((task) => `
+                  ${(statement.tasks || []).length ? (statement.tasks || []).map((task) => `
                     <tr>
                       <td><strong>${esc(task.title || '')}</strong></td>
                       <td>${esc(task.status || '')}</td>
                       <td>${esc(task.bucket_name || '')}</td>
-                      <td>
-                        <div class="wp-pq-manager-inline-actions">
-                          ${task.status === 'done' ? `
-                            <form class="wp-pq-inline-action-form wp-pq-manager-inline-form" data-action="reopen-completed-task" data-task-id="${task.id}">
-                              <select name="target_status">${reopenTargetOptions('in_progress')}</select>
-                              <button class="button" type="submit">Reopen / Follow-up</button>
-                            </form>
-                          ` : ''}
-                          <button class="button wp-pq-secondary-action" type="button" data-action="remove-task" data-task-id="${task.id}">Remove</button>
-                        </div>
-                      </td>
                     </tr>
-                  `).join('')}
+                  `).join('') : '<tr><td colspan="3">No completed work entries are linked to this draft.</td></tr>'}
                 </tbody>
               </table>
             </section>
@@ -912,46 +966,20 @@
               <td>${esc(line.line_amount || '')}</td>
             </tr>
           `).join('');
-          const linkedRows = (state.statementDetail.tasks || []).map((task) => `
-            <tr>
-              <td>${esc(task.title || '')}</td>
-              <td>${esc(task.status || '')}</td>
-              <td>${esc(task.bucket_name || '')}</td>
-            </tr>
-          `).join('');
           printHtml(
             state.statementDetail.statement_code || 'Invoice Draft',
             `
               <h1>${esc(state.statementDetail.statement_code || 'Invoice Draft')}</h1>
               <p class="note">${esc(state.statementDetail.client_name || '')} · ${esc(state.statementDetail.job_summary || '')} · ${esc(state.statementDetail.statement_month || '')} · ${esc(state.statementDetail.payment_status || 'unpaid')}</p>
-              <h2>Line Items</h2>
+              <p class="note">${esc(state.statementDetail.notes || '')}</p>
               <table>
                 <thead><tr><th>Description</th><th>Type</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
-                <tbody>${lineRows}</tbody>
-              </table>
-              <h2>Linked Completed Work</h2>
-              <table>
-                <thead><tr><th>Task</th><th>Status</th><th>Job</th></tr></thead>
-                <tbody>${linkedRows}</tbody>
+                <tbody>${lineRows || '<tr><td colspan="5">No line items.</td></tr>'}</tbody>
               </table>
             `
           );
         };
       }
-    }
-
-    const clientSelect = document.getElementById('wp-pq-statement-client');
-    if (clientSelect) {
-      const entryRows = managerToolbar.querySelectorAll('[data-client-id]');
-      const syncEntries = () => {
-        entryRows.forEach((row) => {
-          row.hidden = Number(clientSelect.value || 0) > 0 && Number(row.dataset.clientId || 0) !== Number(clientSelect.value || 0);
-          const checkbox = row.querySelector('input[type="checkbox"]');
-          if (row.hidden && checkbox) checkbox.checked = false;
-        });
-      };
-      clientSelect.addEventListener('change', syncEntries);
-      syncEntries();
     }
   }
 
@@ -1122,6 +1150,9 @@
     const button = event.target.closest('[data-pq-section]');
     if (!button) return;
     event.preventDefault();
+    if (button.dataset.pqSection === 'invoice-drafts') {
+      state.invoiceDraftMode = 'review';
+    }
     openSection(button.dataset.pqSection);
   });
 
@@ -1189,8 +1220,13 @@
           notes: formData.get('notes'),
           entry_ids: Array.from(form.querySelectorAll('input[name="entry_ids"]:checked')).map((input) => Number(input.value || 0)).filter(Boolean),
         };
+        if (payload.client_id <= 0 || !payload.entry_ids.length) {
+          throw new Error('Choose a client and at least one eligible completed work entry.');
+        }
         const response = await submitJson('manager/statements', 'POST', payload);
         const statementId = response?.statement?.id || response?.statement?.statement_id || response?.statement?.id;
+        state.invoiceDraftMode = 'review';
+        state.invoiceDraftClientId = 0;
         replaceSectionUrl('invoice-drafts', statementId ? { statement_id: statementId } : {});
         await renderInvoiceDrafts(statementId || 0);
         toast(response.message || 'Invoice Draft created.', false);
@@ -1213,17 +1249,83 @@
     }
   });
 
+  managerToolbar?.addEventListener('change', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+    const form = target.form;
+    if (!(form instanceof HTMLFormElement)) return;
+
+    try {
+      if (form.id === 'wp-pq-rollup-filter-form') {
+        const data = Object.fromEntries(new FormData(form).entries());
+        replaceSectionUrl('billing-rollup', data);
+        await renderBillingRollup();
+        return;
+      }
+      if (form.id === 'wp-pq-monthly-filter-form') {
+        if (target.name === 'client_id') {
+          const jobFilter = form.querySelector('select[name="billing_bucket_id"]');
+          if (jobFilter) {
+            jobFilter.innerHTML = Number(target.value || 0) > 0
+              ? clientJobOptions(target.value, 0, true)
+              : '<option value="0">All jobs</option>';
+          }
+        }
+        const data = Object.fromEntries(new FormData(form).entries());
+        replaceSectionUrl('monthly-statements', data);
+        await renderMonthlyStatements();
+        return;
+      }
+      if (form.id === 'wp-pq-statement-period-form') {
+        const data = Object.fromEntries(new FormData(form).entries());
+        replaceSectionUrl('invoice-drafts', data);
+        await renderInvoiceDrafts();
+      }
+    } catch (error) {
+      toast(error.message || 'Action failed.', true);
+    }
+  });
+
   managerContent?.addEventListener('click', async (event) => {
     const button = event.target.closest('button');
     if (!button) return;
     const action = button.dataset.action;
     try {
+      if (button.dataset.openClient) {
+        state.selectedClientId = Number(button.dataset.openClient || 0);
+        replaceSectionUrl('clients', state.selectedClientId > 0 ? { client_id: state.selectedClientId } : {});
+        await renderClients();
+        return;
+      }
+      if (button.dataset.clientAlpha) {
+        const alpha = String(button.dataset.clientAlpha || '').toUpperCase();
+        const match = sortedClients().find((client) => String(client.name || '').trim().toUpperCase().startsWith(alpha));
+        if (match) {
+          state.selectedClientId = Number(match.id || 0);
+          replaceSectionUrl('clients', { client_id: state.selectedClientId });
+          await renderClients();
+        }
+        return;
+      }
       if (button.dataset.openWorkLog) {
         await openSection('work-statements', { query: { work_log_id: Number(button.dataset.openWorkLog || 0) } });
         return;
       }
       if (button.dataset.openStatement) {
+        state.invoiceDraftMode = 'review';
         await openSection('invoice-drafts', { query: { statement_id: Number(button.dataset.openStatement || 0) } });
+        return;
+      }
+      if (action === 'start-create-statement') {
+        state.invoiceDraftMode = 'create';
+        await renderInvoiceDrafts();
+        return;
+      }
+      if (action === 'cancel-create-statement') {
+        state.invoiceDraftMode = 'review';
+        state.invoiceDraftClientId = 0;
+        replaceSectionUrl('invoice-drafts', {});
+        await renderInvoiceDrafts();
         return;
       }
       if (action === 'delete-job') {
@@ -1243,9 +1345,15 @@
         toast(response.message || 'Invoice draft payment state updated.', false);
         return;
       }
+      if (action === 'email-statement' && state.statementDetail) {
+        const response = await submitJson(`manager/statements/${state.statementDetail.id}/email-client`, 'POST', {});
+        toast(response.message || 'Invoice draft email sent.', false);
+        return;
+      }
       if (action === 'delete-statement' && state.statementDetail) {
         if (!window.confirm('Delete this invoice draft and restore entry eligibility?')) return;
         await api(`manager/statements/${state.statementDetail.id}`, { method: 'DELETE', headers });
+        state.invoiceDraftMode = 'review';
         replaceSectionUrl('invoice-drafts', {});
         await renderInvoiceDrafts();
         toast('Invoice Draft deleted.', false);
@@ -1265,6 +1373,51 @@
       }
     } catch (error) {
       toast(error.message || 'Action failed.', true);
+    }
+  });
+
+  managerContent?.addEventListener('change', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLSelectElement || target instanceof HTMLInputElement)) return;
+
+    try {
+      if (target.id === 'wp-pq-statement-client') {
+        state.invoiceDraftClientId = Number(target.value || 0);
+        replaceSectionUrl('invoice-drafts', state.invoiceDraftClientId > 0 ? { client_id: state.invoiceDraftClientId, period: new URLSearchParams(window.location.search).get('period') || new Date().toISOString().slice(0, 7) } : { period: new URLSearchParams(window.location.search).get('period') || new Date().toISOString().slice(0, 7) });
+        await renderInvoiceDrafts();
+        return;
+      }
+      if (target.matches('.wp-pq-rollup-job-select')) {
+        const ledgerEntryId = Number(target.dataset.ledgerEntryId || 0);
+        const taskId = Number(target.dataset.taskId || 0);
+        const billingBucketId = Number(target.value || 0);
+        const currentBucketId = Number(target.dataset.currentBucketId || 0);
+        if (billingBucketId <= 0 || billingBucketId === currentBucketId) return;
+        await submitJson('manager/rollups/assign-job', 'POST', {
+          ledger_entry_id: ledgerEntryId,
+          task_id: taskId,
+          billing_bucket_id: billingBucketId,
+        });
+        target.dataset.currentBucketId = String(billingBucketId);
+        toast('Completed work job updated.', false);
+      }
+    } catch (error) {
+      toast(error.message || 'Action failed.', true);
+    }
+  });
+
+  managerContent?.addEventListener('input', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (target.id !== 'wp-pq-client-browser-search') return;
+
+    state.clientsSearch = target.value || '';
+    await renderClients();
+    const searchInput = document.getElementById('wp-pq-client-browser-search');
+    if (searchInput) {
+      searchInput.focus();
+      const length = String(state.clientsSearch || '').length;
+      searchInput.setSelectionRange(length, length);
     }
   });
 

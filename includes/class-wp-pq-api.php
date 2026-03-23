@@ -1768,12 +1768,16 @@ class WP_PQ_API
         $table = $wpdb->prefix . 'pq_notification_prefs';
         $user_id = get_current_user_id();
         $events = WP_PQ_Workflow::notification_events();
+        $extra_prefs = ['alert_auto_dismiss' => false];
 
         $rows = $wpdb->get_results($wpdb->prepare("SELECT event_key, is_enabled FROM {$table} WHERE user_id = %d", $user_id), ARRAY_A);
         $map = [];
 
         foreach ($events as $event) {
             $map[$event] = true;
+        }
+        foreach ($extra_prefs as $pref_key => $default_value) {
+            $map[$pref_key] = $default_value;
         }
 
         foreach ($rows as $row) {
@@ -1789,7 +1793,7 @@ class WP_PQ_API
         $table = $wpdb->prefix . 'pq_notification_prefs';
         $user_id = get_current_user_id();
         $prefs = (array) $request->get_param('prefs');
-        $allowed = WP_PQ_Workflow::notification_events();
+        $allowed = array_merge(WP_PQ_Workflow::notification_events(), ['alert_auto_dismiss']);
 
         foreach ($prefs as $event => $enabled) {
             $event = sanitize_key((string) $event);
@@ -1814,19 +1818,24 @@ class WP_PQ_API
         $table = $wpdb->prefix . 'pq_notifications';
         $user_id = get_current_user_id();
 
+        $wpdb->delete($table, [
+            'user_id' => $user_id,
+            'is_read' => 1,
+        ]);
+
         $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$table} WHERE user_id = %d ORDER BY is_read ASC, created_at DESC LIMIT 50",
+            "SELECT * FROM {$table} WHERE user_id = %d ORDER BY created_at DESC LIMIT 50",
             $user_id
         ), ARRAY_A);
 
         $unread = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(1) FROM {$table} WHERE user_id = %d AND is_read = 0",
+            "SELECT COUNT(1) FROM {$table} WHERE user_id = %d",
             $user_id
         ));
 
         foreach ($rows as &$row) {
             $row['payload'] = $row['payload'] ? json_decode((string) $row['payload'], true) : null;
-            $row['is_read'] = ((int) $row['is_read'] === 1);
+            $row['is_read'] = false;
         }
 
         return new WP_REST_Response([
@@ -1840,29 +1849,18 @@ class WP_PQ_API
         global $wpdb;
         $table = $wpdb->prefix . 'pq_notifications';
         $user_id = get_current_user_id();
-        $ids = array_map('intval', (array) $request->get_param('ids'));
+        $ids = array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('ids')))));
 
         if (empty($ids)) {
-            $wpdb->query($wpdb->prepare(
-                "UPDATE {$table} SET is_read = 1, read_at = %s WHERE user_id = %d AND is_read = 0",
-                current_time('mysql', true),
-                $user_id
-            ));
+            $wpdb->delete($table, ['user_id' => $user_id]);
         } else {
-            $ids = array_values(array_filter($ids));
-            if (! empty($ids)) {
-                $ids_in = implode(',', $ids);
-                $wpdb->query(
-                    $wpdb->prepare(
-                        "UPDATE {$table} SET is_read = 1, read_at = %s WHERE user_id = %d AND id IN ({$ids_in})",
-                        current_time('mysql', true),
-                        $user_id
-                    )
-                );
+            $ids_in = implode(',', $ids);
+            if ($ids_in !== '') {
+                $wpdb->query($wpdb->prepare("DELETE FROM {$table} WHERE user_id = %d AND id IN ({$ids_in})", $user_id));
             }
         }
 
-        return new WP_REST_Response(['ok' => true], 200);
+        return self::get_notifications();
     }
 
     public static function get_workers(WP_REST_Request $request): WP_REST_Response
@@ -1997,13 +1995,17 @@ class WP_PQ_API
             }
         }
 
-        if (empty($entry_ids) && $client_id <= 0) {
-            return new WP_Error('pq_missing_draft_scope', 'Choose a client or select completed work before creating an invoice draft.', ['status' => 422]);
+        if (empty($entry_ids) && empty($task_ids)) {
+            return new WP_Error('pq_missing_draft_entries', 'Choose at least one eligible completed work entry before creating an invoice draft.', ['status' => 422]);
         }
 
         $rows = self::load_invoice_draft_ledger_rows($entry_ids, $user_id);
         if (is_wp_error($rows)) {
             return $rows;
+        }
+
+        if (empty($rows)) {
+            return new WP_Error('pq_missing_draft_entries', 'No eligible completed work could be added to this invoice draft.', ['status' => 422]);
         }
 
         $client_user_id = 0;

@@ -117,10 +117,6 @@ class WP_PQ_Portal
         echo '      <div class="wp-pq-binder-section wp-pq-binder-section-action">';
         echo '        <button class="button button-primary wp-pq-primary-action" type="button" id="wp-pq-open-create">New Request</button>';
         echo '      </div>';
-        echo '      <div class="wp-pq-binder-section wp-pq-binder-section-status">';
-        echo '        <p class="wp-pq-binder-label">Status</p>';
-        echo '        <button class="button wp-pq-alerts-link" type="button" id="wp-pq-open-inbox"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">•</span><span>Alerts</span></span><span id="wp-pq-inbox-count" class="wp-pq-inline-count">0</span></button>';
-        echo '      </div>';
         if ($is_manager) {
             echo '      <div class="wp-pq-binder-section">';
             echo '        <p class="wp-pq-binder-label">Workspace</p>';
@@ -214,7 +210,7 @@ class WP_PQ_Portal
         echo '    <div class="wp-pq-section-heading">';
         echo '      <div>';
         echo '        <h3>Preferences</h3>';
-        echo '        <p class="wp-pq-panel-note">Manage notification settings here and keep an eye on recent alerts without leaving the portal.</p>';
+        echo '        <p class="wp-pq-panel-note">Notification controls live here now, and this panel is ready to expand later with appearance and layout options.</p>';
         echo '      </div>';
         echo '      <button class="button" type="button" id="wp-pq-close-prefs">Close</button>';
         echo '    </div>';
@@ -222,26 +218,24 @@ class WP_PQ_Portal
         echo '      <div class="wp-pq-pref-section-head">';
         echo '        <div>';
         echo '          <h4>Notifications</h4>';
-        echo '          <p class="wp-pq-panel-note">Choose whether you want immediate client updates and the daily digest.</p>';
+        echo '          <p class="wp-pq-panel-note">Choose which emails you want, and whether alerts dismiss themselves or stay until you clear them.</p>';
         echo '        </div>';
-        echo '      </div>';
+      echo '      </div>';
         echo '      <div id="wp-pq-pref-list" class="wp-pq-pref-list"></div>';
         echo '      <button class="button button-primary" type="button" id="wp-pq-save-prefs">Save Preferences</button>';
         echo '    </section>';
         echo '    <section class="wp-pq-pref-section">';
         echo '      <div class="wp-pq-pref-section-head">';
         echo '        <div>';
-        echo '          <h4>Recent Alerts</h4>';
-        echo '          <p class="wp-pq-panel-note">Alerts stays the quick inbox. This is the calmer history view inside Preferences.</p>';
+        echo '          <h4>More Soon</h4>';
+        echo '          <p class="wp-pq-panel-note">Appearance, type size, and layout controls will land here as the portal grows.</p>';
         echo '        </div>';
-        echo '        <div class="wp-pq-manager-inline-actions">';
-        echo '          <button class="button wp-pq-secondary-action" type="button" id="wp-pq-pref-refresh-alerts">Refresh</button>';
-        echo '          <button class="button" type="button" id="wp-pq-pref-mark-all-read">Mark All Read</button>';
-        echo '        </div>';
-        echo '      </div>';
-        echo '      <div id="wp-pq-pref-alerts-list" class="wp-pq-pref-alerts-list"></div>';
+      echo '      </div>';
+        echo '      <div class="wp-pq-empty-state">Preferences will keep growing here without turning into a separate admin screen.</div>';
         echo '    </section>';
         echo '  </section>';
+
+        echo '  <div id="wp-pq-alert-stack" class="wp-pq-alert-stack" aria-live="polite" aria-label="Current alerts"></div>';
 
         echo '  <div class="wp-pq-workspace-body">';
         echo '    <div class="wp-pq-workspace-main">';
@@ -271,19 +265,6 @@ class WP_PQ_Portal
         echo '    </div>';
         echo '  </section>';
 
-        echo '  <section class="wp-pq-panel wp-pq-inbox-panel" id="wp-pq-inbox-panel" hidden>';
-        echo '    <div class="wp-pq-section-heading">';
-        echo '      <div>';
-        echo '        <h3>Alerts</h3>';
-        echo '        <p class="wp-pq-panel-note">Workflow changes, mentions, and approvals that need your attention.</p>';
-        echo '      </div>';
-      echo '      <button class="button" type="button" id="wp-pq-close-inbox">Close</button>';
-        echo '    </div>';
-        echo '    <div class="wp-pq-inbox-actions">';
-        echo '      <button class="button" type="button" id="wp-pq-mark-all-read">Mark all read</button>';
-        echo '    </div>';
-        echo '    <ul id="wp-pq-inbox-list" class="wp-pq-stream"></ul>';
-        echo '  </section>';
         echo '    </div>';
         echo '    </div>';
         echo '    <div class="wp-pq-drawer-backdrop" id="wp-pq-drawer-backdrop" hidden></div>';

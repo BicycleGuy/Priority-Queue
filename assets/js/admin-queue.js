@@ -4,6 +4,7 @@
   const apiRoot = window.wpPqConfig.root;
   const coreRoot = window.wpPqConfig.coreRoot || '/wp-json/wp/v2/';
   const headers = { 'X-WP-Nonce': window.wpPqConfig.nonce };
+  const alertDismissPrefKey = 'alert_auto_dismiss';
 
   const statusColumns = [
     { key: 'pending_approval', label: 'Pending Approval' },
@@ -107,20 +108,12 @@
   const createBucketEl = document.getElementById('wp-pq-create-bucket');
   const createNewBucketWrap = document.getElementById('wp-pq-create-new-bucket-wrap');
   const createNewBucketEl = document.getElementById('wp-pq-create-new-bucket');
-  const openInboxBtn = document.getElementById('wp-pq-open-inbox');
-  const closeInboxBtn = document.getElementById('wp-pq-close-inbox');
-  const inboxPanel = document.getElementById('wp-pq-inbox-panel');
-  const inboxList = document.getElementById('wp-pq-inbox-list');
-  const inboxCount = document.getElementById('wp-pq-inbox-count');
-  const markAllReadBtn = document.getElementById('wp-pq-mark-all-read');
+  const alertStackEl = document.getElementById('wp-pq-alert-stack');
   const openPrefsBtn = document.getElementById('wp-pq-open-prefs');
   const closePrefsBtn = document.getElementById('wp-pq-close-prefs');
   const prefPanel = document.getElementById('wp-pq-pref-panel');
   const prefList = document.getElementById('wp-pq-pref-list');
   const prefSaveBtn = document.getElementById('wp-pq-save-prefs');
-  const prefAlertsList = document.getElementById('wp-pq-pref-alerts-list');
-  const prefAlertsRefreshBtn = document.getElementById('wp-pq-pref-refresh-alerts');
-  const prefAlertsMarkAllReadBtn = document.getElementById('wp-pq-pref-mark-all-read');
   const currentTaskEl = document.getElementById('wp-pq-current-task');
   const currentTaskStatusEl = document.getElementById('wp-pq-current-task-status');
   const currentTaskMetaEl = document.getElementById('wp-pq-current-task-meta');
@@ -230,6 +223,7 @@
   let workersCacheKey = '';
   let boardSortInstances = [];
   let notificationsCache = [];
+  let notificationDismissTimers = new Map();
   let boardDragActive = false;
   let boardDragLockUntil = 0;
   let activeTaskRecord = null;
@@ -2051,37 +2045,10 @@
   }
 
   async function loadInbox() {
-    if (!inboxList) return { notifications: [], unread_count: 0 };
-
     const data = await api('notifications', { method: 'GET' });
     const notifications = data.notifications || [];
     notificationsCache = notifications;
-    inboxList.innerHTML = '';
-    renderPrefAlerts(notifications);
-
-    if (inboxCount) inboxCount.textContent = String(data.unread_count || 0);
-    if (openInboxBtn) {
-      openInboxBtn.classList.toggle('has-unread', (data.unread_count || 0) > 0);
-    }
-
-    if (!notifications.length) {
-      renderEmptyStream(inboxList, 'No alerts yet.');
-      return data;
-    }
-
-    notifications.forEach((item) => {
-      const payload = item.payload || {};
-      const taskLabel = payload.task_title ? '"' + payload.task_title + '"' : (item.task_id ? 'task #' + item.task_id : 'this item');
-      const li = document.createElement('li');
-      li.className = (item.is_read ? 'theirs' : 'mine') + (item.is_read ? '' : ' is-unread');
-      li.innerHTML =
-        '<div class="msg-author">' + escapeHtml(humanizeToken(item.event_key)) + ' · ' + escapeHtml(formatDateTime(item.created_at)) + '</div>' +
-        '<div><strong>' + escapeHtml(item.title) + '</strong></div>' +
-        '<div>' + escapeHtml(item.body || '') + '</div>' +
-        (item.task_id ? '<div class="wp-pq-inbox-task"><button type="button" class="wp-pq-linkish" data-open-task="' + item.task_id + '" data-notification-id="' + escapeHtml(item.id) + '">Open ' + escapeHtml(taskLabel) + '</button></div>' : '');
-      inboxList.appendChild(li);
-    });
-
+    renderPersistentAlerts(notifications);
     return data;
   }
 
@@ -2090,22 +2057,21 @@
     const notificationId = parseInt(notification && notification.id, 10);
     if (!taskId) return;
 
+    if (window.wpPqPortalManager && typeof window.wpPqPortalManager.openSection === 'function') {
+      await window.wpPqPortalManager.openSection('queue', { pushHistory: true });
+    }
+
     selectedTaskId = taskId;
     await loadTasks();
     await selectTask(taskId, !!drawerEl);
 
     if (notificationId > 0) {
       try {
-        await api('notifications/mark-read', { method: 'POST', body: JSON.stringify({ ids: [notificationId] }) });
-        notificationsCache = notificationsCache.map((item) => (
-          parseInt(item.id, 10) === notificationId ? { ...item, is_read: true } : item
-        ));
+        await dismissNotifications([notificationId]);
       } catch (err) {
         alert(err.message);
       }
     }
-
-    await loadInbox();
   }
 
   function renderMentionChips() {
@@ -2790,49 +2756,97 @@
         '<span><strong>' + escapeHtml(group.label) + '</strong><small>' + escapeHtml(group.description) + '</small></span>';
       prefList.appendChild(row);
     });
+
+    const alertRow = document.createElement('label');
+    alertRow.className = 'wp-pq-pref-card';
+    alertRow.innerHTML =
+      '<input type="checkbox" data-pref-key="' + alertDismissPrefKey + '" ' + (prefs[alertDismissPrefKey] ? 'checked' : '') + '>' +
+      '<span><strong>Auto-dismiss alerts</strong><small>When enabled, on-screen alerts fade away after a few seconds. Turn it off if you want to dismiss them manually.</small></span>';
+    prefList.appendChild(alertRow);
   }
 
-  function renderPrefAlerts(notifications) {
-    if (!prefAlertsList) return;
-    prefAlertsList.innerHTML = '';
+  function shouldAutoDismissAlerts() {
+    return !!prefState[alertDismissPrefKey];
+  }
 
-    if (!notifications.length) {
-      prefAlertsList.innerHTML = '<div class="wp-pq-empty-state">No recent alerts yet.</div>';
-      return;
+  function portalAlertStack() {
+    if (alertStackEl) return alertStackEl;
+    let stack = document.getElementById('wp-pq-alert-stack');
+    if (stack) return stack;
+    stack = document.createElement('div');
+    stack.id = 'wp-pq-alert-stack';
+    stack.className = 'wp-pq-alert-stack';
+    stack.setAttribute('aria-live', 'polite');
+    document.body.appendChild(stack);
+    return stack;
+  }
+
+  function clearDismissTimer(notificationId) {
+    const timer = notificationDismissTimers.get(notificationId);
+    if (timer) {
+      window.clearTimeout(timer);
+      notificationDismissTimers.delete(notificationId);
     }
-
-    notifications.slice(0, 12).forEach((item) => {
-      const payload = item.payload || {};
-      const taskLabel = payload.task_title ? '"' + payload.task_title + '"' : (item.task_id ? 'task #' + item.task_id : 'this item');
-      const card = document.createElement('article');
-      card.className = 'wp-pq-pref-alert-card' + (item.is_read ? '' : ' is-unread');
-      card.innerHTML =
-        '<div class="wp-pq-pref-alert-head">'
-          + '<div>'
-            + '<strong>' + escapeHtml(item.title || humanizeToken(item.event_key)) + '</strong>'
-            + '<small>' + escapeHtml(humanizeToken(item.event_key)) + ' · ' + escapeHtml(formatDateTime(item.created_at)) + '</small>'
-          + '</div>'
-          + '<span class="wp-pq-pref-alert-state">' + (item.is_read ? 'Read' : 'Unread') + '</span>'
-        + '</div>'
-        + '<p>' + escapeHtml(item.body || '') + '</p>'
-        + '<div class="wp-pq-pref-alert-actions">'
-          + (item.task_id ? '<button type="button" class="button wp-pq-secondary-action" data-pref-open-task="' + item.task_id + '" data-notification-id="' + escapeHtml(item.id) + '">Open ' + escapeHtml(taskLabel) + '</button>' : '')
-          + (!item.is_read ? '<button type="button" class="button" data-pref-mark-read="' + escapeHtml(item.id) + '">Mark Read</button>' : '')
-        + '</div>';
-      prefAlertsList.appendChild(card);
-    });
   }
 
-  async function markNotificationsRead(ids) {
+  async function dismissNotifications(ids) {
     await api('notifications/mark-read', { method: 'POST', body: JSON.stringify({ ids: ids || [] }) });
+    (ids || []).forEach((id) => clearDismissTimer(Number(id || 0)));
     await loadInbox();
   }
 
+  function scheduleAlertDismiss(item) {
+    const notificationId = parseInt(item && item.id, 10);
+    if (!notificationId || !shouldAutoDismissAlerts()) return;
+    if (notificationDismissTimers.has(notificationId)) return;
+    const timer = window.setTimeout(async () => {
+      try {
+        await dismissNotifications([notificationId]);
+      } catch (err) {
+        console.error(err);
+      }
+    }, 2600);
+    notificationDismissTimers.set(notificationId, timer);
+  }
+
+  function renderPersistentAlerts(notifications) {
+    const stack = portalAlertStack();
+    const activeIds = new Set((notifications || []).map((item) => parseInt(item.id, 10)).filter(Boolean));
+    Array.from(notificationDismissTimers.keys()).forEach((notificationId) => {
+      if (!activeIds.has(notificationId)) {
+        clearDismissTimer(notificationId);
+      }
+    });
+
+    stack.innerHTML = '';
+    if (!notifications.length) {
+      stack.hidden = true;
+      return;
+    }
+
+    stack.hidden = false;
+    notifications.forEach((item) => {
+      const card = document.createElement('article');
+      card.className = 'wp-pq-alert-card';
+      card.dataset.notificationId = String(item.id || '');
+      card.innerHTML =
+        '<button type="button" class="wp-pq-alert-dismiss" data-dismiss-alert="' + escapeHtml(item.id) + '" aria-label="Dismiss alert">&times;</button>'
+        + '<div class="wp-pq-alert-copy">'
+          + '<strong>' + escapeHtml(item.title || humanizeToken(item.event_key)) + '</strong>'
+          + '<small>' + escapeHtml(formatDateTime(item.created_at)) + '</small>'
+          + '<p>' + escapeHtml(item.body || '') + '</p>'
+        + '</div>'
+        + '<div class="wp-pq-alert-actions">'
+          + (item.task_id ? '<button type="button" class="button wp-pq-secondary-action" data-open-alert-task="' + escapeHtml(item.task_id) + '" data-notification-id="' + escapeHtml(item.id) + '">Open Task</button>' : '')
+          + '<button type="button" class="button" data-dismiss-alert="' + escapeHtml(item.id) + '">Dismiss</button>'
+        + '</div>';
+      stack.appendChild(card);
+      scheduleAlertDismiss(item);
+    });
+  }
+
   async function refreshPreferencesPanel() {
-    await Promise.all([
-      loadPrefs(),
-      loadInbox(),
-    ]);
+    await loadPrefs();
   }
 
   async function openPreferencesPanel() {
@@ -2858,10 +2872,13 @@
           prefs[eventKey] = !!(checkbox && checkbox.checked);
         });
       });
+      const alertAutoDismiss = prefList ? prefList.querySelector('[data-pref-key="' + alertDismissPrefKey + '"]') : null;
+      prefs[alertDismissPrefKey] = !!(alertAutoDismiss && alertAutoDismiss.checked);
 
       try {
         await api('notification-prefs', { method: 'POST', body: JSON.stringify({ prefs: prefs }) });
         prefState = prefs;
+        renderPersistentAlerts(notificationsCache);
         alert('Preferences saved.', 'success');
       } catch (err) {
         alert(err.message);
@@ -2900,57 +2917,32 @@
   }
 
   function wireInbox() {
-    if (markAllReadBtn) {
-      markAllReadBtn.addEventListener('click', async () => {
-        try {
-          await markNotificationsRead([]);
-        } catch (err) {
-          alert(err.message);
-        }
-      });
-    }
-
-    if (openInboxBtn) {
-      openInboxBtn.addEventListener('click', async (e) => {
+    const stack = portalAlertStack();
+    stack.addEventListener('click', async (e) => {
+      const dismissBtn = e.target.closest('[data-dismiss-alert]');
+      if (dismissBtn) {
         e.preventDefault();
-
         try {
-          const data = await loadInbox();
-          const unreadNotifications = (data.notifications || []).filter((item) => !item.is_read);
-          const actionableAlerts = unreadNotifications.filter((item) => parseInt(item.task_id, 10) > 0);
-
-          if (unreadNotifications.length === 1 && actionableAlerts.length === 1) {
-            if (inboxPanel) inboxPanel.hidden = true;
-            await openTaskFromAlert(actionableAlerts[0]);
-            return;
-          }
-
-          if (inboxPanel) inboxPanel.hidden = false;
+          await dismissNotifications([parseInt(dismissBtn.dataset.dismissAlert || '0', 10)]);
         } catch (err) {
           alert(err.message);
         }
-      });
-    }
+        return;
+      }
 
-    if (closeInboxBtn && inboxPanel) {
-      closeInboxBtn.addEventListener('click', () => {
-        inboxPanel.hidden = true;
-      });
-    }
-
-    if (inboxList) {
-      inboxList.addEventListener('click', async (e) => {
-        const button = e.target.closest('[data-open-task]');
-        if (!button) return;
-
-        const taskId = parseInt(button.dataset.openTask, 10);
-        const notificationId = parseInt(button.dataset.notificationId || '0', 10);
-        if (!taskId) return;
-
-        if (inboxPanel) inboxPanel.hidden = true;
-        await openTaskFromAlert({ id: notificationId, task_id: taskId });
-      });
-    }
+      const openBtn = e.target.closest('[data-open-alert-task]');
+      if (openBtn) {
+        e.preventDefault();
+        try {
+          await openTaskFromAlert({
+            id: parseInt(openBtn.dataset.notificationId || '0', 10),
+            task_id: parseInt(openBtn.dataset.openAlertTask || '0', 10),
+          });
+        } catch (err) {
+          alert(err.message);
+        }
+      }
+    });
   }
 
   function wireStatusActions() {
@@ -3326,49 +3318,6 @@
       closePreferencesPanel();
     });
   }
-  if (prefAlertsRefreshBtn) {
-    prefAlertsRefreshBtn.addEventListener('click', () => {
-      loadInbox().catch((err) => alert(err.message));
-    });
-  }
-  if (prefAlertsMarkAllReadBtn) {
-    prefAlertsMarkAllReadBtn.addEventListener('click', async () => {
-      try {
-        await markNotificationsRead([]);
-      } catch (err) {
-        alert(err.message);
-      }
-    });
-  }
-  if (prefAlertsList) {
-    prefAlertsList.addEventListener('click', async (event) => {
-      const button = event.target.closest('button');
-      if (!button) return;
-
-      if (button.dataset.prefMarkRead) {
-        try {
-          await markNotificationsRead([parseInt(button.dataset.prefMarkRead, 10)]);
-        } catch (err) {
-          alert(err.message);
-        }
-        return;
-      }
-
-      if (button.dataset.prefOpenTask) {
-        try {
-          if (window.wpPqPortalManager && typeof window.wpPqPortalManager.openSection === 'function') {
-            await window.wpPqPortalManager.openSection('queue');
-          }
-          await openTaskFromAlert({
-            id: parseInt(button.dataset.notificationId || '0', 10),
-            task_id: parseInt(button.dataset.prefOpenTask || '0', 10),
-          });
-        } catch (err) {
-          alert(err.message);
-        }
-      }
-    });
-  }
   if (prefList && prefSaveBtn && !openPrefsBtn) {
     refreshPreferencesPanel().catch(console.error);
   }
@@ -3380,7 +3329,12 @@
   resetTaskSummary();
 
   loadTasks().catch(console.error);
-  loadInbox().catch(console.error);
+  loadPrefs()
+    .catch(console.error)
+    .finally(() => loadInbox().catch(console.error));
+  window.setInterval(() => {
+    loadInbox().catch(console.error);
+  }, 30000);
 
   window.wpPqPortalUI = Object.assign({}, window.wpPqPortalUI || {}, {
     openPreferences: openPreferencesPanel,
@@ -3388,6 +3342,7 @@
     refreshPreferences: refreshPreferencesPanel,
     loadPrefs,
     loadInbox,
+    dismissNotifications,
     openTaskFromAlert,
   });
 })();
