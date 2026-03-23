@@ -79,7 +79,7 @@ class WP_PQ_DB
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             title VARCHAR(255) NOT NULL,
             description LONGTEXT NULL,
-            status VARCHAR(50) NOT NULL DEFAULT 'draft',
+            status VARCHAR(50) NOT NULL DEFAULT 'pending_approval',
             priority VARCHAR(20) NOT NULL DEFAULT 'normal',
             queue_position INT UNSIGNED NOT NULL DEFAULT 0,
             due_at DATETIME NULL,
@@ -94,6 +94,8 @@ class WP_PQ_DB
             billing_bucket_id BIGINT UNSIGNED NULL,
             delivered_at DATETIME NULL,
             completed_at DATETIME NULL,
+            done_at DATETIME NULL,
+            archived_at DATETIME NULL,
             billing_status VARCHAR(30) NOT NULL DEFAULT 'unbilled',
             work_log_id BIGINT UNSIGNED NULL,
             work_logged_at DATETIME NULL,
@@ -125,7 +127,9 @@ class WP_PQ_DB
             old_status VARCHAR(50) NULL,
             new_status VARCHAR(50) NOT NULL,
             changed_by BIGINT UNSIGNED NOT NULL,
+            reason_code VARCHAR(50) NULL,
             note LONGTEXT NULL,
+            metadata LONGTEXT NULL,
             created_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             KEY task_id (task_id),
@@ -349,6 +353,42 @@ class WP_PQ_DB
         $wpdb->update($history, ['new_status' => 'delivered'], ['new_status' => 'completed']);
 
         update_option('wp_pq_status_migration_066_applied', 1, false);
+    }
+
+    public static function migrate_workflow_status_model(): void
+    {
+        global $wpdb;
+
+        if (get_option('wp_pq_workflow_status_migration_130_applied')) {
+            return;
+        }
+
+        $tasks = $wpdb->prefix . 'pq_tasks';
+        $history = $wpdb->prefix . 'pq_task_status_history';
+        $status_map = WP_PQ_Workflow::status_aliases();
+
+        foreach ($status_map as $legacy_status => $canonical_status) {
+            $wpdb->update($tasks, ['status' => $canonical_status], ['status' => $legacy_status]);
+            $wpdb->update($history, ['old_status' => $canonical_status], ['old_status' => $legacy_status]);
+            $wpdb->update($history, ['new_status' => $canonical_status], ['new_status' => $legacy_status]);
+        }
+
+        $wpdb->query(
+            "UPDATE {$tasks}
+             SET done_at = COALESCE(done_at, completed_at, updated_at),
+                 archived_at = COALESCE(archived_at, completed_at, updated_at)
+             WHERE status = 'done'"
+        );
+
+        $wpdb->query(
+            "UPDATE {$history}
+             SET reason_code = 'revisions_requested'
+             WHERE reason_code IS NULL
+               AND old_status IN ('delivered', 'needs_review')
+               AND new_status = 'in_progress'"
+        );
+
+        update_option('wp_pq_workflow_status_migration_130_applied', 1, false);
     }
 
     public static function migrate_task_context_fields(): void

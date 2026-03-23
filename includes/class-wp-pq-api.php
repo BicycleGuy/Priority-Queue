@@ -472,13 +472,17 @@ class WP_PQ_API
             }
         }
 
-        $current_status = (string) $task['status'];
+        $current_status = WP_PQ_Workflow::normalize_status((string) $task['status']);
         $resolved_target_status = $target_status !== ''
-            ? $target_status
-            : ($target_task ? (string) $target_task['status'] : $current_status);
+            ? WP_PQ_Workflow::normalize_status($target_status)
+            : ($target_task ? WP_PQ_Workflow::normalize_status((string) $target_task['status']) : $current_status);
 
         if (! in_array($resolved_target_status, WP_PQ_Workflow::allowed_statuses(), true)) {
             return new WP_REST_Response(['message' => 'Invalid move target status.'], 422);
+        }
+
+        if (self::is_billing_locked_reopen($task, $current_status, $resolved_target_status)) {
+            return new WP_REST_Response(['message' => 'This delivered task is still tied to billing. Remove it from the invoice draft first.'], 422);
         }
 
         if ($resolved_target_status !== $current_status && ! WP_PQ_Workflow::can_transition($current_status, $resolved_target_status, $user_id)) {
@@ -486,9 +490,9 @@ class WP_PQ_API
         }
 
         $visible_rows = current_user_can(WP_PQ_Roles::CAP_VIEW_ALL)
-            ? $wpdb->get_results("SELECT * FROM {$tasks_table} ORDER BY queue_position ASC, id DESC", ARRAY_A)
+            ? $wpdb->get_results("SELECT * FROM {$tasks_table} WHERE status <> 'done' ORDER BY queue_position ASC, id DESC", ARRAY_A)
             : $wpdb->get_results(
-                $wpdb->prepare("SELECT * FROM {$tasks_table} WHERE submitter_id = %d ORDER BY queue_position ASC, id DESC", $user_id),
+                $wpdb->prepare("SELECT * FROM {$tasks_table} WHERE submitter_id = %d AND status <> 'done' ORDER BY queue_position ASC, id DESC", $user_id),
                 ARRAY_A
             );
         $visible_rows = self::sort_task_rows($visible_rows);
@@ -593,15 +597,16 @@ class WP_PQ_API
             if ($change_note !== '') {
                 $notes[] = 'note:' . $change_note;
             }
-            $wpdb->insert($history_table, [
-                'task_id' => $task_id,
-                'old_status' => $current_status,
-                'new_status' => $resolved_target_status,
-                'changed_by' => $user_id,
-                'note' => sanitize_textarea_field(implode(';', $notes)),
-                'created_at' => current_time('mysql', true),
-            ]);
-            self::emit_status_event($task_id, $resolved_target_status);
+            self::insert_status_history(
+                $history_table,
+                $task_id,
+                $current_status,
+                $resolved_target_status,
+                $user_id,
+                implode(';', $notes),
+                self::transition_reason_code($current_status, $resolved_target_status)
+            );
+            self::emit_status_event($task_id, $current_status, $resolved_target_status);
         } else {
             if ($change_note !== '') {
                 $notes[] = 'note:' . $change_note;
@@ -691,7 +696,7 @@ class WP_PQ_API
         $history = $wpdb->prefix . 'pq_task_status_history';
 
         $task_id = (int) $request->get_param('id');
-        $new_status = sanitize_key((string) $request->get_param('status'));
+        $new_status = WP_PQ_Workflow::normalize_status((string) $request->get_param('status'));
         $task = self::get_task_row($task_id);
 
         if (! $task) {
@@ -707,7 +712,13 @@ class WP_PQ_API
             return new WP_REST_Response(['message' => 'Forbidden.'], 403);
         }
 
-        if (! WP_PQ_Workflow::can_transition((string) $task['status'], $new_status, $user_id)) {
+        $current_status = WP_PQ_Workflow::normalize_status((string) $task['status']);
+
+        if (self::is_billing_locked_reopen($task, $current_status, $new_status)) {
+            return new WP_REST_Response(['message' => 'This delivered task is still tied to billing. Remove it from the invoice draft first.'], 422);
+        }
+
+        if (! WP_PQ_Workflow::can_transition($current_status, $new_status, $user_id)) {
             return new WP_REST_Response(['message' => 'Status transition not allowed.'], 422);
         }
 
@@ -722,14 +733,15 @@ class WP_PQ_API
 
         $wpdb->update($tasks, $update_data, ['id' => $task_id]);
 
-        $wpdb->insert($history, [
-            'task_id' => $task_id,
-            'old_status' => $task['status'],
-            'new_status' => $new_status,
-            'changed_by' => $user_id,
-            'note' => sanitize_textarea_field((string) $request->get_param('note')),
-            'created_at' => current_time('mysql', true),
-        ]);
+        self::insert_status_history(
+            $history,
+            $task_id,
+            $current_status,
+            $new_status,
+            $user_id,
+            (string) $request->get_param('note'),
+            self::transition_reason_code($current_status, $new_status)
+        );
 
         $message_body = trim((string) $request->get_param('message_body'));
         $send_update_email = self::request_truthy($request->get_param('send_update_email'));
@@ -737,7 +749,7 @@ class WP_PQ_API
             self::store_task_message($task_id, $user_id, $message_body, $task);
         }
 
-        self::emit_status_event($task_id, $new_status);
+        self::emit_status_event($task_id, $current_status, $new_status);
         self::sync_task_calendar_event((array) self::get_task_row($task_id));
         if ($send_update_email) {
             self::send_client_status_update($task_id, $new_status);
@@ -773,8 +785,8 @@ class WP_PQ_API
                 return new WP_REST_Response(['message' => 'You cannot approve one or more selected tasks.'], 403);
             }
 
-            $current_status = (string) ($task['status'] ?? '');
-            if (! in_array($current_status, ['pending_approval', 'not_approved'], true)) {
+            $current_status = WP_PQ_Workflow::normalize_status((string) ($task['status'] ?? ''));
+            if (! in_array($current_status, ['pending_approval', 'needs_clarification'], true)) {
                 return new WP_REST_Response(['message' => 'Only pending or clarification tasks can be batch approved.'], 422);
             }
 
@@ -787,16 +799,8 @@ class WP_PQ_API
                 'updated_at' => current_time('mysql', true),
             ], ['id' => $task_id]);
 
-            $wpdb->insert($history, [
-                'task_id' => $task_id,
-                'old_status' => $current_status,
-                'new_status' => 'approved',
-                'changed_by' => $user_id,
-                'note' => 'batch_approved',
-                'created_at' => current_time('mysql', true),
-            ]);
-
-            self::emit_status_event($task_id, 'approved');
+            self::insert_status_history($history, $task_id, $current_status, 'approved', $user_id, 'batch_approved', 'approved');
+            self::emit_status_event($task_id, $current_status, 'approved');
             self::sync_task_calendar_event((array) self::get_task_row($task_id));
             $enriched = self::get_enriched_task($task_id);
             if ($enriched) {
@@ -1218,6 +1222,7 @@ class WP_PQ_API
         if ($can_view_all) {
             $where = [];
             $params = [];
+            $where[] = "status <> 'done'";
             if ($selected_client_id > 0) {
                 $where[] = 'client_id = %d';
                 $params[] = $selected_client_id;
@@ -1242,6 +1247,9 @@ class WP_PQ_API
         $rows = $wpdb->get_results("SELECT * FROM {$tasks_table} ORDER BY " . ($calendar_order ? 'id DESC' : 'queue_position ASC, id DESC'), ARRAY_A);
 
         return array_values(array_filter((array) $rows, static function (array $task) use ($user_id, $selected_client_id, $selected_bucket_id): bool {
+            if (WP_PQ_Workflow::normalize_status((string) ($task['status'] ?? '')) === 'done') {
+                return false;
+            }
             if (! self::can_access_task($task, $user_id)) {
                 return false;
             }
@@ -2087,7 +2095,10 @@ class WP_PQ_API
         $range_start = self::normalize_rollup_date((string) ($args['range_start'] ?? ''));
         $range_end = self::normalize_rollup_date((string) ($args['range_end'] ?? ''));
         $job_ids = array_values(array_unique(array_filter(array_map('intval', (array) ($args['job_ids'] ?? [])))));
-        $statuses = array_values(array_unique(array_filter(array_map('sanitize_key', (array) ($args['statuses'] ?? [])))));
+        $statuses = array_values(array_unique(array_filter(array_map(
+            static fn($status): string => WP_PQ_Workflow::normalize_status((string) $status),
+            (array) ($args['statuses'] ?? [])
+        ))));
         $notes = sanitize_textarea_field((string) ($args['notes'] ?? ''));
 
         if ($user_id <= 0) {
@@ -2101,7 +2112,7 @@ class WP_PQ_API
         $allowed_statuses = WP_PQ_Workflow::allowed_statuses();
         $statuses = array_values(array_intersect($statuses, $allowed_statuses));
         if (empty($statuses)) {
-            $statuses = array_values(array_filter($allowed_statuses, static fn(string $status): bool => $status !== 'archived'));
+            $statuses = $allowed_statuses;
         }
 
         $tasks_table = $wpdb->prefix . 'pq_tasks';
@@ -2459,9 +2470,9 @@ class WP_PQ_API
 
             if ($status === 'delivered') {
                 $groups['Delivered'][] = $normalized;
-            } elseif ($status === 'not_approved') {
+            } elseif ($status === 'needs_clarification') {
                 $groups['Needs clarification'][] = $normalized;
-            } elseif ($is_action_owner && in_array($status, ['pending_approval', 'approved', 'in_progress', 'revision_requested', 'pending_review'], true)) {
+            } elseif ($is_action_owner && in_array($status, ['pending_approval', 'approved', 'in_progress', 'needs_review'], true)) {
                 $groups['Awaiting you'][] = $normalized;
             } else {
                 $groups['Other changes'][] = $normalized;
@@ -2553,13 +2564,16 @@ class WP_PQ_API
         }
     }
 
-    private static function emit_status_event(int $task_id, string $new_status): void
+    private static function emit_status_event(int $task_id, string $old_status, string $new_status): void
     {
+        $old_status = WP_PQ_Workflow::normalize_status($old_status);
+        $new_status = WP_PQ_Workflow::normalize_status($new_status);
+
         if ($new_status === 'approved') {
             self::emit_event($task_id, 'task_approved', 'Task approved', 'Your task was approved.');
-        } elseif ($new_status === 'not_approved') {
+        } elseif ($new_status === 'needs_clarification') {
             self::emit_event($task_id, 'task_rejected', 'Task needs clarification', 'Your task needs clarification and was returned.');
-        } elseif ($new_status === 'revision_requested') {
+        } elseif ($new_status === 'in_progress' && in_array($old_status, ['needs_review', 'delivered'], true)) {
             self::emit_event($task_id, 'task_revision_requested', 'Revision requested', 'A revision was requested for this task.');
         } elseif ($new_status === 'delivered') {
             self::emit_event($task_id, 'task_delivered', 'Task delivered', 'Work product has been delivered.');
@@ -2663,6 +2677,10 @@ class WP_PQ_API
         $value = trim($value);
         if ($value === '') {
             return '';
+        }
+
+        if (WP_PQ_Workflow::is_known_status($value)) {
+            return WP_PQ_Workflow::label($value);
         }
 
         return ucwords(str_replace('_', ' ', $value));
@@ -2857,7 +2875,7 @@ class WP_PQ_API
             return false;
         }
 
-        if (! in_array((string) ($task['status'] ?? ''), ['pending_approval', 'not_approved'], true)) {
+        if (! in_array(WP_PQ_Workflow::normalize_status((string) ($task['status'] ?? '')), ['pending_approval', 'needs_clarification'], true)) {
             return false;
         }
 
@@ -2934,8 +2952,8 @@ class WP_PQ_API
             if (! self::can_access_task($row, $user_id)) {
                 return new WP_Error('pq_forbidden_batch', 'You cannot add one or more selected tasks to an invoice draft.', ['status' => 403]);
             }
-            if ((string) ($row['status'] ?? '') !== 'delivered') {
-                return new WP_Error('pq_invalid_batch_status', 'Only delivered tasks can be added to an invoice draft.', ['status' => 422]);
+            if (! in_array(WP_PQ_Workflow::normalize_status((string) ($row['status'] ?? '')), WP_PQ_Workflow::billing_source_statuses(), true)) {
+                return new WP_Error('pq_invalid_batch_status', 'Only delivered or done tasks can be added to an invoice draft.', ['status' => 422]);
             }
             if ((int) ($row['is_billable'] ?? 1) !== 1) {
                 return new WP_Error('pq_non_billable_task', 'Non-billable tasks cannot be added to an invoice draft.', ['status' => 422]);
@@ -2946,7 +2964,7 @@ class WP_PQ_API
 
             $billing_status = (string) ($row['billing_status'] ?? 'unbilled');
             if (in_array($billing_status, ['statement_sent', 'paid'], true)) {
-                return new WP_Error('pq_invalid_billing_status', 'Only unbilled delivered tasks can be added to a new invoice draft.', ['status' => 422]);
+                return new WP_Error('pq_invalid_billing_status', 'Only unbilled delivered or done tasks can be added to a new invoice draft.', ['status' => 422]);
             }
         }
 
@@ -3331,9 +3349,73 @@ class WP_PQ_API
             'old_status' => $status,
             'new_status' => $status,
             'changed_by' => $user_id,
+            'reason_code' => null,
             'note' => $note,
+            'metadata' => null,
             'created_at' => current_time('mysql', true),
         ]);
+    }
+
+    private static function insert_status_history(string $history_table, int $task_id, string $old_status, string $new_status, int $user_id, string $note = '', string $reason_code = ''): void
+    {
+        global $wpdb;
+
+        $clean_note = trim($note);
+        $wpdb->insert($history_table, [
+            'task_id' => $task_id,
+            'old_status' => $old_status,
+            'new_status' => $new_status,
+            'changed_by' => $user_id,
+            'reason_code' => $reason_code !== '' ? $reason_code : null,
+            'note' => $clean_note !== '' ? sanitize_textarea_field($clean_note) : null,
+            'metadata' => null,
+            'created_at' => current_time('mysql', true),
+        ]);
+    }
+
+    private static function transition_reason_code(string $from_status, string $to_status): string
+    {
+        $from_status = WP_PQ_Workflow::normalize_status($from_status);
+        $to_status = WP_PQ_Workflow::normalize_status($to_status);
+
+        if ($to_status === 'approved') {
+            return 'approved';
+        }
+
+        if ($to_status === 'done') {
+            return 'marked_done';
+        }
+
+        if ($to_status === 'needs_clarification') {
+            return $from_status === 'delivered' ? 'feedback_incomplete' : 'clarification_requested';
+        }
+
+        if ($to_status === 'needs_review' && $from_status === 'delivered') {
+            return 'internal_correction';
+        }
+
+        if ($to_status === 'in_progress' && in_array($from_status, ['needs_review', 'delivered'], true)) {
+            return 'revisions_requested';
+        }
+
+        return '';
+    }
+
+    private static function is_billing_locked_reopen(array $task, string $from_status, string $to_status): bool
+    {
+        $from_status = WP_PQ_Workflow::normalize_status($from_status);
+        $to_status = WP_PQ_Workflow::normalize_status($to_status);
+
+        if ($from_status !== 'delivered') {
+            return false;
+        }
+
+        if (! in_array($to_status, ['in_progress', 'needs_clarification', 'needs_review'], true)) {
+            return false;
+        }
+
+        return (int) ($task['statement_id'] ?? 0) > 0
+            || in_array((string) ($task['billing_status'] ?? ''), ['batched', 'statement_sent', 'paid'], true);
     }
 
     private static function store_task_message(int $task_id, int $author_id, string $body, ?array $task = null): void
@@ -3481,6 +3563,7 @@ class WP_PQ_API
 
     private static function normalize_task_row(array $row): array
     {
+        $row['status'] = WP_PQ_Workflow::normalize_status((string) ($row['status'] ?? 'pending_approval'));
         $row['owner_ids'] = $row['owner_ids'] ? json_decode($row['owner_ids'], true) : [];
         $row['needs_meeting'] = (bool) $row['needs_meeting'];
         $row['is_billable'] = ! isset($row['is_billable']) ? true : ((int) $row['is_billable'] === 1);
@@ -3569,10 +3652,19 @@ class WP_PQ_API
 
     private static function status_timestamp_updates(string $status): array
     {
+        $status = WP_PQ_Workflow::normalize_status($status);
         $now = current_time('mysql', true);
 
         if ($status === 'delivered') {
             return ['delivered_at' => $now];
+        }
+
+        if ($status === 'done') {
+            return [
+                'completed_at' => $now,
+                'done_at' => $now,
+                'archived_at' => $now,
+            ];
         }
 
         return [];

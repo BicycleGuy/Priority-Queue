@@ -77,12 +77,18 @@ class WP_PQ_Housekeeping
                 );
             }
 
+            $current_status = (string) $wpdb->get_var($wpdb->prepare(
+                "SELECT status FROM {$tasks_table} WHERE id = %d",
+                $task_id
+            ));
             $wpdb->insert($history_table, [
                 'task_id' => $task_id,
                 'old_status' => null,
-                'new_status' => 'archived',
+                'new_status' => WP_PQ_Workflow::normalize_status($current_status ?: 'pending_approval'),
                 'changed_by' => 0,
+                'reason_code' => null,
                 'note' => $note,
+                'metadata' => null,
                 'created_at' => current_time('mysql', true),
             ]);
         }
@@ -203,9 +209,9 @@ class WP_PQ_Housekeeping
 
                 if ($status === 'delivered') {
                     $groups['Delivered'][] = $task;
-                } elseif ($status === 'not_approved') {
+                } elseif ($status === 'needs_clarification') {
                     $groups['Needs clarification'][] = $task;
-                } elseif ($is_action_owner && in_array($status, ['pending_approval', 'approved', 'in_progress', 'revision_requested', 'pending_review'], true)) {
+                } elseif ($is_action_owner && in_array($status, ['pending_approval', 'approved', 'in_progress', 'needs_review'], true)) {
                     $groups['Awaiting you'][] = $task;
                 } else {
                     $groups['Other changes'][] = $task;

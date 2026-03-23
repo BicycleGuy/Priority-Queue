@@ -289,7 +289,7 @@ class WP_PQ_Admin
                 $members = (array) ($client['members'] ?? []);
                 echo '<section class="wp-pq-panel wp-pq-rollup-group">';
                 echo '<h2>' . esc_html((string) $client['name']) . '</h2>';
-                echo '<p class="wp-pq-panel-note">Delivered tasks: ' . (int) $client['delivered_count'] . ' · Unbilled: ' . (int) $client['unbilled_count'] . ' · Work statements: ' . (int) $client['work_log_count'] . ' · Invoice Drafts: ' . (int) $client['statement_count'] . '.</p>';
+                echo '<p class="wp-pq-panel-note">Completed tasks: ' . (int) $client['delivered_count'] . ' · Unbilled: ' . (int) $client['unbilled_count'] . ' · Work statements: ' . (int) $client['work_log_count'] . ' · Invoice Drafts: ' . (int) $client['statement_count'] . '.</p>';
                 echo '<p class="wp-pq-panel-note">Primary contact: ' . esc_html((string) ($client['email'] ?: 'Not set')) . '</p>';
                 if (! empty($members)) {
                     echo '<h3>Members</h3>';
@@ -479,7 +479,7 @@ class WP_PQ_Admin
         }
         echo '<div class="wrap wp-pq-wrap">';
         echo '<h1>Billing Rollup</h1>';
-        echo '<p>Review delivered work by date range, sort it into client jobs, and see what is still unbilled before you move into Work Statements or Invoice Drafts.</p>';
+        echo '<p>Review completed work by date range, sort it into client jobs, and see what is still unbilled before you move into Work Statements or Invoice Drafts.</p>';
         echo self::admin_section_nav('rollups');
 
         if (isset($_GET['wp_pq_notice'])) {
@@ -586,7 +586,7 @@ class WP_PQ_Admin
 
         echo '<div class="wp-pq-rollup-groups">';
         if (empty($groups)) {
-            echo '<section class="wp-pq-panel"><p class="wp-pq-empty-state">No delivered tasks fell inside this range.</p></section>';
+            echo '<section class="wp-pq-panel"><p class="wp-pq-empty-state">No completed tasks fell inside this range.</p></section>';
         } else {
             foreach ($groups as $group) {
             echo '<section class="wp-pq-panel wp-pq-rollup-group">';
@@ -658,7 +658,7 @@ class WP_PQ_Admin
         $status_labels = self::work_statement_status_labels();
         $selected_statuses = array_values(array_unique(array_filter(array_map('sanitize_key', (array) ($_GET['statuses'] ?? [])))));
         if (empty($selected_statuses)) {
-            $selected_statuses = array_values(array_filter(array_keys($status_labels), static fn(string $status): bool => $status !== 'archived'));
+            $selected_statuses = array_keys($status_labels);
         }
 
         if ($selected_client_id > 0) {
@@ -965,7 +965,7 @@ class WP_PQ_Admin
             echo '      <input type="hidden" name="client_id" value="' . (int) $selected_client_id . '">';
             echo '      <input type="hidden" name="period" value="' . esc_attr($selected_month) . '">';
             if (empty($eligible_by_job)) {
-                echo '<p class="wp-pq-empty-state">No unbilled delivered tasks were found for this client in ' . esc_html($selected_month) . '.</p>';
+                echo '<p class="wp-pq-empty-state">No unbilled completed tasks were found for this client in ' . esc_html($selected_month) . '.</p>';
             } else {
                 echo '<table class="widefat striped wp-pq-admin-table">';
                 echo '<thead><tr><th class="check-column"><input type="checkbox" data-pq-check-all></th><th>Task</th><th>Job</th><th>Delivered</th><th>Owners</th></tr></thead><tbody>';
@@ -1792,12 +1792,15 @@ class WP_PQ_Admin
             }
 
             $task_id = (int) (($response->get_data()['task_id'] ?? 0));
-            $status_hint = sanitize_key((string) ($task['status_hint'] ?? 'pending_approval'));
-            if ($task_id > 0 && in_array($status_hint, ['pending_review', 'delivered'], true)) {
+            $status_hint = WP_PQ_Workflow::normalize_status((string) ($task['status_hint'] ?? 'pending_approval'));
+            if ($task_id > 0 && in_array($status_hint, ['needs_review', 'delivered', 'done'], true)) {
                 global $wpdb;
                 $wpdb->update($wpdb->prefix . 'pq_tasks', [
                     'status' => $status_hint,
                     'delivered_at' => $status_hint === 'delivered' ? current_time('mysql', true) : null,
+                    'completed_at' => $status_hint === 'done' ? current_time('mysql', true) : null,
+                    'done_at' => $status_hint === 'done' ? current_time('mysql', true) : null,
+                    'archived_at' => $status_hint === 'done' ? current_time('mysql', true) : null,
                     'updated_at' => current_time('mysql', true),
                 ], ['id' => $task_id]);
             }
@@ -2615,8 +2618,8 @@ class WP_PQ_Admin
         if ($ids_in !== '') {
             $task_rows = $wpdb->get_results(
                 "SELECT client_id,
-                        SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) AS delivered_count,
-                        SUM(CASE WHEN status = 'delivered' AND billing_status = 'unbilled' THEN 1 ELSE 0 END) AS unbilled_count
+                        SUM(CASE WHEN status IN ('delivered', 'done') THEN 1 ELSE 0 END) AS delivered_count,
+                        SUM(CASE WHEN status IN ('delivered', 'done') AND billing_status = 'unbilled' THEN 1 ELSE 0 END) AS unbilled_count
                  FROM {$tasks_table}
                  WHERE client_id IN ({$ids_in})
                  GROUP BY client_id",
@@ -2728,7 +2731,7 @@ class WP_PQ_Admin
              LEFT JOIN {$users_table} u ON u.ID = t.submitter_id
              LEFT JOIN {$wpdb->prefix}pq_clients c ON c.id = t.client_id
              LEFT JOIN {$buckets_table} b ON b.id = t.billing_bucket_id
-             WHERE t.status = 'delivered'
+             WHERE t.status IN ('delivered', 'done')
                AND COALESCE(t.is_billable, 1) = 1
                AND DATE(COALESCE(t.delivered_at, t.updated_at)) BETWEEN %s AND %s
              ORDER BY u.display_name ASC, b.bucket_name ASC, COALESCE(t.delivered_at, t.updated_at) DESC, t.id DESC",
@@ -2894,7 +2897,7 @@ class WP_PQ_Admin
              FROM {$tasks_table} t
              LEFT JOIN {$users_table} u ON u.ID = t.submitter_id
              LEFT JOIN {$wpdb->prefix}pq_billing_buckets b ON b.id = t.billing_bucket_id
-             WHERE t.status = 'delivered'
+             WHERE t.status IN ('delivered', 'done')
                AND COALESCE(t.is_billable, 1) = 1
                AND t.billing_status = 'unbilled'
                AND DATE_FORMAT(COALESCE(t.delivered_at, t.updated_at), '%%Y-%%m') = %s
@@ -3503,13 +3506,12 @@ document.addEventListener('DOMContentLoaded', function () {
     {
         return [
             'pending_approval' => 'Pending Approval',
+            'needs_clarification' => 'Needs Clarification',
             'approved' => 'Approved',
             'in_progress' => 'In Progress',
-            'pending_review' => 'Needs Review',
+            'needs_review' => 'Needs Review',
             'delivered' => 'Delivered',
-            'revision_requested' => 'Revisions Needed',
-            'not_approved' => 'Needs Clarification',
-            'archived' => 'Archived',
+            'done' => 'Done',
         ];
     }
 

@@ -7,19 +7,18 @@
 
   const statusColumns = [
     { key: 'pending_approval', label: 'Pending Approval' },
-    { key: 'not_approved', label: 'Needs Clarification' },
+    { key: 'needs_clarification', label: 'Needs Clarification' },
     { key: 'approved', label: 'Approved' },
     { key: 'in_progress', label: 'In Progress' },
-    { key: 'revision_requested', label: 'Revisions Needed' },
-    { key: 'pending_review', label: 'Needs Review' },
+    { key: 'needs_review', label: 'Needs Review' },
     { key: 'delivered', label: 'Delivered' },
   ];
 
   const tokenLabels = {
     pending_approval: 'Pending Approval',
-    pending_review: 'Needs Review',
-    not_approved: 'Needs Clarification',
-    revision_requested: 'Revisions Needed',
+    needs_review: 'Needs Review',
+    needs_clarification: 'Needs Clarification',
+    done: 'Done',
     task_rejected: 'Clarification Requested',
     task_assigned: 'Task Assigned',
     task_reprioritized: 'Priority Changed',
@@ -72,7 +71,8 @@
     awaiting_me: '@',
     awaiting_client: '◌',
     pending_approval: '!',
-    pending_review: '✓',
+    needs_review: '✓',
+    needs_clarification: '?',
     delivered: '↓',
     unbilled: '$',
     urgent: '▲',
@@ -294,7 +294,7 @@
     const currentUserId = parseInt(window.wpPqConfig.currentUserId || 0, 10) || 0;
     return currentUserId > 0
       && parseInt(task.submitter_id || 0, 10) === currentUserId
-      && ['pending_approval', 'not_approved'].includes(String(task.status || ''))
+      && ['pending_approval', 'needs_clarification'].includes(String(task.status || ''))
       && !(parseInt(task.statement_id || 0, 10) || 0)
       && !(parseInt(task.work_log_id || 0, 10) || 0)
       && !['batched', 'statement_sent', 'paid'].includes(String(task.billing_status || ''));
@@ -635,13 +635,13 @@
       return tasks.filter((task) => parseInt(task.action_owner_id || 0, 10) === parseInt(window.wpPqConfig.currentUserId || 0, 10));
     }
     if (taskFilter.mode === 'responsibility' && taskFilter.value === 'awaiting_client') {
-      return tasks.filter((task) => !!task.action_owner_is_client && String(task.status || '') !== 'delivered');
+      return tasks.filter((task) => !!task.action_owner_is_client && !['delivered', 'done'].includes(String(task.status || '')));
     }
     if (taskFilter.mode === 'status' && taskFilter.value === 'pending_approval') {
       return tasks.filter((task) => String(task.status || '') === 'pending_approval');
     }
-    if (taskFilter.mode === 'status' && taskFilter.value === 'pending_review') {
-      return tasks.filter((task) => String(task.status || '') === 'pending_review');
+    if (taskFilter.mode === 'status' && taskFilter.value === 'needs_review') {
+      return tasks.filter((task) => String(task.status || '') === 'needs_review');
     }
     if (taskFilter.mode === 'status' && taskFilter.value === 'delivered') {
       return tasks.filter((task) => String(task.status || '') === 'delivered');
@@ -677,11 +677,11 @@
 
     const urgentCount = tasks.filter((task) => task.priority === 'urgent').length;
     const approvalCount = tasks.filter((task) => task.status === 'pending_approval').length;
-    const reviewCount = tasks.filter((task) => task.status === 'pending_review').length;
+    const reviewCount = tasks.filter((task) => task.status === 'needs_review').length;
     const deliveredCount = tasks.filter((task) => task.status === 'delivered').length;
     const unbilledCount = tasks.filter((task) => task.status === 'delivered' && task.is_billable && task.billing_status === 'unbilled').length;
     const awaitingMeCount = tasks.filter((task) => parseInt(task.action_owner_id || 0, 10) === parseInt(window.wpPqConfig.currentUserId || 0, 10)).length;
-    const awaitingClientCount = tasks.filter((task) => !!task.action_owner_is_client && String(task.status || '') !== 'delivered').length;
+    const awaitingClientCount = tasks.filter((task) => !!task.action_owner_is_client && !['delivered', 'done'].includes(String(task.status || ''))).length;
 
     const groups = [
       {
@@ -701,7 +701,7 @@
         label: 'By status',
         items: [
           { mode: 'status', value: 'pending_approval', label: 'Awaiting approval', count: approvalCount },
-          { mode: 'status', value: 'pending_review', label: 'Awaiting review', count: reviewCount },
+          { mode: 'status', value: 'needs_review', label: 'Awaiting review', count: reviewCount },
           { mode: 'status', value: 'delivered', label: 'Delivered', count: deliveredCount },
           { mode: 'status', value: 'unbilled', label: 'Unbilled', count: unbilledCount },
           { mode: 'status', value: 'urgent', label: 'Urgent', count: urgentCount, tone: urgentCount > 0 ? 'warning' : 'default' },
@@ -807,15 +807,15 @@
   function nextStepLabel(task) {
     const status = String(task.status || '');
     if (status === 'pending_approval') return 'Waiting for approval';
-    if (status === 'not_approved') return 'Clarification needed from client';
+    if (status === 'needs_clarification') return 'Clarification needed from client';
     if (status === 'approved') return 'Ready to begin work';
     if (status === 'in_progress') return 'Work is in progress';
-    if (status === 'pending_review') return 'Ready for internal review';
+    if (status === 'needs_review') return 'Ready for internal review';
     if (status === 'delivered') {
       if (!task.is_billable) return 'Delivered · non-billable';
       return task.billing_status === 'batched' ? 'Added to invoice draft' : 'Waiting for invoice drafting or client response';
     }
-    if (status === 'revision_requested') return 'Revisions needed';
+    if (status === 'done') return 'Completed and archived from the active board';
     return humanizeToken(status);
   }
 
@@ -867,24 +867,24 @@
         ? 'Awaiting your approval. Approve this request to move it into active workflow, or send it back for clarification.'
         : 'Awaiting approval. We will either approve this request or send it back for clarification.';
     }
-    if (status === 'not_approved') return 'Awaiting clarification from the requester before this can move forward.';
+    if (status === 'needs_clarification') return 'Awaiting clarification from the requester before this can move forward.';
     if (status === 'approved') return task.action_owner_name
       ? 'Approved and ready to start. Confirm the action owner, then move it into active work.'
       : 'Approved, but no action owner is set yet. Assign responsibility before starting work.';
-    if (status === 'in_progress') return 'Work is underway. When execution is complete, send it to review or request revisions.';
-    if (status === 'pending_review') return 'Review the work here, then deliver it or send it back for revisions.';
+    if (status === 'in_progress') return 'Work is underway. When execution is complete, send it to review or return it for clarification.';
+    if (status === 'needs_review') return 'Review the work here, then deliver it or reopen it for more work.';
     if (status === 'delivered') return task.billing_status === 'batched'
       ? 'This delivered task has already been added to an invoice draft.'
       : (!task.is_billable
-        ? 'Delivered and complete. This task is marked non-billable, so it will stay out of billing rollups.'
-        : 'Delivered work stays here until you add it to an invoice draft or request revisions.');
-    if (status === 'revision_requested') return 'Changes were requested. Update the work, then return it to active progress.';
+        ? 'Delivered and ready to close. This task is marked non-billable, so it will stay out of billing rollups.'
+        : 'Delivered work stays here until you mark it done, add it to an invoice draft, or reopen it.');
+    if (status === 'done') return 'This task is complete and no longer appears in active workflow views.';
     return '';
   }
 
   function taskActorLabel(task) {
     if (task.action_owner_name) return 'Awaiting ' + task.action_owner_name;
-    if (task.client_account_name && task.status === 'not_approved') return 'Awaiting ' + task.client_account_name;
+    if (task.client_account_name && task.status === 'needs_clarification') return 'Awaiting ' + task.client_account_name;
     return 'Awaiting assignment';
   }
 
@@ -1189,34 +1189,40 @@
 
   function renderStatusButtons(task) {
     const buttons = [];
+    const billingLocked = parseInt(task.statement_id || 0, 10) > 0 || ['batched', 'statement_sent', 'paid'].includes(String(task.billing_status || ''));
     if (window.wpPqConfig.canApprove && task.status === 'pending_approval') {
       buttons.push(buttonHtml(task.id, 'approved', 'Approve'));
-      buttons.push(buttonHtml(task.id, 'not_approved', 'Needs Clarification'));
+      buttons.push(buttonHtml(task.id, 'needs_clarification', 'Needs Clarification'));
     }
-    if (window.wpPqConfig.canApprove && task.status === 'not_approved') {
+    if (window.wpPqConfig.canApprove && task.status === 'needs_clarification') {
       buttons.push(buttonHtml(task.id, 'approved', 'Approve'));
-    }
-    if (window.wpPqConfig.canApprove && task.status === 'approved') {
-      buttons.push(buttonHtml(task.id, 'not_approved', 'Needs Clarification'));
     }
     if (task.status === 'approved') {
       buttons.push(buttonHtml(task.id, 'in_progress', 'Start Work'));
-      buttons.push(buttonHtml(task.id, 'delivered', 'Mark Delivered'));
-      buttons.push(buttonHtml(task.id, 'revision_requested', 'Request Revisions'));
+      if (window.wpPqConfig.canApprove) {
+        buttons.push(buttonHtml(task.id, 'needs_clarification', 'Needs Clarification'));
+      }
     }
     if (task.status === 'in_progress') {
-      buttons.push(buttonHtml(task.id, 'pending_review', 'Send to Review'));
-      buttons.push(buttonHtml(task.id, 'delivered', 'Mark Delivered'));
-      buttons.push(buttonHtml(task.id, 'revision_requested', 'Request Revisions'));
+      buttons.push(buttonHtml(task.id, 'needs_review', 'Send to Review'));
+      if (window.wpPqConfig.canApprove) {
+        buttons.push(buttonHtml(task.id, 'needs_clarification', 'Needs Clarification'));
+      }
     }
-    if (task.status === 'pending_review') {
+    if (task.status === 'needs_review') {
+      buttons.push(buttonHtml(task.id, 'in_progress', 'Resume Work'));
       buttons.push(buttonHtml(task.id, 'delivered', 'Mark Delivered'));
-      buttons.push(buttonHtml(task.id, 'revision_requested', 'Request Revisions'));
     }
     if (task.status === 'delivered') {
-      buttons.push(buttonHtml(task.id, 'revision_requested', 'Request Revisions'));
+      buttons.push(buttonHtml(task.id, 'done', 'Mark Done'));
+      if (!billingLocked) {
+        buttons.push(buttonHtml(task.id, 'in_progress', 'Resume Work'));
+        if (window.wpPqConfig.canApprove) {
+          buttons.push(buttonHtml(task.id, 'needs_review', 'Return to Review'));
+          buttons.push(buttonHtml(task.id, 'needs_clarification', 'Return to Clarification'));
+        }
+      }
     }
-    if (task.status === 'revision_requested') buttons.push(buttonHtml(task.id, 'in_progress', 'Resume Work'));
     if (canDeleteTask(task)) buttons.push(deleteButtonHtml(task.id));
     return buttons.join(' ');
   }
@@ -1270,7 +1276,8 @@
     statusColumns.forEach((column) => {
       const tasksInColumn = tasks.filter((task) => task.status === column.key);
       const columnEl = document.createElement('section');
-      columnEl.className = 'wp-pq-board-column' + (tasksInColumn.length ? '' : ' is-collapsed');
+      const shouldCollapse = tasksInColumn.length === 0 && column.key !== 'needs_clarification';
+      columnEl.className = 'wp-pq-board-column' + (shouldCollapse ? ' is-collapsed' : '');
       columnEl.dataset.status = column.key;
       columnEl.innerHTML =
         '<header class="wp-pq-board-column-head">' +
@@ -1304,7 +1311,7 @@
 
   function shouldPromptForMoveDecision(sourceStatus, targetStatus) {
     const effectiveStatus = targetStatus || sourceStatus;
-    return ['pending_approval', 'not_approved', 'approved', 'in_progress', 'pending_review', 'revision_requested', 'delivered'].includes(effectiveStatus);
+    return ['pending_approval', 'needs_clarification', 'approved', 'in_progress', 'needs_review', 'delivered', 'done'].includes(effectiveStatus);
   }
 
   function moveDecisionConfig(move) {
@@ -1322,12 +1329,12 @@
         body: 'This places the task in the approval queue so you can review scope, urgency, and timing before work begins.',
         cta: 'Send for Approval',
       },
-      pending_review: {
+      needs_review: {
         title: 'Send to Review?',
         body: 'This marks the task as ready for review. Responsibility may shift from execution to reviewer follow-up.',
         cta: 'Send to Review',
       },
-      not_approved: {
+      needs_clarification: {
         title: 'Move to Needs Clarification?',
         body: 'This marks the task as waiting on additional information or direction. You can also open the meeting scheduler next if a call would unblock the task.',
         cta: 'Request Clarification',
@@ -1344,13 +1351,13 @@
       },
       delivered: {
         title: 'Mark as Delivered?',
-        body: 'This records the task as delivered to the requester or client. Further changes may require a revision cycle.',
+        body: 'This records the task as delivered to the requester or client. It stays reversible until you explicitly mark it done.',
         cta: 'Mark Delivered',
       },
-      revision_requested: {
-        title: 'Send to Revisions?',
-        body: 'This returns the task for additional changes before completion. It will re-enter active work queues.',
-        cta: 'Request Revisions',
+      done: {
+        title: 'Mark Done?',
+        body: 'This closes the task, records it as complete, and removes it from the active board.',
+        cta: 'Mark Done',
       },
     };
 
@@ -1436,19 +1443,6 @@
             sourceStatus: sourceStatus,
             targetStatus: targetStatus,
           };
-
-          if (targetStatus === 'revision_requested') {
-            openRevisionModal({
-              type: 'move',
-              taskId: movedTaskId,
-              targetTaskId: targetTaskId,
-              position: position,
-              sourceStatus: sourceStatus,
-              targetStatus: targetStatus,
-            });
-            return;
-          }
-
           if (!shouldPromptForMoveDecision(sourceStatus, targetStatus)) {
             try {
               selectedTaskId = movedTaskId;
@@ -1535,7 +1529,7 @@
     if (requestMeeting) requestMeeting.checked = false;
     if (sendUpdateEmail) sendUpdateEmail.checked = !!window.wpPqConfig.canViewAll;
     if (moveMeetingOption) {
-      moveMeetingOption.hidden = targetStatus !== 'not_approved';
+      moveMeetingOption.hidden = targetStatus !== 'needs_clarification';
     }
     if (moveEmailOption) {
       moveEmailOption.hidden = !window.wpPqConfig.canViewAll || !movedTask || !parseInt(movedTask.client_id || 0, 10);
@@ -2732,7 +2726,7 @@
       if (!id || !status) return;
 
       const task = getTaskById(id);
-      if (status === 'not_approved' && task) {
+      if (['needs_clarification', 'done'].includes(status) && task) {
         selectedTaskId = id;
         pendingMove = null;
         pendingStatusAction = {
@@ -2740,11 +2734,6 @@
           status: status,
         };
         openMoveModal();
-        return;
-      }
-      if (status === 'revision_requested' && task) {
-        selectedTaskId = id;
-        openRevisionModal({ type: 'status', taskId: id, status: status });
         return;
       }
 

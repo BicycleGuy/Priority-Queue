@@ -6,45 +6,104 @@ if (! defined('ABSPATH')) {
 
 class WP_PQ_Workflow
 {
+    public static function status_aliases(): array
+    {
+        return [
+            'draft' => 'pending_approval',
+            'not_approved' => 'needs_clarification',
+            'pending_review' => 'needs_review',
+            'revision_requested' => 'in_progress',
+            'completed' => 'done',
+            'archived' => 'done',
+        ];
+    }
+
     public static function allowed_statuses(): array
     {
         return [
             'pending_approval',
-            'pending_review',
-            'not_approved',
+            'needs_clarification',
             'approved',
             'in_progress',
+            'needs_review',
             'delivered',
-            'revision_requested',
-            'archived',
+            'done',
         ];
+    }
+
+    public static function board_statuses(): array
+    {
+        return [
+            'pending_approval',
+            'needs_clarification',
+            'approved',
+            'in_progress',
+            'needs_review',
+            'delivered',
+        ];
+    }
+
+    public static function billing_source_statuses(): array
+    {
+        return ['delivered', 'done'];
+    }
+
+    public static function is_known_status(string $status): bool
+    {
+        $normalized = self::normalize_status($status);
+        return in_array($normalized, self::allowed_statuses(), true);
+    }
+
+    public static function normalize_status(string $status): string
+    {
+        $status = sanitize_key($status);
+        if ($status === '') {
+            return '';
+        }
+
+        return self::status_aliases()[$status] ?? $status;
+    }
+
+    public static function label(string $status): string
+    {
+        return match (self::normalize_status($status)) {
+            'pending_approval' => 'Pending Approval',
+            'needs_clarification' => 'Needs Clarification',
+            'approved' => 'Approved',
+            'in_progress' => 'In Progress',
+            'needs_review' => 'Needs Review',
+            'delivered' => 'Delivered',
+            'done' => 'Done',
+            default => ucwords(str_replace('_', ' ', trim($status))),
+        };
     }
 
     public static function can_transition(string $from, string $to, int $user_id): bool
     {
+        $from = self::normalize_status($from);
+        $to = self::normalize_status($to);
         $is_manager = current_user_can(WP_PQ_Roles::CAP_APPROVE);
         $is_worker = current_user_can(WP_PQ_Roles::CAP_WORK);
 
         $matrix = [
-            'pending_approval' => ['approved', 'not_approved'],
-            'not_approved' => ['approved'],
-            'approved' => ['not_approved', 'in_progress', 'delivered', 'revision_requested', 'archived'],
-            'in_progress' => ['pending_review', 'delivered', 'revision_requested', 'archived'],
-            'pending_review' => ['delivered', 'revision_requested', 'archived'],
-            'delivered' => ['revision_requested', 'archived'],
-            'revision_requested' => ['in_progress', 'archived'],
-            'archived' => [],
+            'pending_approval' => ['approved', 'needs_clarification'],
+            'needs_clarification' => ['approved'],
+            'approved' => ['in_progress', 'needs_clarification'],
+            'in_progress' => ['needs_clarification', 'needs_review'],
+            'needs_review' => ['in_progress', 'delivered'],
+            'delivered' => ['in_progress', 'needs_clarification', 'needs_review', 'done'],
+            'done' => [],
         ];
 
         if (! isset($matrix[$from]) || ! in_array($to, $matrix[$from], true)) {
             return false;
         }
 
-        if ($from === 'pending_approval' || $from === 'not_approved' || $to === 'approved' || $to === 'not_approved') {
+        if ($to === 'approved' || ($from === 'pending_approval' && $to === 'needs_clarification')) {
             return $is_manager;
         }
 
-        if ($to === 'in_progress' || $to === 'pending_review' || $to === 'delivered') {
+        if (in_array($to, ['in_progress', 'needs_clarification', 'needs_review', 'delivered', 'done'], true)) {
             return $is_manager || $is_worker;
         }
 
