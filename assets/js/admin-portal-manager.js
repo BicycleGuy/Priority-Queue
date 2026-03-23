@@ -1211,6 +1211,9 @@
     const button = event.target.closest('[data-pq-section]');
     if (!button) return;
     event.preventDefault();
+    if (button.dataset.pqSection === 'work-statements') {
+      state.workLogMode = 'review';
+    }
     if (button.dataset.pqSection === 'invoice-drafts') {
       state.invoiceDraftMode = 'review';
     }
