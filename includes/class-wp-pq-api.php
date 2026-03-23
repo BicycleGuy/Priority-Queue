@@ -1981,6 +1981,7 @@ class WP_PQ_API
         global $wpdb;
 
         $task_ids = array_values(array_unique(array_filter(array_map('intval', (array) ($args['task_ids'] ?? [])))));
+        $entry_ids = array_values(array_unique(array_filter(array_map('intval', (array) ($args['entry_ids'] ?? [])))));
         $client_id = (int) ($args['client_id'] ?? 0);
         $statement_month = self::normalize_statement_month((string) ($args['statement_month'] ?? ''));
         $notes = sanitize_textarea_field((string) ($args['notes'] ?? ''));
@@ -1989,11 +1990,18 @@ class WP_PQ_API
             $user_id = get_current_user_id();
         }
 
-        if (empty($task_ids) && $client_id <= 0) {
-            return new WP_Error('pq_missing_draft_scope', 'Choose a client or select tasks before creating an invoice draft.', ['status' => 422]);
+        if (empty($entry_ids) && ! empty($task_ids)) {
+            $entry_ids = self::resolve_invoice_draft_entry_ids_from_tasks($task_ids);
+            if (is_wp_error($entry_ids)) {
+                return $entry_ids;
+            }
         }
 
-        $rows = self::load_invoice_draft_task_rows($task_ids, $user_id);
+        if (empty($entry_ids) && $client_id <= 0) {
+            return new WP_Error('pq_missing_draft_scope', 'Choose a client or select completed work before creating an invoice draft.', ['status' => 422]);
+        }
+
+        $rows = self::load_invoice_draft_ledger_rows($entry_ids, $user_id);
         if (is_wp_error($rows)) {
             return $rows;
         }
@@ -2016,7 +2024,7 @@ class WP_PQ_API
                 $client_user_id = $row_client_user_id;
             }
 
-            $row_rollup_date = self::task_rollup_date($row);
+            $row_rollup_date = self::ledger_rollup_date($row);
             if ($row_rollup_date !== '') {
                 $range_start = $range_start === '' || $row_rollup_date < $range_start ? $row_rollup_date : $range_start;
                 $range_end = $range_end === '' || $row_rollup_date > $range_end ? $row_rollup_date : $range_end;
@@ -2040,9 +2048,10 @@ class WP_PQ_API
         $statements_table = $wpdb->prefix . 'pq_statements';
         $items_table = $wpdb->prefix . 'pq_statement_items';
         $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $ledger_table = $wpdb->prefix . 'pq_work_ledger_entries';
         $history_table = $wpdb->prefix . 'pq_task_status_history';
         $statement_code = self::generate_statement_code($statement_month);
-        $billing_bucket_id = self::single_bucket_id_from_tasks($rows);
+        $billing_bucket_id = self::single_bucket_id_from_rows($rows, 'billing_bucket_id');
         $now = current_time('mysql', true);
 
         $wpdb->insert($statements_table, [
@@ -2067,29 +2076,41 @@ class WP_PQ_API
         }
 
         $line_count = 0;
-        foreach (self::build_invoice_draft_lines_from_tasks($rows) as $line) {
+        foreach (self::build_invoice_draft_lines_from_ledger_entries($rows) as $line) {
             if (self::insert_statement_line($statement_id, $line, $now) > 0) {
                 $line_count++;
             }
         }
 
         foreach ($rows as $row) {
-            $task_id = (int) $row['id'];
-            $wpdb->insert($items_table, [
-                'statement_id' => $statement_id,
-                'task_id' => $task_id,
-                'created_at' => $now,
-            ]);
+            $ledger_entry_id = (int) ($row['ledger_entry_id'] ?? 0);
+            $task_id = (int) ($row['task_id'] ?? 0);
 
-            $wpdb->update($tasks_table, [
-                'billing_status' => 'batched',
-                'statement_id' => $statement_id,
-                'statement_batched_at' => $now,
-                'updated_at' => $now,
-            ], ['id' => $task_id]);
+            if ($ledger_entry_id > 0) {
+                $wpdb->update($ledger_table, [
+                    'invoice_status' => 'invoiced',
+                    'invoice_draft_id' => $statement_id,
+                    'updated_at' => $now,
+                ], ['id' => $ledger_entry_id]);
+            }
 
-            self::insert_history_note($history_table, $task_id, (string) $row['status'], $user_id, 'invoice_draft:' . $statement_code);
-            self::emit_event($task_id, 'statement_batched', 'Invoice draft created', 'This delivered task was added to invoice draft ' . $statement_code . '.');
+            if ($task_id > 0) {
+                $wpdb->insert($items_table, [
+                    'statement_id' => $statement_id,
+                    'task_id' => $task_id,
+                    'created_at' => $now,
+                ]);
+
+                $wpdb->update($tasks_table, [
+                    'billing_status' => 'batched',
+                    'statement_id' => $statement_id,
+                    'statement_batched_at' => $now,
+                    'updated_at' => $now,
+                ], ['id' => $task_id]);
+
+                self::insert_history_note($history_table, $task_id, (string) ($row['task_status'] ?? 'done'), $user_id, 'invoice_draft:' . $statement_code);
+                self::emit_event($task_id, 'statement_batched', 'Invoice draft created', 'This completed work item was added to invoice draft ' . $statement_code . '.');
+            }
         }
 
         self::recalculate_statement_total($statement_id);
@@ -2103,7 +2124,8 @@ class WP_PQ_API
             'billing_bucket_id' => $billing_bucket_id,
             'range_start' => $range_start,
             'range_end' => $range_end,
-            'task_count' => count($rows),
+            'task_count' => count(array_filter($rows, static fn(array $row): bool => (int) ($row['task_id'] ?? 0) > 0)),
+            'entry_count' => count($rows),
             'line_count' => $line_count,
         ];
     }
@@ -3064,7 +3086,7 @@ class WP_PQ_API
         return false;
     }
 
-    private static function load_invoice_draft_task_rows(array $task_ids, int $user_id)
+    private static function resolve_invoice_draft_entry_ids_from_tasks(array $task_ids)
     {
         global $wpdb;
 
@@ -3073,43 +3095,116 @@ class WP_PQ_API
             return [];
         }
 
-        $tasks_table = $wpdb->prefix . 'pq_tasks';
-        $items_table = $wpdb->prefix . 'pq_statement_items';
+        $ledger_table = $wpdb->prefix . 'pq_work_ledger_entries';
         $ids_in = implode(',', $task_ids);
-        $rows = $wpdb->get_results("SELECT * FROM {$tasks_table} WHERE id IN ({$ids_in})", ARRAY_A);
+        $rows = (array) $wpdb->get_results(
+            "SELECT id, task_id FROM {$ledger_table} WHERE task_id IN ({$ids_in})",
+            ARRAY_A
+        );
 
-        if (count($rows) !== count($task_ids)) {
-            return new WP_Error('pq_missing_task', 'One or more tasks could not be loaded for invoice drafting.', ['status' => 404]);
+        $entry_ids = [];
+        $found_task_ids = [];
+        foreach ($rows as $row) {
+            $entry_id = (int) ($row['id'] ?? 0);
+            $task_id = (int) ($row['task_id'] ?? 0);
+            if ($entry_id > 0 && $task_id > 0) {
+                $entry_ids[] = $entry_id;
+                $found_task_ids[] = $task_id;
+            }
         }
 
-        $linked_task_ids = array_map('intval', (array) $wpdb->get_col("SELECT DISTINCT task_id FROM {$items_table} WHERE task_id IN ({$ids_in})"));
-        $linked_lookup = array_fill_keys($linked_task_ids, true);
+        $missing_task_ids = array_values(array_diff($task_ids, array_unique($found_task_ids)));
+        if (! empty($missing_task_ids)) {
+            return new WP_Error('pq_missing_ledger_entries', 'Only completed work that has been marked done can be added to an invoice draft.', ['status' => 422]);
+        }
+
+        return array_values(array_unique($entry_ids));
+    }
+
+    private static function load_invoice_draft_ledger_rows(array $entry_ids, int $user_id)
+    {
+        global $wpdb;
+
+        $entry_ids = array_values(array_unique(array_filter(array_map('intval', $entry_ids))));
+        if (empty($entry_ids)) {
+            return [];
+        }
+
+        $ledger_table = $wpdb->prefix . 'pq_work_ledger_entries';
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $clients_table = $wpdb->prefix . 'pq_clients';
+        $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
+        $ids_in = implode(',', $entry_ids);
+
+        $rows = (array) $wpdb->get_results(
+            "SELECT
+                l.id AS ledger_entry_id,
+                l.task_id,
+                l.client_id,
+                l.billing_bucket_id,
+                l.title_snapshot,
+                l.work_summary,
+                l.owner_id,
+                l.completion_date,
+                l.billable,
+                l.billing_mode,
+                l.billing_category,
+                l.invoice_status,
+                l.statement_month,
+                l.invoice_draft_id,
+                l.hours,
+                l.rate,
+                l.amount,
+                COALESCE(t.client_user_id, c.primary_contact_user_id) AS client_user_id,
+                t.status AS task_status,
+                t.billing_status AS task_billing_status,
+                t.statement_id AS task_statement_id,
+                b.bucket_name,
+                b.is_default
+             FROM {$ledger_table} l
+             LEFT JOIN {$tasks_table} t ON t.id = l.task_id
+             LEFT JOIN {$clients_table} c ON c.id = l.client_id
+             LEFT JOIN {$buckets_table} b ON b.id = l.billing_bucket_id
+             WHERE l.id IN ({$ids_in})",
+            ARRAY_A
+        );
+
+        if (count($rows) !== count($entry_ids)) {
+            return new WP_Error('pq_missing_ledger_entry', 'One or more completed work entries could not be loaded for invoice drafting.', ['status' => 404]);
+        }
+
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            foreach ($rows as $row) {
+                $task_id = (int) ($row['task_id'] ?? 0);
+                if ($task_id <= 0) {
+                    continue;
+                }
+                $task = self::get_task_row($task_id);
+                if (! $task || ! self::can_access_task($task, $user_id)) {
+                    return new WP_Error('pq_forbidden_batch', 'You cannot add one or more selected work entries to an invoice draft.', ['status' => 403]);
+                }
+            }
+        }
 
         foreach ($rows as $row) {
-            $task_id = (int) ($row['id'] ?? 0);
-            if (! self::can_access_task($row, $user_id)) {
-                return new WP_Error('pq_forbidden_batch', 'You cannot add one or more selected tasks to an invoice draft.', ['status' => 403]);
-            }
-            if (! in_array(WP_PQ_Workflow::normalize_status((string) ($row['status'] ?? '')), WP_PQ_Workflow::billing_source_statuses(), true)) {
-                return new WP_Error('pq_invalid_batch_status', 'Only delivered or done tasks can be added to an invoice draft.', ['status' => 422]);
-            }
-            if ((int) ($row['is_billable'] ?? 1) !== 1) {
-                return new WP_Error('pq_non_billable_task', 'Non-billable tasks cannot be added to an invoice draft.', ['status' => 422]);
-            }
-            if (isset($linked_lookup[$task_id])) {
-                return new WP_Error('pq_task_already_drafted', 'A selected task is already linked to an active invoice draft.', ['status' => 422]);
+            if ((int) ($row['billable'] ?? 0) !== 1) {
+                return new WP_Error('pq_non_billable_entry', 'Non-billable completed work cannot be added to an invoice draft.', ['status' => 422]);
             }
 
-            $billing_status = (string) ($row['billing_status'] ?? 'unbilled');
-            if (in_array($billing_status, ['statement_sent', 'paid'], true)) {
-                return new WP_Error('pq_invalid_billing_status', 'Only unbilled delivered or done tasks can be added to a new invoice draft.', ['status' => 422]);
+            if ((int) ($row['invoice_draft_id'] ?? 0) > 0) {
+                return new WP_Error('pq_entry_already_drafted', 'A selected work entry is already linked to an active invoice draft.', ['status' => 422]);
+            }
+
+            $invoice_status = (string) ($row['invoice_status'] ?? 'unbilled');
+            if ($invoice_status !== 'unbilled') {
+                return new WP_Error('pq_invalid_invoice_status', 'Only unbilled completed work can be added to a new invoice draft.', ['status' => 422]);
             }
         }
 
         return $rows;
     }
 
-    private static function build_invoice_draft_lines_from_tasks(array $rows): array
+    private static function build_invoice_draft_lines_from_ledger_entries(array $rows): array
     {
         global $wpdb;
 
@@ -3146,15 +3241,54 @@ class WP_PQ_API
         $groups = [];
         foreach ($rows as $row) {
             $bucket_id = (int) ($row['billing_bucket_id'] ?? 0);
-            $group_key = $bucket_id > 0 ? 'bucket:' . $bucket_id : 'bucket:none';
+            $bucket_name = $bucket_id > 0 ? ($bucket_names[$bucket_id] ?? 'Job') : 'General';
+            $billing_mode = (string) ($row['billing_mode'] ?? 'fixed_fee');
+            $task_id = (int) ($row['task_id'] ?? 0);
+            $entry_id = (int) ($row['ledger_entry_id'] ?? 0);
+
+            if ($billing_mode === 'pass_through_expense') {
+                $description = trim((string) ($row['work_summary'] ?? ''));
+                if ($description === '') {
+                    $description = trim((string) ($row['title_snapshot'] ?? ''));
+                }
+                if ($description === '') {
+                    $description = 'Pass-through expense';
+                }
+
+                $groups['entry:' . $entry_id] = [
+                    'line_type' => 'pass_through_expense',
+                    'source_kind' => 'task',
+                    'description' => $description,
+                    'quantity' => 1,
+                    'unit' => 'expense',
+                    'unit_rate' => null,
+                    'line_amount' => self::sanitize_decimal_value($row['amount'] ?? null, 2),
+                    'billing_bucket_id' => $bucket_id > 0 ? $bucket_id : null,
+                    'linked_task_ids' => $task_id > 0 ? [$task_id] : [],
+                    'source_snapshot' => [[
+                        'ledger_entry_id' => $entry_id,
+                        'task_id' => $task_id,
+                        'title' => (string) ($row['title_snapshot'] ?? ''),
+                        'work_summary' => (string) ($row['work_summary'] ?? ''),
+                        'billing_mode' => $billing_mode,
+                        'completion_date' => (string) ($row['completion_date'] ?? ''),
+                        'amount' => self::sanitize_decimal_value($row['amount'] ?? null, 2),
+                    ]],
+                    'notes' => '',
+                ];
+                continue;
+            }
+
+            $group_key = $bucket_id . ':' . $billing_mode;
             if (! isset($groups[$group_key])) {
-                $bucket_name = $bucket_id > 0 ? ($bucket_names[$bucket_id] ?? 'Job') : 'General';
                 $groups[$group_key] = [
                     'line_type' => 'task_rollup',
                     'source_kind' => 'task',
-                    'description' => 'Delivered work for ' . $bucket_name,
-                    'quantity' => 0,
-                    'unit' => 'tasks',
+                    'description' => $billing_mode === 'hourly'
+                        ? 'Completed hourly work for ' . $bucket_name
+                        : 'Completed work for ' . $bucket_name,
+                    'quantity' => 0.0,
+                    'unit' => $billing_mode === 'hourly' ? 'hours' : 'tasks',
                     'unit_rate' => null,
                     'line_amount' => null,
                     'billing_bucket_id' => $bucket_id > 0 ? $bucket_id : null,
@@ -3164,13 +3298,21 @@ class WP_PQ_API
                 ];
             }
 
-            $groups[$group_key]['quantity']++;
-            $groups[$group_key]['linked_task_ids'][] = (int) ($row['id'] ?? 0);
+            $groups[$group_key]['quantity'] += $billing_mode === 'hourly'
+                ? ((float) ($row['hours'] ?? 0) > 0 ? (float) $row['hours'] : 1.0)
+                : 1.0;
+            if ($task_id > 0) {
+                $groups[$group_key]['linked_task_ids'][] = $task_id;
+            }
             $groups[$group_key]['source_snapshot'][] = [
-                'task_id' => (int) ($row['id'] ?? 0),
-                'title' => (string) ($row['title'] ?? ''),
-                'status' => (string) ($row['status'] ?? ''),
-                'billing_bucket_id' => (int) ($row['billing_bucket_id'] ?? 0),
+                'ledger_entry_id' => $entry_id,
+                'task_id' => $task_id,
+                'title' => (string) ($row['title_snapshot'] ?? ''),
+                'work_summary' => (string) ($row['work_summary'] ?? ''),
+                'billing_mode' => $billing_mode,
+                'completion_date' => (string) ($row['completion_date'] ?? ''),
+                'hours' => self::sanitize_decimal_value($row['hours'] ?? null, 2),
+                'amount' => self::sanitize_decimal_value($row['amount'] ?? null, 2),
             ];
         }
 
@@ -3183,7 +3325,7 @@ class WP_PQ_API
                 'suggested_description' => (string) $group['description'],
                 'suggested_quantity' => (float) $group['quantity'],
                 'suggested_unit' => (string) $group['unit'],
-                'tasks' => $group['source_snapshot'],
+                'entries' => $group['source_snapshot'],
             ];
 
             $lines[] = [
@@ -3193,7 +3335,7 @@ class WP_PQ_API
                 'quantity' => (float) $group['quantity'],
                 'unit' => (string) $group['unit'],
                 'unit_rate' => null,
-                'line_amount' => null,
+                'line_amount' => $group['line_amount'],
                 'billing_bucket_id' => $group['billing_bucket_id'],
                 'linked_task_ids' => $task_ids,
                 'source_snapshot' => $source_snapshot,
@@ -3329,7 +3471,7 @@ class WP_PQ_API
             ], ['id' => (int) $line['id']]);
         }
 
-        self::restore_task_invoice_eligibility($task_id);
+        self::restore_task_invoice_eligibility($task_id, $statement_id);
         return true;
     }
 
@@ -3351,6 +3493,16 @@ class WP_PQ_API
             self::remove_task_from_statement_draft($statement_id, $task_id, $user_id);
         }
 
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$wpdb->prefix}pq_work_ledger_entries
+             SET invoice_status = CASE WHEN billable = 1 THEN 'unbilled' ELSE 'written_off' END,
+                 invoice_draft_id = NULL,
+                 updated_at = %s
+             WHERE invoice_draft_id = %d",
+            current_time('mysql', true),
+            $statement_id
+        ));
+
         $wpdb->delete($wpdb->prefix . 'pq_statement_lines', ['statement_id' => $statement_id]);
         $wpdb->delete($items_table, ['statement_id' => $statement_id]);
         $wpdb->delete($wpdb->prefix . 'pq_statements', ['id' => $statement_id]);
@@ -3358,16 +3510,22 @@ class WP_PQ_API
         return true;
     }
 
-    private static function restore_task_invoice_eligibility(int $task_id): void
+    private static function restore_task_invoice_eligibility(int $task_id, int $removed_statement_id = 0): void
     {
         global $wpdb;
 
         $tasks_table = $wpdb->prefix . 'pq_tasks';
         $items_table = $wpdb->prefix . 'pq_statement_items';
+        $ledger_table = $wpdb->prefix . 'pq_work_ledger_entries';
         $task = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$tasks_table} WHERE id = %d", $task_id), ARRAY_A);
         if (! $task) {
             return;
         }
+
+        $ledger_entry = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$ledger_table} WHERE task_id = %d",
+            $task_id
+        ), ARRAY_A);
 
         $active_statement_id = (int) $wpdb->get_var($wpdb->prepare(
             "SELECT statement_id FROM {$items_table} WHERE task_id = %d ORDER BY id DESC LIMIT 1",
@@ -3375,12 +3533,27 @@ class WP_PQ_API
         ));
 
         if ($active_statement_id > 0) {
+            if ($ledger_entry) {
+                $wpdb->update($ledger_table, [
+                    'invoice_status' => 'invoiced',
+                    'invoice_draft_id' => $active_statement_id,
+                    'updated_at' => current_time('mysql', true),
+                ], ['id' => (int) $ledger_entry['id']]);
+            }
             $wpdb->update($tasks_table, [
                 'billing_status' => 'batched',
                 'statement_id' => $active_statement_id,
                 'updated_at' => current_time('mysql', true),
             ], ['id' => $task_id]);
             return;
+        }
+
+        if ($ledger_entry && ($removed_statement_id <= 0 || (int) ($ledger_entry['invoice_draft_id'] ?? 0) === $removed_statement_id)) {
+            $wpdb->update($ledger_table, [
+                'invoice_status' => (int) ($ledger_entry['billable'] ?? 1) === 1 ? 'unbilled' : 'written_off',
+                'invoice_draft_id' => null,
+                'updated_at' => current_time('mysql', true),
+            ], ['id' => (int) $ledger_entry['id']]);
         }
 
         $wpdb->update($tasks_table, [
@@ -3638,9 +3811,14 @@ class WP_PQ_API
 
     private static function single_bucket_id_from_tasks(array $rows): int
     {
+        return self::single_bucket_id_from_rows($rows, 'billing_bucket_id');
+    }
+
+    private static function single_bucket_id_from_rows(array $rows, string $field): int
+    {
         $bucket_ids = [];
         foreach ($rows as $row) {
-            $bucket_id = (int) ($row['billing_bucket_id'] ?? 0);
+            $bucket_id = (int) ($row[$field] ?? 0);
             if ($bucket_id > 0) {
                 $bucket_ids[] = $bucket_id;
             }
@@ -3705,6 +3883,19 @@ class WP_PQ_API
         $value = (string) ($task['delivered_at'] ?? '');
         if ($value === '') {
             $value = (string) ($task['updated_at'] ?? '');
+        }
+        if ($value === '') {
+            return '';
+        }
+
+        return substr($value, 0, 10);
+    }
+
+    private static function ledger_rollup_date(array $entry): string
+    {
+        $value = (string) ($entry['completion_date'] ?? '');
+        if ($value === '') {
+            $value = (string) ($entry['updated_at'] ?? '');
         }
         if ($value === '') {
             return '';
