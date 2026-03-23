@@ -1,10 +1,11 @@
 (function () {
-  if (typeof window.wpPqConfig === 'undefined' || !window.wpPqConfig.isManager) {
+  const managerConfig = window.wpPqManagerConfig || window.wpPqConfig;
+  if (typeof managerConfig === 'undefined' || !managerConfig.isManager) {
     return;
   }
 
-  const apiRoot = window.wpPqConfig.root;
-  const headers = { 'X-WP-Nonce': window.wpPqConfig.nonce };
+  const apiRoot = managerConfig.root;
+  const headers = { 'X-WP-Nonce': managerConfig.nonce };
   const managerNav = document.getElementById('wp-pq-manager-nav');
   const managerPanel = document.getElementById('wp-pq-manager-panel');
   const managerTitle = document.getElementById('wp-pq-manager-panel-title');
@@ -17,10 +18,11 @@
   const taskDrawer = document.getElementById('wp-pq-task-drawer');
   const drawerBackdrop = document.getElementById('wp-pq-drawer-backdrop');
   const appShell = document.querySelector('.wp-pq-app-shell');
-  const openPrefsBtn = document.getElementById('wp-pq-open-prefs');
+  const closePrefsBtn = document.getElementById('wp-pq-close-prefs');
 
   const state = {
     section: 'queue',
+    lastNonPreferenceSection: 'queue',
     clients: null,
     workLogDetail: null,
     statementDetail: null,
@@ -80,11 +82,32 @@
     window.alert(message);
   }
 
+  function friendlyApiError(response, payload) {
+    const code = String(payload && payload.code ? payload.code : '');
+    const message = String(payload && payload.message ? payload.message : '');
+    if (
+      code === 'rest_cookie_invalid_nonce'
+      || /cookie check failed/i.test(message)
+      || (/nonce/i.test(message) && /invalid|expired|failed/i.test(message))
+      || ((response.status === 401 || response.status === 403) && /cookie|nonce|rest/i.test(message))
+    ) {
+      return 'Your session expired. Refresh the page and try again.';
+    }
+
+    return message || 'Request failed.';
+  }
+
   async function api(path, options) {
-    const response = await fetch(apiRoot + path.replace(/^\//, ''), Object.assign({
-      headers,
+    const requestOptions = Object.assign({
       credentials: 'same-origin',
-    }, options || {}));
+    }, options || {});
+    requestOptions.headers = Object.assign({}, headers, (options && options.headers) || {});
+    if (requestOptions.body instanceof FormData) {
+      delete requestOptions.headers['Content-Type'];
+    } else if (!requestOptions.headers['Content-Type']) {
+      requestOptions.headers['Content-Type'] = 'application/json';
+    }
+    const response = await fetch(apiRoot + path.replace(/^\//, ''), requestOptions);
 
     let payload = null;
     const text = await response.text();
@@ -95,14 +118,14 @@
     }
 
     if (!response.ok) {
-      throw new Error(payload.message || 'Request failed.');
+      throw new Error(friendlyApiError(response, payload));
     }
 
     return payload;
   }
 
   function sectionUrl(section) {
-    const base = window.wpPqConfig.portalUrl || window.location.pathname;
+    const base = managerConfig.portalUrl || window.location.pathname;
     if (!section || section === 'queue') {
       return base;
     }
@@ -1022,6 +1045,9 @@
       ? options
       : { pushHistory: options !== false };
     state.section = section || 'queue';
+    if (state.section !== 'preferences') {
+      state.lastNonPreferenceSection = state.section;
+    }
     setActiveNav(state.section);
     if (state.section === 'ai-import') {
       if (config.clientId !== undefined) {
@@ -1052,8 +1078,8 @@
       showQueue(false);
       showManagerPanel(false);
       showPreferences(true);
-      if (openPrefsBtn) {
-        openPrefsBtn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      if (window.wpPqPortalUI && typeof window.wpPqPortalUI.openPreferences === 'function') {
+        await window.wpPqPortalUI.openPreferences();
       }
       return;
     }
@@ -1097,6 +1123,14 @@
     if (!button) return;
     event.preventDefault();
     openSection(button.dataset.pqSection);
+  });
+
+  closePrefsBtn?.addEventListener('click', (event) => {
+    if (state.section !== 'preferences') return;
+    event.preventDefault();
+    openSection(state.lastNonPreferenceSection || 'queue').catch((error) => {
+      toast(error.message || 'Preferences failed to close cleanly.', true);
+    });
   });
 
   managerToolbar?.addEventListener('submit', async (event) => {

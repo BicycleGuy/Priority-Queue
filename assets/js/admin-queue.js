@@ -118,6 +118,9 @@
   const prefPanel = document.getElementById('wp-pq-pref-panel');
   const prefList = document.getElementById('wp-pq-pref-list');
   const prefSaveBtn = document.getElementById('wp-pq-save-prefs');
+  const prefAlertsList = document.getElementById('wp-pq-pref-alerts-list');
+  const prefAlertsRefreshBtn = document.getElementById('wp-pq-pref-refresh-alerts');
+  const prefAlertsMarkAllReadBtn = document.getElementById('wp-pq-pref-mark-all-read');
   const currentTaskEl = document.getElementById('wp-pq-current-task');
   const currentTaskStatusEl = document.getElementById('wp-pq-current-task-status');
   const currentTaskMetaEl = document.getElementById('wp-pq-current-task-meta');
@@ -231,27 +234,59 @@
   let boardDragLockUntil = 0;
   let activeTaskRecord = null;
 
+  function apiErrorMessage(resp, body) {
+    const code = String(body && body.code ? body.code : '');
+    const message = String(body && body.message ? body.message : '');
+
+    if (
+      code === 'rest_cookie_invalid_nonce'
+      || /cookie check failed/i.test(message)
+      || (/nonce/i.test(message) && /invalid|expired|failed/i.test(message))
+      || ((resp.status === 401 || resp.status === 403) && /cookie|nonce|rest/i.test(message))
+    ) {
+      return 'Your session expired. Refresh the page and try again.';
+    }
+
+    return message || 'Request failed';
+  }
+
   async function api(path, options) {
+    const requestOptions = {
+      ...(options || {}),
+      credentials: 'same-origin',
+    };
+    requestOptions.headers = {
+      ...headers,
+      ...((options && options.headers) || {}),
+    };
+    if (requestOptions.body instanceof FormData) {
+      delete requestOptions.headers['Content-Type'];
+    } else if (!requestOptions.headers['Content-Type']) {
+      requestOptions.headers['Content-Type'] = 'application/json';
+    }
+
     let resp;
     try {
-      resp = await fetch(apiRoot + path, {
-        ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...headers,
-        },
-        credentials: 'same-origin',
-      });
+      resp = await fetch(apiRoot + path, requestOptions);
     } catch (err) {
       throw new Error('Connection failed. Please try again.');
     }
 
-    if (!resp.ok) {
-      const body = await resp.json().catch(() => ({}));
-      throw new Error(body.message || 'Request failed');
+    const text = await resp.text();
+    let payload = {};
+    if (text) {
+      try {
+        payload = JSON.parse(text);
+      } catch (err) {
+        payload = { message: text };
+      }
     }
 
-    return resp.json();
+    if (!resp.ok) {
+      throw new Error(apiErrorMessage(resp, payload));
+    }
+
+    return payload;
   }
 
   function toastStack() {
@@ -2022,6 +2057,7 @@
     const notifications = data.notifications || [];
     notificationsCache = notifications;
     inboxList.innerHTML = '';
+    renderPrefAlerts(notifications);
 
     if (inboxCount) inboxCount.textContent = String(data.unread_count || 0);
     if (openInboxBtn) {
@@ -2756,6 +2792,62 @@
     });
   }
 
+  function renderPrefAlerts(notifications) {
+    if (!prefAlertsList) return;
+    prefAlertsList.innerHTML = '';
+
+    if (!notifications.length) {
+      prefAlertsList.innerHTML = '<div class="wp-pq-empty-state">No recent alerts yet.</div>';
+      return;
+    }
+
+    notifications.slice(0, 12).forEach((item) => {
+      const payload = item.payload || {};
+      const taskLabel = payload.task_title ? '"' + payload.task_title + '"' : (item.task_id ? 'task #' + item.task_id : 'this item');
+      const card = document.createElement('article');
+      card.className = 'wp-pq-pref-alert-card' + (item.is_read ? '' : ' is-unread');
+      card.innerHTML =
+        '<div class="wp-pq-pref-alert-head">'
+          + '<div>'
+            + '<strong>' + escapeHtml(item.title || humanizeToken(item.event_key)) + '</strong>'
+            + '<small>' + escapeHtml(humanizeToken(item.event_key)) + ' · ' + escapeHtml(formatDateTime(item.created_at)) + '</small>'
+          + '</div>'
+          + '<span class="wp-pq-pref-alert-state">' + (item.is_read ? 'Read' : 'Unread') + '</span>'
+        + '</div>'
+        + '<p>' + escapeHtml(item.body || '') + '</p>'
+        + '<div class="wp-pq-pref-alert-actions">'
+          + (item.task_id ? '<button type="button" class="button wp-pq-secondary-action" data-pref-open-task="' + item.task_id + '" data-notification-id="' + escapeHtml(item.id) + '">Open ' + escapeHtml(taskLabel) + '</button>' : '')
+          + (!item.is_read ? '<button type="button" class="button" data-pref-mark-read="' + escapeHtml(item.id) + '">Mark Read</button>' : '')
+        + '</div>';
+      prefAlertsList.appendChild(card);
+    });
+  }
+
+  async function markNotificationsRead(ids) {
+    await api('notifications/mark-read', { method: 'POST', body: JSON.stringify({ ids: ids || [] }) });
+    await loadInbox();
+  }
+
+  async function refreshPreferencesPanel() {
+    await Promise.all([
+      loadPrefs(),
+      loadInbox(),
+    ]);
+  }
+
+  async function openPreferencesPanel() {
+    if (prefPanel) {
+      prefPanel.hidden = false;
+    }
+    await refreshPreferencesPanel();
+  }
+
+  function closePreferencesPanel() {
+    if (prefPanel) {
+      prefPanel.hidden = true;
+    }
+  }
+
   function wirePrefs() {
     if (!prefSaveBtn || !prefList) return;
     prefSaveBtn.addEventListener('click', async () => {
@@ -2811,8 +2903,7 @@
     if (markAllReadBtn) {
       markAllReadBtn.addEventListener('click', async () => {
         try {
-          await api('notifications/mark-read', { method: 'POST', body: JSON.stringify({ ids: [] }) });
-          await loadInbox();
+          await markNotificationsRead([]);
         } catch (err) {
           alert(err.message);
         }
@@ -3225,20 +3316,61 @@
   wireRevisionModal();
   wireTogglePanel(openCreateBtn, createPanel, closeCreateBtn);
   if (openPrefsBtn && prefPanel) {
-    openPrefsBtn.addEventListener('click', () => {
-      prefPanel.hidden = !prefPanel.hidden;
-      if (!prefPanel.hidden && !prefsLoaded) {
-        loadPrefs().catch(console.error);
-      }
+    openPrefsBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      openPreferencesPanel().catch((err) => alert(err.message));
     });
   }
   if (closePrefsBtn && prefPanel) {
     closePrefsBtn.addEventListener('click', () => {
-      prefPanel.hidden = true;
+      closePreferencesPanel();
+    });
+  }
+  if (prefAlertsRefreshBtn) {
+    prefAlertsRefreshBtn.addEventListener('click', () => {
+      loadInbox().catch((err) => alert(err.message));
+    });
+  }
+  if (prefAlertsMarkAllReadBtn) {
+    prefAlertsMarkAllReadBtn.addEventListener('click', async () => {
+      try {
+        await markNotificationsRead([]);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  }
+  if (prefAlertsList) {
+    prefAlertsList.addEventListener('click', async (event) => {
+      const button = event.target.closest('button');
+      if (!button) return;
+
+      if (button.dataset.prefMarkRead) {
+        try {
+          await markNotificationsRead([parseInt(button.dataset.prefMarkRead, 10)]);
+        } catch (err) {
+          alert(err.message);
+        }
+        return;
+      }
+
+      if (button.dataset.prefOpenTask) {
+        try {
+          if (window.wpPqPortalManager && typeof window.wpPqPortalManager.openSection === 'function') {
+            await window.wpPqPortalManager.openSection('queue');
+          }
+          await openTaskFromAlert({
+            id: parseInt(button.dataset.notificationId || '0', 10),
+            task_id: parseInt(button.dataset.prefOpenTask || '0', 10),
+          });
+        } catch (err) {
+          alert(err.message);
+        }
+      }
     });
   }
   if (prefList && prefSaveBtn && !openPrefsBtn) {
-    loadPrefs().catch(console.error);
+    refreshPreferencesPanel().catch(console.error);
   }
   initViewToggle();
   initWorkspaceTabs();
@@ -3249,4 +3381,13 @@
 
   loadTasks().catch(console.error);
   loadInbox().catch(console.error);
+
+  window.wpPqPortalUI = Object.assign({}, window.wpPqPortalUI || {}, {
+    openPreferences: openPreferencesPanel,
+    closePreferences: closePreferencesPanel,
+    refreshPreferences: refreshPreferencesPanel,
+    loadPrefs,
+    loadInbox,
+    openTaskFromAlert,
+  });
 })();

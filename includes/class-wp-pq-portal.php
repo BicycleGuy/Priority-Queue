@@ -87,7 +87,7 @@ class WP_PQ_Portal
             wp_enqueue_script('wp-pq-portal-manager');
         }
 
-        wp_localize_script('wp-pq-admin', 'wpPqConfig', [
+        $portal_config = [
             'root' => esc_url_raw(rest_url('pq/v1/')),
             'coreRoot' => esc_url_raw(rest_url('wp/v2/')),
             'nonce' => wp_create_nonce('wp_rest'),
@@ -99,7 +99,11 @@ class WP_PQ_Portal
             'canViewAll' => current_user_can(WP_PQ_Roles::CAP_VIEW_ALL),
             'currentUserId' => get_current_user_id(),
             'isManager' => $is_manager,
-        ]);
+        ];
+        wp_localize_script('wp-pq-admin', 'wpPqConfig', $portal_config);
+        if ($is_manager) {
+            wp_localize_script('wp-pq-portal-manager', 'wpPqManagerConfig', $portal_config);
+        }
 
         ob_start();
         echo '<div class="wp-pq-wrap wp-pq-portal">';
@@ -209,13 +213,34 @@ class WP_PQ_Portal
         echo '  <section class="wp-pq-panel wp-pq-pref-panel" id="wp-pq-pref-panel" hidden>';
         echo '    <div class="wp-pq-section-heading">';
         echo '      <div>';
-        echo '        <h3>Notification Preferences</h3>';
-        echo '        <p class="wp-pq-panel-note">Choose whether you want immediate client updates and the daily digest.</p>';
+        echo '        <h3>Preferences</h3>';
+        echo '        <p class="wp-pq-panel-note">Manage notification settings here and keep an eye on recent alerts without leaving the portal.</p>';
         echo '      </div>';
         echo '      <button class="button" type="button" id="wp-pq-close-prefs">Close</button>';
         echo '    </div>';
-        echo '    <div id="wp-pq-pref-list" class="wp-pq-pref-list"></div>';
-        echo '    <button class="button button-primary" type="button" id="wp-pq-save-prefs">Save Preferences</button>';
+        echo '    <section class="wp-pq-pref-section">';
+        echo '      <div class="wp-pq-pref-section-head">';
+        echo '        <div>';
+        echo '          <h4>Notifications</h4>';
+        echo '          <p class="wp-pq-panel-note">Choose whether you want immediate client updates and the daily digest.</p>';
+        echo '        </div>';
+        echo '      </div>';
+        echo '      <div id="wp-pq-pref-list" class="wp-pq-pref-list"></div>';
+        echo '      <button class="button button-primary" type="button" id="wp-pq-save-prefs">Save Preferences</button>';
+        echo '    </section>';
+        echo '    <section class="wp-pq-pref-section">';
+        echo '      <div class="wp-pq-pref-section-head">';
+        echo '        <div>';
+        echo '          <h4>Recent Alerts</h4>';
+        echo '          <p class="wp-pq-panel-note">Alerts stays the quick inbox. This is the calmer history view inside Preferences.</p>';
+        echo '        </div>';
+        echo '        <div class="wp-pq-manager-inline-actions">';
+        echo '          <button class="button wp-pq-secondary-action" type="button" id="wp-pq-pref-refresh-alerts">Refresh</button>';
+        echo '          <button class="button" type="button" id="wp-pq-pref-mark-all-read">Mark All Read</button>';
+        echo '        </div>';
+        echo '      </div>';
+        echo '      <div id="wp-pq-pref-alerts-list" class="wp-pq-pref-alerts-list"></div>';
+        echo '    </section>';
         echo '  </section>';
 
         echo '  <div class="wp-pq-workspace-body">';

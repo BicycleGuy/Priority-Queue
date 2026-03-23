@@ -535,6 +535,29 @@
   margin-bottom: 12px;
 }
 
+.wp-pq-pref-section {
+  display: grid;
+  gap: 12px;
+}
+
+.wp-pq-pref-section + .wp-pq-pref-section {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--pq-border);
+}
+
+.wp-pq-pref-section-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.wp-pq-pref-section-head h4 {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+
 .wp-pq-pref-card {
   display: flex !important;
   align-items: start;
@@ -588,6 +611,65 @@
   color: #1d4ed8;
   font-weight: 700;
   cursor: pointer;
+}
+
+.wp-pq-pref-alerts-list {
+  display: grid;
+  gap: 10px;
+}
+
+.wp-pq-pref-alert-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--pq-border);
+  border-radius: 16px;
+  background: #fbfcff;
+}
+
+.wp-pq-pref-alert-card.is-unread {
+  border-color: #bfd3ff;
+  background: #f5f8ff;
+}
+
+.wp-pq-pref-alert-card p {
+  margin: 0;
+  color: var(--pq-muted);
+}
+
+.wp-pq-pref-alert-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.wp-pq-pref-alert-head small {
+  display: block;
+  margin-top: 4px;
+  color: var(--pq-muted);
+  font-size: 12px;
+}
+
+.wp-pq-pref-alert-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #e8eef9;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.wp-pq-pref-alert-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 #wp-pq-calendar {
