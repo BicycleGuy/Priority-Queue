@@ -1228,28 +1228,47 @@
   padding: 14px;
 }
 
-.wp-pq-manager-list-item {
+.wp-pq-manager-list-head {
+  display: grid;
+  gap: 4px;
+  padding: 2px 2px 10px;
+}
+
+.wp-pq-manager-list-head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+button.wp-pq-manager-list-item {
+  appearance: none;
+  -webkit-appearance: none;
   display: grid;
   gap: 4px;
   width: 100%;
   padding: 12px 14px;
-  border: 1px solid #d9e1ed;
+  border: 1px solid #d9e1ed !important;
   border-radius: 14px;
-  background: #fff;
-  color: var(--pq-ink);
+  background: #fff !important;
+  color: var(--pq-ink) !important;
   text-align: left;
   cursor: pointer;
+  box-shadow: none !important;
 }
 
-.wp-pq-manager-list-item:hover,
-.wp-pq-manager-list-item.is-active {
-  border-color: #c0cbe0;
-  background: #f5f8fd;
+button.wp-pq-manager-list-item:hover,
+button.wp-pq-manager-list-item.is-active {
+  border-color: #c0cbe0 !important;
+  background: #f5f8fd !important;
+}
+
+.wp-pq-manager-list-item strong {
+  font-size: 15px;
+  line-height: 1.2;
 }
 
 .wp-pq-manager-list-item span,
 .wp-pq-manager-list-item small {
-  color: var(--pq-muted);
+  color: var(--pq-muted) !important;
 }
 
 .wp-pq-manager-table {
@@ -1355,6 +1374,35 @@
 
 .wp-pq-manager-statuses .inline {
   margin: 0;
+}
+
+.wp-pq-manager-multiselect {
+  min-height: 148px;
+}
+
+.wp-pq-manager-status-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.wp-pq-manager-status-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #e1e7f0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.wp-pq-manager-status-option input {
+  margin: 0;
+}
+
+.wp-pq-work-log-composer textarea {
+  min-height: 120px;
 }
 
 .wp-pq-board-shell {
@@ -2477,7 +2525,8 @@ body.wp-pq-drawer-open {
   .wp-pq-manager-toolbar-grid,
   .wp-pq-manager-card-grid,
   .wp-pq-manager-split,
-  .wp-pq-manager-split-tight {
+  .wp-pq-manager-split-tight,
+  .wp-pq-manager-status-grid {
     grid-template-columns: 1fr;
   }
 

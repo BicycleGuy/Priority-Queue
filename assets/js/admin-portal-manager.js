@@ -26,6 +26,7 @@
     clients: null,
     selectedClientId: 0,
     clientsSearch: '',
+    workLogMode: 'review',
     workLogDetail: null,
     statementDetail: null,
     invoiceDraftMode: 'review',
@@ -712,37 +713,89 @@
     const rangeStart = params.get('start_date') || `${month}-01`;
     const rangeEnd = params.get('end_date') || endOfMonth(month);
     const data = await api(`manager/work-logs?start_date=${encodeURIComponent(rangeStart)}&end_date=${encodeURIComponent(rangeEnd)}`);
+    const workLogs = Array.isArray(data.work_logs) ? data.work_logs : [];
+    const mode = state.workLogMode === 'create' ? 'create' : 'review';
+    const selectedWorkLogId = mode === 'create'
+      ? 0
+      : Number(selectedId || params.get('work_log_id') || workLogs[0]?.id || 0);
+    const defaultClientId = Number(params.get('client_id') || currentClients()[0]?.id || 0);
 
     managerToolbar.innerHTML = `
-      <form id="wp-pq-work-log-create-form" class="wp-pq-manager-toolbar-grid">
-        <label>Client
-          <select name="client_id" id="wp-pq-work-log-client" required>${clientOptions(0, false)}</select>
-        </label>
-        <label>Start <input type="date" name="range_start" value="${esc(data.range.start)}" required></label>
-        <label>End <input type="date" name="range_end" value="${esc(data.range.end)}" required></label>
-        <label>Jobs
-          <select name="job_ids" id="wp-pq-work-log-jobs" multiple size="4"></select>
-        </label>
-        <fieldset class="wp-pq-manager-statuses">
-          <legend>Status filters</legend>
-          ${['pending_approval','needs_clarification','approved','in_progress','needs_review','delivered','done'].map((statusKey) => `<label class="inline"><input type="checkbox" name="statuses" value="${statusKey}"${['delivered','done'].includes(statusKey) ? ' checked' : ''}> ${esc(statusKey.replace(/_/g, ' '))}</label>`).join('')}
-        </fieldset>
-        <label class="wp-pq-span-2">Notes <textarea name="notes" rows="2"></textarea></label>
-        <button class="button button-primary" type="submit">Create Work Statement</button>
+      <form id="wp-pq-work-log-filter-form" class="wp-pq-period-form">
+        <label>Start <input type="date" name="start_date" value="${esc(data.range.start)}" required></label>
+        <label>End <input type="date" name="end_date" value="${esc(data.range.end)}" required></label>
+        <div class="wp-pq-manager-inline-actions">
+          ${mode === 'create'
+            ? '<button class="button wp-pq-secondary-action" type="button" data-action="cancel-create-work-log">Cancel</button>'
+            : '<button class="button button-primary" type="button" data-action="start-create-work-log">New Work Statement</button>'}
+        </div>
       </form>
     `;
 
-    const logsHtml = (data.work_logs || []).map((log) => `
-      <button class="wp-pq-manager-list-item${Number(selectedId) === Number(log.id) ? ' is-active' : ''}" type="button" data-open-work-log="${log.id}">
-        <strong>${esc(log.work_log_code || 'Work Statement')}</strong>
-        <span>${esc(log.client_name || '')} · ${esc(log.job_summary || '')}</span>
-        <small>${esc(log.created_at || '')} · ${Number(log.task_count || 0)} tasks</small>
-      </button>
-    `).join('') || '<div class="wp-pq-empty-state">No work statements in this range yet.</div>';
+    const logsHtml = `
+      <div class="wp-pq-manager-list-head">
+        <h3>Saved Work Statements</h3>
+        <p class="wp-pq-panel-note">Frozen client-facing snapshots in this range.</p>
+      </div>
+      ${workLogs.map((log) => `
+        <button class="wp-pq-manager-list-item${Number(selectedWorkLogId) === Number(log.id) ? ' is-active' : ''}" type="button" data-open-work-log="${log.id}">
+          <strong>${esc(log.work_log_code || 'Work Statement')}</strong>
+          <span>${esc(log.client_name || '')}${log.job_summary ? ` · ${esc(log.job_summary)}` : ''}</span>
+          <small>${esc(log.range_start || '')} to ${esc(log.range_end || '')} · ${Number(log.task_count || 0)} tasks</small>
+        </button>
+      `).join('') || '<div class="wp-pq-empty-state">No work statements in this range yet.</div>'}
+    `;
 
-    let detailHtml = '<div class="wp-pq-empty-state">Select a work statement to inspect it.</div>';
-    if (selectedId) {
-      const detailResponse = await api(`manager/work-logs/${selectedId}`);
+    let detailHtml = `
+      <section class="wp-pq-panel wp-pq-manager-card wp-pq-manager-subcard">
+        <div class="wp-pq-empty-state">Select a work statement to inspect it.</div>
+      </section>
+    `;
+
+    if (mode === 'create') {
+      detailHtml = `
+        <section class="wp-pq-panel wp-pq-manager-card wp-pq-manager-form-card wp-pq-work-log-composer">
+          <div class="wp-pq-section-heading">
+            <div>
+              <h3>Create Work Statement</h3>
+              <p class="wp-pq-panel-note">Capture one frozen client snapshot across a date range, chosen jobs, and selected workflow statuses.</p>
+            </div>
+          </div>
+          <form id="wp-pq-work-log-create-form" class="wp-pq-manager-card">
+            <div class="wp-pq-manager-card-grid">
+              <label>Client
+                <select name="client_id" id="wp-pq-work-log-client" required>${clientOptions(defaultClientId, false)}</select>
+              </label>
+              <label>Start <input type="date" name="range_start" value="${esc(data.range.start)}" required></label>
+              <label>End <input type="date" name="range_end" value="${esc(data.range.end)}" required></label>
+              <label class="wp-pq-span-2">Jobs
+                <select name="job_ids" id="wp-pq-work-log-jobs" class="wp-pq-manager-multiselect" multiple size="5"></select>
+              </label>
+              <fieldset class="wp-pq-manager-statuses wp-pq-span-2">
+                <legend>Status filters</legend>
+                <div class="wp-pq-manager-status-grid">
+                  ${['pending_approval', 'needs_clarification', 'approved', 'in_progress', 'needs_review', 'delivered', 'done'].map((statusKey) => `
+                    <label class="wp-pq-manager-status-option">
+                      <input type="checkbox" name="statuses" value="${statusKey}"${['delivered', 'done'].includes(statusKey) ? ' checked' : ''}>
+                      <span>${esc(workflowStatusLabel(statusKey))}</span>
+                    </label>
+                  `).join('')}
+                </div>
+              </fieldset>
+              <label class="wp-pq-span-2">Notes
+                <textarea name="notes" rows="4" placeholder="Optional context for the client-facing snapshot."></textarea>
+              </label>
+            </div>
+            <div class="wp-pq-manager-inline-actions">
+              <button class="button button-primary" type="submit">Create Work Statement</button>
+              <button class="button wp-pq-secondary-action" type="button" data-action="cancel-create-work-log">Cancel</button>
+            </div>
+          </form>
+        </section>
+      `;
+      state.workLogDetail = null;
+    } else if (selectedWorkLogId) {
+      const detailResponse = await api(`manager/work-logs/${selectedWorkLogId}`);
       state.workLogDetail = detailResponse.work_log;
       const workLog = state.workLogDetail;
       detailHtml = `
@@ -750,16 +803,22 @@
           <div class="wp-pq-section-heading">
             <div>
               <h3>${esc(workLog.work_log_code || 'Work Statement')}</h3>
-              <p class="wp-pq-panel-note">${esc(workLog.client_name || '')} · ${esc(workLog.job_summary || '')} · ${esc(workLog.range_start || '')} to ${esc(workLog.range_end || '')}</p>
+              <p class="wp-pq-panel-note">${esc(workLog.client_name || '')}${workLog.job_summary ? ` · ${esc(workLog.job_summary)}` : ''}</p>
             </div>
             <div class="wp-pq-manager-inline-actions">
               <button class="button wp-pq-secondary-action" type="button" id="wp-pq-work-log-export">Export CSV</button>
               <button class="button wp-pq-secondary-action" type="button" id="wp-pq-work-log-print">Print PDF</button>
             </div>
           </div>
-          <form id="wp-pq-work-log-update-form">
+          <div class="wp-pq-chip-row">
+            <span class="wp-pq-chip">${esc(workLog.range_start || '')} to ${esc(workLog.range_end || '')}</span>
+            <span class="wp-pq-chip">${Number((workLog.tasks || []).length)} tasks</span>
+          </div>
+          <form id="wp-pq-work-log-update-form" class="wp-pq-manager-card">
             <label>Notes <textarea name="notes" rows="3">${esc(workLog.notes || '')}</textarea></label>
-            <button class="button" type="submit">Save Notes</button>
+            <div class="wp-pq-manager-inline-actions">
+              <button class="button" type="submit">Save Notes</button>
+            </div>
           </form>
           <table class="wp-pq-admin-table wp-pq-manager-table">
             <thead><tr><th>Task</th><th>Status</th><th>Job</th><th>Updated</th><th>Billing</th></tr></thead>
@@ -767,7 +826,7 @@
               ${(workLog.tasks || []).map((task) => `
                 <tr>
                   <td><strong>${esc(task.title || '')}</strong><div class="wp-pq-panel-note">${esc(task.description || '')}</div></td>
-                  <td>${esc(task.status || '')}</td>
+                  <td>${esc(workflowStatusLabel(task.status || ''))}</td>
                   <td>${esc(task.bucket_name || '')}</td>
                   <td>${esc(task.updated_at || task.created_at || '')}</td>
                   <td>${esc(task.billing_status || '')}</td>
@@ -777,6 +836,8 @@
           </table>
         </section>
       `;
+    } else {
+      state.workLogDetail = null;
     }
 
     managerContent.innerHTML = `
@@ -1164,6 +1225,46 @@
     });
   });
 
+  managerToolbar?.addEventListener('click', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const button = target.closest('button');
+    if (!button) return;
+    const action = button.dataset.action;
+
+    try {
+      if (action === 'start-create-work-log') {
+        state.workLogMode = 'create';
+        await renderWorkStatements();
+        return;
+      }
+      if (action === 'cancel-create-work-log') {
+        state.workLogMode = 'review';
+        const params = new URLSearchParams(window.location.search);
+        replaceSectionUrl('work-statements', {
+          work_log_id: params.get('work_log_id') || '',
+          start_date: params.get('start_date') || '',
+          end_date: params.get('end_date') || '',
+        });
+        await renderWorkStatements();
+        return;
+      }
+      if (action === 'start-create-statement') {
+        state.invoiceDraftMode = 'create';
+        await renderInvoiceDrafts();
+        return;
+      }
+      if (action === 'cancel-create-statement') {
+        state.invoiceDraftMode = 'review';
+        state.invoiceDraftClientId = 0;
+        replaceSectionUrl('invoice-drafts', { period: new URLSearchParams(window.location.search).get('period') || new Date().toISOString().slice(0, 7) });
+        await renderInvoiceDrafts();
+      }
+    } catch (error) {
+      toast(error.message || 'Action failed.', true);
+    }
+  });
+
   managerToolbar?.addEventListener('submit', async (event) => {
     const form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
@@ -1195,6 +1296,12 @@
         await renderMonthlyStatements();
         return;
       }
+      if (form.id === 'wp-pq-work-log-filter-form') {
+        const data = Object.fromEntries(new FormData(form).entries());
+        replaceSectionUrl('work-statements', data);
+        await renderWorkStatements();
+        return;
+      }
       if (form.id === 'wp-pq-work-log-create-form') {
         const formData = new FormData(form);
         const payload = {
@@ -1207,6 +1314,7 @@
         };
         const response = await submitJson('manager/work-logs', 'POST', payload);
         const workLogId = Number(response?.work_log?.id || 0);
+        state.workLogMode = 'review';
         replaceSectionUrl('work-statements', workLogId > 0 ? { work_log_id: workLogId } : {});
         await renderWorkStatements(workLogId);
         toast(response.message || 'Work statement created.', false);
@@ -1276,6 +1384,12 @@
         await renderMonthlyStatements();
         return;
       }
+      if (form.id === 'wp-pq-work-log-filter-form') {
+        const data = Object.fromEntries(new FormData(form).entries());
+        replaceSectionUrl('work-statements', data);
+        await renderWorkStatements();
+        return;
+      }
       if (form.id === 'wp-pq-statement-period-form') {
         const data = Object.fromEntries(new FormData(form).entries());
         replaceSectionUrl('invoice-drafts', data);
@@ -1308,24 +1422,13 @@
         return;
       }
       if (button.dataset.openWorkLog) {
+        state.workLogMode = 'review';
         await openSection('work-statements', { query: { work_log_id: Number(button.dataset.openWorkLog || 0) } });
         return;
       }
       if (button.dataset.openStatement) {
         state.invoiceDraftMode = 'review';
         await openSection('invoice-drafts', { query: { statement_id: Number(button.dataset.openStatement || 0) } });
-        return;
-      }
-      if (action === 'start-create-statement') {
-        state.invoiceDraftMode = 'create';
-        await renderInvoiceDrafts();
-        return;
-      }
-      if (action === 'cancel-create-statement') {
-        state.invoiceDraftMode = 'review';
-        state.invoiceDraftClientId = 0;
-        replaceSectionUrl('invoice-drafts', {});
-        await renderInvoiceDrafts();
         return;
       }
       if (action === 'delete-job') {
