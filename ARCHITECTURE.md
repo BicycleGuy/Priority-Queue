@@ -65,19 +65,53 @@
 │  └── Manager sections (clients, billing, statements, AI)               │
 │                                                                         │
 │  Enqueues:                                                             │
-│  ├── admin-queue.css           (all styles)                            │
-│  ├── admin-queue.js            (3,348 lines — core app controller)    │
-│  ├── admin-portal-manager.js   (1,666 lines — manager features)      │
-│  ├── SortableJS                (drag-and-drop reorder)                │
-│  ├── FullCalendar              (calendar view)                         │
-│  └── Uppy                      (file uploads)                         │
+│  ├── admin-queue.css             (all styles)                          │
+│  ├── admin-queue.js              (~2,500 lines — core controller)     │
+│  ├── admin-queue-modals.js       (~620 lines — modal systems)        │
+│  ├── admin-queue-alerts.js       (~310 lines — alerts & prefs)       │
+│  ├── admin-portal-manager.js     (~1,700 lines — manager features)   │
+│  ├── SortableJS                  (drag-and-drop reorder)              │
+│  ├── FullCalendar                (calendar view)                      │
+│  └── Uppy                        (file uploads)                       │
 │                                                                         │
 │  Injects wpPqConfig:                                                   │
 │  { apiBase, nonce, userId, userRole, canApprove, canAssign, ... }      │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### JavaScript App (admin-queue.js)
+### JavaScript Load Order & Bridge Pattern
+
+```
+  wp-pq-admin (admin-queue.js)
+       │
+       ├── Sets window.wpPqPortalUI (narrow bridge)
+       │   { getActiveTask, getKnownTask, getSelectedTaskId,
+       │     setSelectedTaskId, api, alert, upsertTask, loadTasks,
+       │     selectTask, refreshFromCache, syncOrderFromBoardDom,
+       │     activateWorkspaceTab, currentView, humanizeToken,
+       │     escapeHtml, formatDateTime, removeTaskById,
+       │     closeDrawer, openDrawer, focusMeetingStart }
+       │
+       ├──► wp-pq-modals (admin-queue-modals.js)
+       │    Reads: window.wpPqPortalUI (18 methods)
+       │    Sets:  window.wpPqModals
+       │           { openMoveModal, openRevisionModal, openCompletionModal,
+       │             openDeleteModal, close*Modal, shouldPromptForMoveDecision,
+       │             setPendingMove, setPendingStatusAction, setPendingRevisionAction }
+       │
+       ├──► wp-pq-alerts (admin-queue-alerts.js)
+       │    Reads: window.wpPqPortalUI (8 methods)
+       │    Sets:  window.wpPqAlerts
+       │           { loadPrefs, loadInbox, dismissNotifications,
+       │             openTaskFromAlert, openPreferences, closePreferences,
+       │             refreshPreferences }
+       │
+       └──► wp-pq-portal-manager (admin-portal-manager.js)
+            Reads: window.wpPqAlerts.openPreferences
+            Sets:  window.wpPqPortalManager { openSection }
+```
+
+### JavaScript App Controller (admin-queue.js)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -85,8 +119,9 @@
 │                                                                         │
 │  INIT                                                                  │
 │  ├── Parse wpPqConfig                                                  │
-│  ├── Cache DOM references (30+ elements)                               │
-│  ├── Wire event listeners (board, forms, modals, sidebar)              │
+│  ├── Cache DOM references                                              │
+│  ├── Wire event listeners (board, forms, sidebar, status actions)      │
+│  ├── Set window.wpPqPortalUI bridge (before satellite scripts run)    │
 │  ├── loadTasks() ──► GET /pq/v1/tasks ──► replaceTasks(cache)         │
 │  └── Render initial view (board/calendar/list)                         │
 │                                                                         │
@@ -109,8 +144,69 @@
 │      ├── Activity tab    ► (status history from task data)             │
 │      └── Billing tab     ► (from task enrichment)                      │
 │                                                                         │
-│  Exposes window.wpPqPortalUI = {                                       │
-│    navigateToTask, refreshBoard, getActiveTask, ... }                  │
+│  BOARD DRAG-AND-DROP ──────────────────────────────────────────────── │
+│  initBoardSort() → SortableJS                                          │
+│  ├── Same-column reorder → POST /tasks/reorder                         │
+│  ├── Cross-column move   → calls wpPqModals.openMoveModal()           │
+│  └── Simple transition   → POST /tasks/move (no modal needed)         │
+│                                                                         │
+│  Does NOT contain: modals, alerts, notifications, or preferences.     │
+│  Those live in satellite files that communicate via the bridge.        │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Modal Systems (admin-queue-modals.js)
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                       MODAL SYSTEMS                                     │
+│                    Reads from window.wpPqPortalUI bridge               │
+│                                                                         │
+│  Each modal follows the same lifecycle:                                │
+│    open*Modal()  → populate fields, show backdrop                     │
+│    close*Modal() → hide, reset form, optionally refresh board         │
+│    wire*Modal()  → attach submit/cancel/backdrop listeners             │
+│                                                                         │
+│  ├── Revision Modal     Request changes with note + optional message  │
+│  │   ├── Supports drag-move revisions and status-button revisions     │
+│  │   └── POST /tasks/{id}/status or /tasks/move                       │
+│  │                                                                     │
+│  ├── Move Modal         Cross-column move with options                │
+│  │   ├── Meeting request checkbox, email notification option           │
+│  │   └── POST /tasks/move                                              │
+│  │                                                                     │
+│  ├── Completion Modal   Capture billing details when marking done     │
+│  │   ├── Billing mode, hours, rate, amount, work summary              │
+│  │   ├── Auto-selects non_billable when action_owner is client        │
+│  │   └── POST /tasks/{id}/done → writes to work ledger               │
+│  │                                                                     │
+│  └── Delete Modal       Confirm task deletion                         │
+│      └── DELETE /tasks/{id}                                            │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Alerts, Notifications & Preferences (admin-queue-alerts.js)
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    NOTIFICATIONS & PREFERENCES                          │
+│                    Reads from window.wpPqPortalUI bridge               │
+│                                                                         │
+│  INBOX ────────────────────────────────────────────────────────────── │
+│  loadInbox()              GET /notifications → render alert cards      │
+│  dismissNotifications()   POST /notifications/mark-read                │
+│  openTaskFromAlert()      Navigate to task from alert card             │
+│  30-second polling interval for new notifications                      │
+│                                                                         │
+│  ALERT STACK ──────────────────────────────────────────────────────── │
+│  renderPersistentAlerts() Render notification cards into DOM           │
+│  scheduleAlertDismiss()   Auto-dismiss after 2.6s (if pref enabled)   │
+│                                                                         │
+│  PREFERENCES ──────────────────────────────────────────────────────── │
+│  loadPrefs()              GET /notification-prefs                      │
+│  wirePrefs()              Save button → POST /notification-prefs       │
+│  openPreferencesPanel()   Show preferences panel                      │
+│  closePreferencesPanel()  Hide preferences panel                      │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -534,7 +630,18 @@ wp-priority-queue-plugin/
 ├── assets/
 │   ├── css/admin-queue.css          All plugin styles (~2600 lines)
 │   └── js/
-│       ├── admin-queue.js           Core frontend app (~3348 lines)
-│       └── admin-portal-manager.js  Manager features (~1666 lines)
+│       ├── admin-queue.js           Core app controller (~2500 lines)
+│       ├── admin-queue-modals.js    Modal systems (~620 lines)
+│       ├── admin-queue-alerts.js    Alerts & preferences (~310 lines)
+│       └── admin-portal-manager.js  Manager features (~1700 lines)
+├── ARCHITECTURE.md                  This file
 └── .claude/                         Claude Code commands & agents
+
+Script load order (WordPress wp_enqueue_script dependencies):
+  sortable-js, fullcalendar, uppy
+    └── wp-pq-admin (admin-queue.js)        ► sets window.wpPqPortalUI
+          ├── wp-pq-modals (modals.js)      ► sets window.wpPqModals
+          ├── wp-pq-alerts (alerts.js)      ► sets window.wpPqAlerts
+          └── wp-pq-portal-manager          ► sets window.wpPqPortalManager
+              (depends on admin + modals + alerts)
 ```
