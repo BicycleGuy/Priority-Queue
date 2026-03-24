@@ -45,7 +45,7 @@
 
 .wp-pq-wrap .button,
 .wp-pq-wrap .button.button-primary {
-  border: 0;
+  border: 0 !important;
   border-radius: 999px;
   background: var(--pq-accent);
   color: #fff;
@@ -54,7 +54,7 @@
   font-weight: 700;
   font-size: 12px;
   line-height: 1.15;
-  box-shadow: none;
+  box-shadow: none !important;
 }
 
 .wp-pq-wrap .button:hover,
@@ -68,7 +68,8 @@
 }
 
 .wp-pq-wrap .button.is-active {
-  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.22);
+  box-shadow: none !important;
+  filter: brightness(1.05);
 }
 
 .wp-pq-portal .button,
@@ -369,8 +370,8 @@
 }
 
 .wp-pq-secondary-action {
-  background: transparent;
-  border: 1px solid var(--pq-border);
+  background: #263348;
+  border: 0 !important;
 }
 
 .wp-pq-view-toggle,
@@ -1246,19 +1247,19 @@ button.wp-pq-manager-list-item {
   gap: 4px;
   width: 100%;
   padding: 12px 14px;
-  border: 1px solid #d9e1ed !important;
+  border: 0 !important;
   border-radius: 14px;
-  background: #fff !important;
+  background: #f6f8fc !important;
   color: var(--pq-ink) !important;
   text-align: left;
   cursor: pointer;
-  box-shadow: none !important;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05) !important;
 }
 
 button.wp-pq-manager-list-item:hover,
 button.wp-pq-manager-list-item.is-active {
-  border-color: #c0cbe0 !important;
-  background: #f5f8fd !important;
+  background: #eef3fb !important;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08) !important;
 }
 
 .wp-pq-manager-list-item strong {
