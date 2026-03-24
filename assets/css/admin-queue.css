@@ -1359,9 +1359,10 @@ button.wp-pq-manager-list-item.is-active {
   display: grid;
   gap: 8px;
   min-width: 0;
-  padding: 12px 14px;
-  border: 1px solid #dbe3f1;
-  border-radius: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .wp-pq-manager-statuses legend {
@@ -1383,8 +1384,8 @@ button.wp-pq-manager-list-item.is-active {
 
 .wp-pq-manager-status-grid {
   display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  grid-template-columns: 1fr;
 }
 
 .wp-pq-manager-status-option {
@@ -1392,10 +1393,11 @@ button.wp-pq-manager-list-item.is-active {
   align-items: center;
   gap: 8px;
   margin: 0;
-  padding: 10px 12px;
-  border: 1px solid #e1e7f0;
-  border-radius: 12px;
-  background: #fff;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-weight: 600;
 }
 
 .wp-pq-manager-status-option input {
@@ -2526,8 +2528,7 @@ body.wp-pq-drawer-open {
   .wp-pq-manager-toolbar-grid,
   .wp-pq-manager-card-grid,
   .wp-pq-manager-split,
-  .wp-pq-manager-split-tight,
-  .wp-pq-manager-status-grid {
+  .wp-pq-manager-split-tight {
     grid-template-columns: 1fr;
   }
 

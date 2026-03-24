@@ -1337,7 +1337,7 @@
     statusColumns.forEach((column) => {
       const tasksInColumn = tasks.filter((task) => task.status === column.key);
       const columnEl = document.createElement('section');
-      const shouldCollapse = tasksInColumn.length === 0 && column.key !== 'needs_clarification';
+      const shouldCollapse = tasksInColumn.length === 0;
       columnEl.className = 'wp-pq-board-column' + (shouldCollapse ? ' is-collapsed' : '');
       columnEl.dataset.status = column.key;
       columnEl.innerHTML =

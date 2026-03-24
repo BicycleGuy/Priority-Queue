@@ -788,7 +788,6 @@
             </div>
             <div class="wp-pq-manager-inline-actions">
               <button class="button button-primary" type="submit">Create Work Statement</button>
-              <button class="button wp-pq-secondary-action" type="button" data-action="cancel-create-work-log">Cancel</button>
             </div>
           </form>
         </section>
@@ -1305,24 +1304,6 @@
         await renderWorkStatements();
         return;
       }
-      if (form.id === 'wp-pq-work-log-create-form') {
-        const formData = new FormData(form);
-        const payload = {
-          client_id: Number(formData.get('client_id') || 0),
-          range_start: formData.get('range_start'),
-          range_end: formData.get('range_end'),
-          notes: formData.get('notes'),
-          job_ids: Array.from(form.querySelector('#wp-pq-work-log-jobs')?.selectedOptions || []).map((option) => Number(option.value || 0)).filter(Boolean),
-          statuses: Array.from(form.querySelectorAll('input[name="statuses"]:checked')).map((input) => input.value),
-        };
-        const response = await submitJson('manager/work-logs', 'POST', payload);
-        const workLogId = Number(response?.work_log?.id || 0);
-        state.workLogMode = 'review';
-        replaceSectionUrl('work-statements', workLogId > 0 ? { work_log_id: workLogId } : {});
-        await renderWorkStatements(workLogId);
-        toast(response.message || 'Work statement created.', false);
-        return;
-      }
       if (form.id === 'wp-pq-statement-create-form') {
         const formData = new FormData(form);
         const payload = {
@@ -1595,6 +1576,24 @@
           }
           return;
         }
+      }
+      if (form.id === 'wp-pq-work-log-create-form') {
+        const formData = new FormData(form);
+        const payload = {
+          client_id: Number(formData.get('client_id') || 0),
+          range_start: formData.get('range_start'),
+          range_end: formData.get('range_end'),
+          notes: formData.get('notes'),
+          job_ids: Array.from(form.querySelector('#wp-pq-work-log-jobs')?.selectedOptions || []).map((option) => Number(option.value || 0)).filter(Boolean),
+          statuses: Array.from(form.querySelectorAll('input[name="statuses"]:checked')).map((input) => input.value),
+        };
+        const response = await submitJson('manager/work-logs', 'POST', payload);
+        const workLogId = Number(response?.work_log?.id || 0);
+        state.workLogMode = 'review';
+        replaceSectionUrl('work-statements', workLogId > 0 ? { work_log_id: workLogId } : {});
+        await renderWorkStatements(workLogId);
+        toast(response.message || 'Work statement created.', false);
+        return;
       }
       if (form.id === 'wp-pq-work-log-update-form' && state.workLogDetail) {
         await submitJson(`manager/work-logs/${state.workLogDetail.id}`, 'POST', Object.fromEntries(new FormData(form).entries()));
