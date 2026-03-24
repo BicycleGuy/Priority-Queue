@@ -4,7 +4,6 @@
   const apiRoot = window.wpPqConfig.root;
   const coreRoot = window.wpPqConfig.coreRoot || '/wp-json/wp/v2/';
   const headers = { 'X-WP-Nonce': window.wpPqConfig.nonce };
-  const alertDismissPrefKey = 'alert_auto_dismiss';
 
   const statusColumns = [
     { key: 'pending_approval', label: 'Pending Approval' },
@@ -27,45 +26,6 @@
     statement_batched: 'In Invoice Draft',
   };
 
-  const prefGroups = [
-    {
-      key: 'review',
-      label: 'Reviews and approvals',
-      description: 'New requests, approvals, and clarification requests',
-      events: ['task_created', 'task_assigned', 'task_approved', 'task_rejected'],
-    },
-    {
-      key: 'mentions',
-      label: 'Mentions',
-      description: 'Direct @mentions on a task',
-      events: ['task_mentioned'],
-    },
-    {
-      key: 'schedule',
-      label: 'Schedule changes',
-      description: 'Priority changes and date updates',
-      events: ['task_reprioritized', 'task_schedule_changed'],
-    },
-    {
-      key: 'delivery',
-      label: 'Delivery and revisions',
-      description: 'Deliveries, revisions, and invoice draft creation',
-      events: ['task_revision_requested', 'task_delivered', 'statement_batched'],
-    },
-    {
-      key: 'retention',
-      label: 'Retention reminders',
-      description: 'Day-300 storage reminder',
-      events: ['retention_day_300'],
-    },
-    {
-      key: 'client_updates',
-      label: 'Client updates',
-      description: 'Immediate status updates and the daily digest',
-      events: ['client_status_updates', 'client_daily_digest'],
-    },
-  ];
-
   const binderIcons = {
     jobs: '▣',
     all_tasks: '≡',
@@ -80,13 +40,6 @@
     alerts: '•',
     preferences: '○',
   };
-
-  function activePrefGroups() {
-    if (!window.wpPqConfig.canViewAll && prefPanel) {
-      return prefGroups.filter((group) => group.key === 'client_updates');
-    }
-    return prefGroups;
-  }
 
   const taskList = document.getElementById('wp-pq-task-list');
   const boardEl = document.getElementById('wp-pq-board');
@@ -108,12 +61,6 @@
   const createBucketEl = document.getElementById('wp-pq-create-bucket');
   const createNewBucketWrap = document.getElementById('wp-pq-create-new-bucket-wrap');
   const createNewBucketEl = document.getElementById('wp-pq-create-new-bucket');
-  const alertStackEl = document.getElementById('wp-pq-alert-stack');
-  const openPrefsBtn = document.getElementById('wp-pq-open-prefs');
-  const closePrefsBtn = document.getElementById('wp-pq-close-prefs');
-  const prefPanel = document.getElementById('wp-pq-pref-panel');
-  const prefList = document.getElementById('wp-pq-pref-list');
-  const prefSaveBtn = document.getElementById('wp-pq-save-prefs');
   const currentTaskEl = document.getElementById('wp-pq-current-task');
   const currentTaskStatusEl = document.getElementById('wp-pq-current-task-status');
   const currentTaskMetaEl = document.getElementById('wp-pq-current-task-meta');
@@ -160,58 +107,14 @@
   const drawerCloseBtn = document.getElementById('wp-pq-close-drawer');
   const taskWorkspaceEl = document.getElementById('wp-pq-task-workspace');
   const taskEmptyEl = document.getElementById('wp-pq-task-empty');
-  const revisionModalBackdrop = document.getElementById('wp-pq-revision-modal-backdrop');
-  const revisionModal = document.getElementById('wp-pq-revision-modal');
-  const revisionForm = document.getElementById('wp-pq-revision-form');
-  const revisionSummaryEl = document.getElementById('wp-pq-revision-summary');
-  const closeRevisionModalBtn = document.getElementById('wp-pq-close-revision-modal');
-  const cancelRevisionBtn = document.getElementById('wp-pq-cancel-revision');
-  const moveModalBackdrop = document.getElementById('wp-pq-move-modal-backdrop');
-  const moveModal = document.getElementById('wp-pq-move-modal');
-  const moveForm = document.getElementById('wp-pq-move-form');
-  const closeMoveModalBtn = document.getElementById('wp-pq-close-move-modal');
-  const cancelMoveBtn = document.getElementById('wp-pq-cancel-move');
-  const moveTitleEl = document.getElementById('wp-pq-move-title');
-  const moveSummaryEl = document.getElementById('wp-pq-move-summary');
-  const applyMoveBtn = document.getElementById('wp-pq-apply-move');
-  const moveMeetingOption = document.getElementById('wp-pq-move-meeting-option');
-  const moveEmailOption = document.getElementById('wp-pq-move-email-option');
-  const completionModalBackdrop = document.getElementById('wp-pq-completion-modal-backdrop');
-  const completionModal = document.getElementById('wp-pq-completion-modal');
-  const completionForm = document.getElementById('wp-pq-completion-form');
-  const completionSummaryEl = document.getElementById('wp-pq-completion-summary');
-  const completionModeNoteEl = document.getElementById('wp-pq-completion-mode-note');
-  const completionBillingModeEl = document.getElementById('wp-pq-completion-billing-mode');
-  const completionBillingCategoryEl = document.getElementById('wp-pq-completion-billing-category');
-  const completionWorkSummaryEl = document.getElementById('wp-pq-completion-work-summary');
-  const completionHoursEl = document.getElementById('wp-pq-completion-hours');
-  const completionRateEl = document.getElementById('wp-pq-completion-rate');
-  const completionAmountEl = document.getElementById('wp-pq-completion-amount');
-  const completionExpenseReferenceEl = document.getElementById('wp-pq-completion-expense-reference');
-  const completionNonBillableReasonEl = document.getElementById('wp-pq-completion-non-billable-reason');
-  const closeCompletionModalBtn = document.getElementById('wp-pq-close-completion-modal');
-  const cancelCompletionBtn = document.getElementById('wp-pq-cancel-completion');
-  const deleteModalBackdrop = document.getElementById('wp-pq-delete-modal-backdrop');
-  const deleteModal = document.getElementById('wp-pq-delete-modal');
-  const deleteSummaryEl = document.getElementById('wp-pq-delete-summary');
-  const closeDeleteModalBtn = document.getElementById('wp-pq-close-delete-modal');
-  const cancelDeleteBtn = document.getElementById('wp-pq-cancel-delete');
-  const confirmDeleteBtn = document.getElementById('wp-pq-confirm-delete');
   const binderClientContext = document.getElementById('wp-pq-binder-client-context');
   const binderJobContext = document.getElementById('wp-pq-binder-job-context');
 
   let selectedTaskId = null;
   let tasksCache = [];
   let calendar = null;
-  let pendingMove = null;
-  let pendingStatusAction = null;
-  let pendingRevisionAction = null;
-  let pendingDeleteTaskId = 0;
-  let pendingCompletionTaskId = 0;
   let participantCache = [];
   let currentView = 'board';
-  let prefsLoaded = false;
-  let prefState = {};
   let taskPanelState = { taskId: null, messages: false, meetings: false, notes: false, files: false, participants: false };
   let selectedApprovalTaskIds = new Set();
   let selectedBatchTaskIds = new Set();
@@ -222,8 +125,6 @@
   let workersCache = [];
   let workersCacheKey = '';
   let boardSortInstances = [];
-  let notificationsCache = [];
-  let notificationDismissTimers = new Map();
   let boardDragActive = false;
   let boardDragLockUntil = 0;
   let activeTaskRecord = null;
@@ -1273,7 +1174,7 @@
       buttons.push(buttonHtml(task.id, 'delivered', 'Delivered'));
     }
     if (canOperate && task.status === 'delivered') {
-      if (completionModal) {
+      if (window.wpPqModals && window.wpPqModals.completionModal) {
         buttons.push(buttonHtml(task.id, 'done', 'Mark Done'));
       }
       if (!billingLocked) {
@@ -1294,40 +1195,6 @@
 
   function deleteButtonHtml(taskId) {
     return '<button type="button" class="button wp-pq-delete-btn wp-pq-button-danger" data-task-id="' + taskId + '">Delete</button>';
-  }
-
-  function openRevisionModal(action) {
-    if (!revisionModal || !revisionModalBackdrop || !revisionForm || !action) return;
-    pendingRevisionAction = action;
-    const task = getTaskById(action.taskId);
-    const textarea = revisionForm.querySelector('textarea[name="revision_note"]');
-    const checkbox = revisionForm.querySelector('input[name="post_message"]');
-    if (revisionSummaryEl) {
-      revisionSummaryEl.textContent = task
-        ? 'Explain what needs to change on "' + task.title + '". This will guide the next revision cycle.'
-        : 'Add a short note so the requester knows what to revise.';
-    }
-    if (textarea) textarea.value = '';
-    if (checkbox) checkbox.checked = true;
-    revisionModal.hidden = false;
-    revisionModal.setAttribute('aria-hidden', 'false');
-    revisionModalBackdrop.hidden = false;
-    if (textarea) textarea.focus();
-  }
-
-  async function closeRevisionModal(shouldResetBoard) {
-    if (revisionModal) {
-      revisionModal.hidden = true;
-      revisionModal.setAttribute('aria-hidden', 'true');
-    }
-    if (revisionModalBackdrop) revisionModalBackdrop.hidden = true;
-    const resetBoard = (!!pendingRevisionAction || !!pendingMove || !!pendingStatusAction) && shouldResetBoard;
-    pendingRevisionAction = null;
-    pendingMove = null;
-    pendingStatusAction = null;
-    if (resetBoard) {
-      await loadTasks();
-    }
   }
 
   function renderBoard(tasks) {
@@ -1368,60 +1235,6 @@
     if (!taskList) return;
     taskList.innerHTML = '';
     tasks.forEach((task) => taskList.appendChild(taskItem(task)));
-  }
-
-  function shouldPromptForMoveDecision(sourceStatus, targetStatus) {
-    const effectiveStatus = targetStatus || sourceStatus;
-    return ['pending_approval', 'needs_clarification', 'approved', 'in_progress', 'needs_review', 'delivered'].includes(effectiveStatus);
-  }
-
-  function moveDecisionConfig(move) {
-    if (!move || move.sourceStatus === move.targetStatus) {
-      return {
-        title: 'Apply queue change?',
-        body: 'This changes where the task sits in the active queue. If the move reflects a change in urgency, you can raise or lower priority here as well.',
-        cta: 'Apply Queue Change',
-      };
-    }
-
-    const configs = {
-      pending_approval: {
-        title: 'Send for Approval?',
-        body: 'This places the task in the approval queue so you can review scope, urgency, and timing before work begins.',
-        cta: 'Send for Approval',
-      },
-      needs_review: {
-        title: 'Send to Review?',
-        body: 'This marks the task as ready for review. Responsibility may shift from execution to reviewer follow-up.',
-        cta: 'Send to Review',
-      },
-      needs_clarification: {
-        title: 'Move to Needs Clarification?',
-        body: 'This marks the task as waiting on additional information or direction. You can also open the meeting scheduler next if a call would unblock the task.',
-        cta: 'Request Clarification',
-      },
-      approved: {
-        title: 'Mark as Approved?',
-        body: 'This confirms the task has been reviewed and accepted at this stage. Downstream work may now proceed.',
-        cta: 'Mark Approved',
-      },
-      in_progress: {
-        title: 'Start Work?',
-        body: 'This moves the task into active execution. It will appear in current work queues and progress tracking.',
-        cta: 'Start Work',
-      },
-      delivered: {
-        title: 'Mark as Delivered?',
-        body: 'This records the task as delivered to the requester or client. It stays reversible until you explicitly mark it done.',
-        cta: 'Mark Delivered',
-      },
-    };
-
-    return configs[move.targetStatus] || {
-      title: 'Move task?',
-      body: 'This changes the task status in the workflow.',
-      cta: 'Move Task',
-    };
   }
 
   function initBoardSort() {
@@ -1492,14 +1305,14 @@
             return;
           }
 
-          pendingMove = {
+          window.wpPqModals.setPendingMove({
             taskId: movedTaskId,
             targetTaskId: targetTaskId,
             position: position,
             sourceStatus: sourceStatus,
             targetStatus: targetStatus,
-          };
-          if (!shouldPromptForMoveDecision(sourceStatus, targetStatus)) {
+          });
+          if (!window.wpPqModals.shouldPromptForMoveDecision(sourceStatus, targetStatus)) {
             try {
               selectedTaskId = movedTaskId;
               const result = await api('tasks/move', {
@@ -1530,7 +1343,7 @@
             return;
           }
 
-          openMoveModal();
+          window.wpPqModals.openMoveModal();
         },
       });
       boardSortInstances.push(sortable);
@@ -1543,200 +1356,6 @@
       if (el !== columnEl) el.classList.remove('is-drag-target');
     });
     if (columnEl) columnEl.classList.add('is-drag-target');
-  }
-
-  function openMoveModal() {
-    if (!moveModal || !moveModalBackdrop || (!pendingMove && !pendingStatusAction)) return;
-
-    const action = pendingMove || pendingStatusAction;
-    const movedTask = getTaskById(action.taskId);
-    const targetTask = pendingMove ? getTaskById(pendingMove.targetTaskId) : null;
-    const targetStatus = pendingMove ? pendingMove.targetStatus : pendingStatusAction.status;
-    const config = moveDecisionConfig({
-      sourceStatus: pendingMove ? pendingMove.sourceStatus : (movedTask ? movedTask.status : ''),
-      targetStatus: targetStatus,
-    });
-    if (moveTitleEl) moveTitleEl.textContent = config.title;
-    if (applyMoveBtn) applyMoveBtn.textContent = config.cta;
-
-    const staticCopy = moveForm ? moveForm.querySelector('.wp-pq-choice-static small') : null;
-    if (staticCopy) {
-      staticCopy.textContent = pendingMove
-        ? 'This move updates task order. If you moved the task into a new column, it also changes status.'
-        : 'This move changes task status. Priority and meeting follow-up are optional.';
-    }
-
-    if (moveSummaryEl && movedTask && targetTask) {
-      const moveText = '"' + movedTask.title + '" moved ' + pendingMove.position + ' "' + targetTask.title + '". ';
-      moveSummaryEl.textContent = moveText + config.body;
-    } else if (moveSummaryEl && movedTask) {
-      moveSummaryEl.textContent = '"' + movedTask.title + '" moved into ' + humanizeToken(targetStatus) + '. ' + config.body;
-    } else if (moveSummaryEl) {
-      moveSummaryEl.textContent = config.body;
-    }
-
-    const keepPriority = moveForm ? moveForm.querySelector('input[name="priority_direction"][value="keep"]') : null;
-    const swapDueDates = moveForm ? moveForm.querySelector('input[name="swap_due_dates"]') : null;
-    const requestMeeting = moveForm ? moveForm.querySelector('input[name="request_meeting"]') : null;
-    const sendUpdateEmail = moveForm ? moveForm.querySelector('input[name="send_update_email"]') : null;
-    if (keepPriority) keepPriority.checked = true;
-    if (swapDueDates) swapDueDates.checked = false;
-    if (swapDueDates) swapDueDates.disabled = !pendingMove || !pendingMove.targetTaskId;
-    if (requestMeeting) requestMeeting.checked = false;
-    if (sendUpdateEmail) sendUpdateEmail.checked = !!window.wpPqConfig.canViewAll;
-    if (moveMeetingOption) {
-      moveMeetingOption.hidden = targetStatus !== 'needs_clarification';
-    }
-    if (moveEmailOption) {
-      moveEmailOption.hidden = !window.wpPqConfig.canViewAll || !movedTask || !parseInt(movedTask.client_id || 0, 10);
-    }
-
-    moveModal.hidden = false;
-    moveModal.setAttribute('aria-hidden', 'false');
-    moveModalBackdrop.hidden = false;
-  }
-
-  async function closeMoveModal(shouldResetBoard) {
-    if (moveModal) {
-      moveModal.hidden = true;
-      moveModal.setAttribute('aria-hidden', 'true');
-    }
-    if (moveModalBackdrop) moveModalBackdrop.hidden = true;
-
-    const resetBoard = (!!pendingMove || !!pendingStatusAction) && shouldResetBoard;
-    pendingMove = null;
-    pendingStatusAction = null;
-
-    if (resetBoard) {
-      await loadTasks();
-    }
-  }
-
-  function completionModeConfig(mode) {
-    const configs = {
-      hourly: {
-        note: 'Hourly work needs a work summary, billing category, and hours. Rate and amount stay optional.',
-        show: ['hours', 'rate'],
-        requireCategory: true,
-        requireHours: true,
-      },
-      fixed_fee: {
-        note: 'Fixed-fee work needs a short summary and billing category. Amount can stay optional until invoicing.',
-        show: ['rate', 'amount'],
-        requireCategory: true,
-        requireHours: false,
-      },
-      pass_through_expense: {
-        note: 'Pass-through expenses need a work summary, billing category, and either an amount or an expense reference.',
-        show: ['amount', 'expense_reference'],
-        requireCategory: true,
-        requireHours: false,
-      },
-      non_billable: {
-        note: 'Non-billable work still needs a summary for the ledger, but it will stay out of invoice prep.',
-        show: ['non_billable_reason'],
-        requireCategory: false,
-        requireHours: false,
-      },
-    };
-
-    return configs[mode] || configs.fixed_fee;
-  }
-
-  function syncCompletionForm(mode) {
-    if (!completionForm) return;
-
-    const normalizedMode = String(mode || (completionBillingModeEl ? completionBillingModeEl.value : '') || 'fixed_fee');
-    const config = completionModeConfig(normalizedMode);
-    const rows = {
-      billing_category: completionBillingCategoryEl ? completionBillingCategoryEl.closest('label') : null,
-      hours: completionHoursEl ? completionHoursEl.closest('label') : null,
-      rate: completionRateEl ? completionRateEl.closest('label') : null,
-      amount: completionAmountEl ? completionAmountEl.closest('label') : null,
-      expense_reference: completionExpenseReferenceEl ? completionExpenseReferenceEl.closest('label') : null,
-      non_billable_reason: completionNonBillableReasonEl ? completionNonBillableReasonEl.closest('label') : null,
-    };
-
-    Object.keys(rows).forEach((key) => {
-      if (rows[key]) {
-        rows[key].hidden = false;
-      }
-    });
-
-    if (rows.billing_category) rows.billing_category.hidden = !config.requireCategory;
-    if (rows.hours) rows.hours.hidden = !config.show.includes('hours');
-    if (rows.rate) rows.rate.hidden = !config.show.includes('rate');
-    if (rows.amount) rows.amount.hidden = !config.show.includes('amount');
-    if (rows.expense_reference) rows.expense_reference.hidden = !config.show.includes('expense_reference');
-    if (rows.non_billable_reason) rows.non_billable_reason.hidden = !config.show.includes('non_billable_reason');
-
-    if (completionModeNoteEl) completionModeNoteEl.textContent = config.note;
-    if (completionBillingCategoryEl) completionBillingCategoryEl.required = !!config.requireCategory;
-    if (completionHoursEl) completionHoursEl.required = !!config.requireHours;
-  }
-
-  function openCompletionModal(taskId) {
-    if (!completionModal || !completionModalBackdrop || !completionForm) return;
-
-    const task = getKnownTask(taskId);
-    if (!task) return;
-
-    pendingCompletionTaskId = taskId;
-    completionForm.reset();
-
-    const defaultMode = String(task.billing_mode || '').trim()
-      || ((Number(task.is_billable) === 0 || String(task.billing_status || '') === 'not_billable' || task.action_owner_is_client) ? 'non_billable' : 'fixed_fee');
-    if (completionBillingModeEl) completionBillingModeEl.value = defaultMode;
-    if (completionBillingCategoryEl) completionBillingCategoryEl.value = String(task.billing_category || task.bucket_name || '');
-    if (completionWorkSummaryEl) completionWorkSummaryEl.value = String(task.work_summary || task.description || task.title || '');
-    if (completionHoursEl) completionHoursEl.value = String(task.hours || '');
-    if (completionRateEl) completionRateEl.value = String(task.rate || '');
-    if (completionAmountEl) completionAmountEl.value = String(task.amount || '');
-    if (completionExpenseReferenceEl) completionExpenseReferenceEl.value = String(task.expense_reference || '');
-    if (completionNonBillableReasonEl) completionNonBillableReasonEl.value = String(task.non_billable_reason || '');
-    if (completionSummaryEl) {
-      completionSummaryEl.textContent = 'Capture the completion details for "' + task.title + '" before it moves out of the active workflow and into the work ledger.';
-    }
-
-    syncCompletionForm(defaultMode);
-    completionModal.hidden = false;
-    completionModal.setAttribute('aria-hidden', 'false');
-    completionModalBackdrop.hidden = false;
-    if (completionWorkSummaryEl) completionWorkSummaryEl.focus();
-  }
-
-  function closeCompletionModal() {
-    pendingCompletionTaskId = 0;
-    if (completionModal) {
-      completionModal.hidden = true;
-      completionModal.setAttribute('aria-hidden', 'true');
-    }
-    if (completionModalBackdrop) completionModalBackdrop.hidden = true;
-  }
-
-  function openDeleteModal(taskId) {
-    if (!deleteModal || !deleteModalBackdrop || !taskId) return;
-    pendingDeleteTaskId = taskId;
-    const task = getTaskById(taskId);
-    if (deleteSummaryEl) {
-      deleteSummaryEl.textContent = task
-        ? 'Delete "' + task.title + '" and remove its related messages, notes, files, meetings, and notifications.'
-        : 'This removes the task and its related messages, notes, files, meetings, and notifications.';
-    }
-    deleteModal.hidden = false;
-    deleteModal.setAttribute('aria-hidden', 'false');
-    deleteModalBackdrop.hidden = false;
-  }
-
-  function closeDeleteModal() {
-    pendingDeleteTaskId = 0;
-    if (deleteModal) {
-      deleteModal.hidden = true;
-      deleteModal.setAttribute('aria-hidden', 'true');
-    }
-    if (deleteModalBackdrop) {
-      deleteModalBackdrop.hidden = true;
-    }
   }
 
   function updateBatchButton() {
@@ -2042,36 +1661,6 @@
     participantCache = data.participants || [];
     taskPanelState.participants = true;
     renderMentionChips();
-  }
-
-  async function loadInbox() {
-    const data = await api('notifications', { method: 'GET' });
-    const notifications = data.notifications || [];
-    notificationsCache = notifications;
-    renderPersistentAlerts(notifications);
-    return data;
-  }
-
-  async function openTaskFromAlert(notification) {
-    const taskId = parseInt(notification && notification.task_id, 10);
-    const notificationId = parseInt(notification && notification.id, 10);
-    if (!taskId) return;
-
-    if (window.wpPqPortalManager && typeof window.wpPqPortalManager.openSection === 'function') {
-      await window.wpPqPortalManager.openSection('queue', { pushHistory: true });
-    }
-
-    selectedTaskId = taskId;
-    await loadTasks();
-    await selectTask(taskId, !!drawerEl);
-
-    if (notificationId > 0) {
-      try {
-        await dismissNotifications([notificationId]);
-      } catch (err) {
-        alert(err.message);
-      }
-    }
   }
 
   function renderMentionChips() {
@@ -2739,153 +2328,6 @@
     });
   }
 
-  async function loadPrefs() {
-    if (!prefList) return;
-    const data = await api('notification-prefs', { method: 'GET' });
-    const prefs = data.prefs || {};
-    prefState = prefs;
-    prefsLoaded = true;
-    prefList.innerHTML = '';
-
-    activePrefGroups().forEach((group) => {
-      const enabled = group.events.some((eventKey) => !!prefs[eventKey]);
-      const row = document.createElement('label');
-      row.className = 'wp-pq-pref-card';
-      row.innerHTML =
-        '<input type="checkbox" data-pref-group="' + group.key + '" ' + (enabled ? 'checked' : '') + '>' +
-        '<span><strong>' + escapeHtml(group.label) + '</strong><small>' + escapeHtml(group.description) + '</small></span>';
-      prefList.appendChild(row);
-    });
-
-    const alertRow = document.createElement('label');
-    alertRow.className = 'wp-pq-pref-card';
-    alertRow.innerHTML =
-      '<input type="checkbox" data-pref-key="' + alertDismissPrefKey + '" ' + (prefs[alertDismissPrefKey] ? 'checked' : '') + '>' +
-      '<span><strong>Auto-dismiss alerts</strong><small>When enabled, on-screen alerts fade away after a few seconds. Turn it off if you want to dismiss them manually.</small></span>';
-    prefList.appendChild(alertRow);
-  }
-
-  function shouldAutoDismissAlerts() {
-    return !!prefState[alertDismissPrefKey];
-  }
-
-  function portalAlertStack() {
-    if (alertStackEl) return alertStackEl;
-    let stack = document.getElementById('wp-pq-alert-stack');
-    if (stack) return stack;
-    stack = document.createElement('div');
-    stack.id = 'wp-pq-alert-stack';
-    stack.className = 'wp-pq-alert-stack';
-    stack.setAttribute('aria-live', 'polite');
-    document.body.appendChild(stack);
-    return stack;
-  }
-
-  function clearDismissTimer(notificationId) {
-    const timer = notificationDismissTimers.get(notificationId);
-    if (timer) {
-      window.clearTimeout(timer);
-      notificationDismissTimers.delete(notificationId);
-    }
-  }
-
-  async function dismissNotifications(ids) {
-    await api('notifications/mark-read', { method: 'POST', body: JSON.stringify({ ids: ids || [] }) });
-    (ids || []).forEach((id) => clearDismissTimer(Number(id || 0)));
-    await loadInbox();
-  }
-
-  function scheduleAlertDismiss(item) {
-    const notificationId = parseInt(item && item.id, 10);
-    if (!notificationId || !shouldAutoDismissAlerts()) return;
-    if (notificationDismissTimers.has(notificationId)) return;
-    const timer = window.setTimeout(async () => {
-      try {
-        await dismissNotifications([notificationId]);
-      } catch (err) {
-        console.error(err);
-      }
-    }, 2600);
-    notificationDismissTimers.set(notificationId, timer);
-  }
-
-  function renderPersistentAlerts(notifications) {
-    const stack = portalAlertStack();
-    const activeIds = new Set((notifications || []).map((item) => parseInt(item.id, 10)).filter(Boolean));
-    Array.from(notificationDismissTimers.keys()).forEach((notificationId) => {
-      if (!activeIds.has(notificationId)) {
-        clearDismissTimer(notificationId);
-      }
-    });
-
-    stack.innerHTML = '';
-    if (!notifications.length) {
-      stack.hidden = true;
-      return;
-    }
-
-    stack.hidden = false;
-    notifications.forEach((item) => {
-      const card = document.createElement('article');
-      card.className = 'wp-pq-alert-card';
-      card.dataset.notificationId = String(item.id || '');
-      card.innerHTML =
-        '<button type="button" class="wp-pq-alert-dismiss" data-dismiss-alert="' + escapeHtml(item.id) + '" aria-label="Dismiss alert">&times;</button>'
-        + '<div class="wp-pq-alert-copy">'
-          + '<strong>' + escapeHtml(item.title || humanizeToken(item.event_key)) + '</strong>'
-          + '<small>' + escapeHtml(formatDateTime(item.created_at)) + '</small>'
-          + '<p>' + escapeHtml(item.body || '') + '</p>'
-        + '</div>'
-        + '<div class="wp-pq-alert-actions">'
-          + (item.task_id ? '<button type="button" class="button wp-pq-secondary-action" data-open-alert-task="' + escapeHtml(item.task_id) + '" data-notification-id="' + escapeHtml(item.id) + '">Open Task</button>' : '')
-          + '<button type="button" class="button" data-dismiss-alert="' + escapeHtml(item.id) + '">Dismiss</button>'
-        + '</div>';
-      stack.appendChild(card);
-      scheduleAlertDismiss(item);
-    });
-  }
-
-  async function refreshPreferencesPanel() {
-    await loadPrefs();
-  }
-
-  async function openPreferencesPanel() {
-    if (prefPanel) {
-      prefPanel.hidden = false;
-    }
-    await refreshPreferencesPanel();
-  }
-
-  function closePreferencesPanel() {
-    if (prefPanel) {
-      prefPanel.hidden = true;
-    }
-  }
-
-  function wirePrefs() {
-    if (!prefSaveBtn || !prefList) return;
-    prefSaveBtn.addEventListener('click', async () => {
-      const prefs = {};
-      activePrefGroups().forEach((group) => {
-        const checkbox = prefList ? prefList.querySelector('[data-pref-group="' + group.key + '"]') : null;
-        group.events.forEach((eventKey) => {
-          prefs[eventKey] = !!(checkbox && checkbox.checked);
-        });
-      });
-      const alertAutoDismiss = prefList ? prefList.querySelector('[data-pref-key="' + alertDismissPrefKey + '"]') : null;
-      prefs[alertDismissPrefKey] = !!(alertAutoDismiss && alertAutoDismiss.checked);
-
-      try {
-        await api('notification-prefs', { method: 'POST', body: JSON.stringify({ prefs: prefs }) });
-        prefState = prefs;
-        renderPersistentAlerts(notificationsCache);
-        alert('Preferences saved.', 'success');
-      } catch (err) {
-        alert(err.message);
-      }
-    });
-  }
-
   function wireUnifiedFilters() {
     if (!filterListEl) return;
     filterListEl.addEventListener('click', async (e) => {
@@ -2916,35 +2358,6 @@
     });
   }
 
-  function wireInbox() {
-    const stack = portalAlertStack();
-    stack.addEventListener('click', async (e) => {
-      const dismissBtn = e.target.closest('[data-dismiss-alert]');
-      if (dismissBtn) {
-        e.preventDefault();
-        try {
-          await dismissNotifications([parseInt(dismissBtn.dataset.dismissAlert || '0', 10)]);
-        } catch (err) {
-          alert(err.message);
-        }
-        return;
-      }
-
-      const openBtn = e.target.closest('[data-open-alert-task]');
-      if (openBtn) {
-        e.preventDefault();
-        try {
-          await openTaskFromAlert({
-            id: parseInt(openBtn.dataset.notificationId || '0', 10),
-            task_id: parseInt(openBtn.dataset.openAlertTask || '0', 10),
-          });
-        } catch (err) {
-          alert(err.message);
-        }
-      }
-    });
-  }
-
   function wireStatusActions() {
     document.addEventListener('click', async (e) => {
       const btn = e.target.closest('.wp-pq-status-btn');
@@ -2958,7 +2371,7 @@
         const taskId = parseInt(deleteBtn.dataset.taskId, 10);
         if (!taskId) return;
         selectedTaskId = taskId;
-        openDeleteModal(taskId);
+        window.wpPqModals.openDeleteModal(taskId);
         return;
       }
 
@@ -2968,21 +2381,21 @@
 
       if (status === 'done') {
         selectedTaskId = id;
-        pendingMove = null;
-        pendingStatusAction = null;
-        openCompletionModal(id);
+        window.wpPqModals.setPendingMove(null);
+        window.wpPqModals.setPendingStatusAction(null);
+        window.wpPqModals.openCompletionModal(id);
         return;
       }
 
       const task = getKnownTask(id);
       if (status === 'needs_clarification' && task) {
         selectedTaskId = id;
-        pendingMove = null;
-        pendingStatusAction = {
+        window.wpPqModals.setPendingMove(null);
+        window.wpPqModals.setPendingStatusAction({
           taskId: id,
           status: status,
-        };
-        openMoveModal();
+        });
+        window.wpPqModals.openMoveModal();
         return;
       }
 
@@ -3005,21 +2418,27 @@
     if (drawerCloseBtn) drawerCloseBtn.addEventListener('click', closeDrawer);
     if (drawerBackdrop) drawerBackdrop.addEventListener('click', closeDrawer);
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && deleteModal && !deleteModal.hidden) {
-        closeDeleteModal();
-        return;
-      }
-      if (e.key === 'Escape' && completionModal && !completionModal.hidden) {
-        closeCompletionModal();
-        return;
-      }
-      if (e.key === 'Escape' && revisionModal && !revisionModal.hidden) {
-        closeRevisionModal(true).catch(console.error);
-        return;
-      }
-      if (e.key === 'Escape' && moveModal && !moveModal.hidden) {
-        closeMoveModal(true).catch(console.error);
-        return;
+      if (e.key === 'Escape' && window.wpPqModals) {
+        var deleteModalEl = document.getElementById('wp-pq-delete-modal');
+        var completionModalEl = document.getElementById('wp-pq-completion-modal');
+        var revisionModalEl = document.getElementById('wp-pq-revision-modal');
+        var moveModalEl = document.getElementById('wp-pq-move-modal');
+        if (deleteModalEl && !deleteModalEl.hidden) {
+          window.wpPqModals.closeDeleteModal();
+          return;
+        }
+        if (completionModalEl && !completionModalEl.hidden) {
+          window.wpPqModals.closeCompletionModal();
+          return;
+        }
+        if (revisionModalEl && !revisionModalEl.hidden) {
+          window.wpPqModals.closeRevisionModal(true).catch(console.error);
+          return;
+        }
+        if (moveModalEl && !moveModalEl.hidden) {
+          window.wpPqModals.closeMoveModal(true).catch(console.error);
+          return;
+        }
       }
       if (e.key === 'Escape' && drawerIsOpen()) {
         closeDrawer();
@@ -3027,264 +2446,31 @@
     });
   }
 
-  function wireMoveModal() {
-    if (closeMoveModalBtn) {
-      closeMoveModalBtn.addEventListener('click', () => {
-        closeMoveModal(true).catch(console.error);
-      });
-    }
-
-    if (cancelMoveBtn) {
-      cancelMoveBtn.addEventListener('click', () => {
-        closeMoveModal(true).catch(console.error);
-      });
-    }
-
-    if (moveModalBackdrop) {
-      moveModalBackdrop.addEventListener('click', () => {
-        closeMoveModal(true).catch(console.error);
-      });
-    }
-
-    if (!moveForm) return;
-
-    moveForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      if (!pendingMove && !pendingStatusAction) return;
-
-      const formData = new FormData(moveForm);
-      const priorityDirection = (formData.get('priority_direction') || 'keep').toString();
-      const swapDueDates = formData.get('swap_due_dates') === '1';
-      const requestMeeting = formData.get('request_meeting') === '1';
-      const sendUpdateEmail = formData.get('send_update_email') === '1';
-
-      try {
-        selectedTaskId = pendingMove ? pendingMove.taskId : pendingStatusAction.taskId;
-        const preserveBoardOrder = !!pendingMove;
-        let result;
-        if (pendingMove) {
-          result = await api('tasks/move', {
-            method: 'POST',
-            body: JSON.stringify({
-              task_id: pendingMove.taskId,
-              target_task_id: pendingMove.targetTaskId || 0,
-              position: pendingMove.position,
-              target_status: pendingMove.targetStatus,
-              priority_direction: priorityDirection,
-              swap_due_dates: swapDueDates,
-              needs_meeting: requestMeeting,
-              send_update_email: sendUpdateEmail,
-            }),
-          });
-        } else {
-          result = await api('tasks/' + pendingStatusAction.taskId + '/status', {
-            method: 'POST',
-            body: JSON.stringify({
-              status: pendingStatusAction.status,
-              needs_meeting: requestMeeting,
-              send_update_email: sendUpdateEmail,
-            }),
-          });
-        }
-        await closeMoveModal(false);
-        if (result && result.task) {
-          upsertTask(result.task);
-          if (result.target_task) {
-            upsertTask(result.target_task);
-          }
-          if (preserveBoardOrder) {
-            syncOrderFromBoardDom();
-          }
-          await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar' });
-        } else {
-          await loadTasks();
-        }
-        if (requestMeeting && selectedTaskId) {
-          await selectTask(selectedTaskId, true, { preservePanelState: true, loadParticipants: false, loadWorkspace: false });
-          await activateWorkspaceTab('meetings');
-          openDrawer();
-          if (meetingStartInput) {
-            meetingStartInput.focus();
-          }
-        }
-      } catch (err) {
-        alert(err.message);
-        await closeMoveModal(true);
-      }
-    });
-  }
-
-  function wireDeleteModal() {
-    if (closeDeleteModalBtn) {
-      closeDeleteModalBtn.addEventListener('click', closeDeleteModal);
-    }
-
-    if (cancelDeleteBtn) {
-      cancelDeleteBtn.addEventListener('click', closeDeleteModal);
-    }
-
-    if (deleteModalBackdrop) {
-      deleteModalBackdrop.addEventListener('click', closeDeleteModal);
-    }
-
-    if (!confirmDeleteBtn) return;
-
-    confirmDeleteBtn.addEventListener('click', async () => {
-      if (!pendingDeleteTaskId) return;
-
-      const taskId = pendingDeleteTaskId;
-      confirmDeleteBtn.disabled = true;
-      try {
-        await api('tasks/' + taskId, { method: 'DELETE' });
-        removeTaskById(taskId);
-        closeDeleteModal();
-        closeDrawer();
-        await loadTasks();
-        alert('Task deleted.', 'success');
-      } catch (err) {
-        alert(err.message);
-      } finally {
-        confirmDeleteBtn.disabled = false;
-      }
-    });
-  }
-
-  function wireCompletionModal() {
-    if (closeCompletionModalBtn) {
-      closeCompletionModalBtn.addEventListener('click', closeCompletionModal);
-    }
-
-    if (cancelCompletionBtn) {
-      cancelCompletionBtn.addEventListener('click', closeCompletionModal);
-    }
-
-    if (completionModalBackdrop) {
-      completionModalBackdrop.addEventListener('click', closeCompletionModal);
-    }
-
-    if (completionBillingModeEl) {
-      completionBillingModeEl.addEventListener('change', () => {
-        syncCompletionForm(completionBillingModeEl.value);
-      });
-    }
-
-    if (!completionForm) return;
-
-    completionForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      if (!pendingCompletionTaskId) return;
-
-      const formData = new FormData(completionForm);
-      const taskId = pendingCompletionTaskId;
-      try {
-        selectedTaskId = taskId;
-        await api('tasks/' + taskId + '/done', {
-          method: 'POST',
-          body: JSON.stringify({
-            billing_mode: formData.get('billing_mode') || '',
-            billing_category: formData.get('billing_category') || '',
-            work_summary: formData.get('work_summary') || '',
-            hours: formData.get('hours') || '',
-            rate: formData.get('rate') || '',
-            amount: formData.get('amount') || '',
-            expense_reference: formData.get('expense_reference') || '',
-            non_billable_reason: formData.get('non_billable_reason') || '',
-          }),
-        });
-        closeCompletionModal();
-        removeTaskById(taskId);
-        closeDrawer();
-        await loadTasks();
-        alert('Task marked done and added to the work ledger.', 'success');
-      } catch (err) {
-        alert(err.message);
-      }
-    });
-  }
-
-  function wireRevisionModal() {
-    if (closeRevisionModalBtn) {
-      closeRevisionModalBtn.addEventListener('click', () => {
-        closeRevisionModal(true).catch(console.error);
-      });
-    }
-
-    if (cancelRevisionBtn) {
-      cancelRevisionBtn.addEventListener('click', () => {
-        closeRevisionModal(true).catch(console.error);
-      });
-    }
-
-    if (revisionModalBackdrop) {
-      revisionModalBackdrop.addEventListener('click', () => {
-        closeRevisionModal(true).catch(console.error);
-      });
-    }
-
-    if (!revisionForm) return;
-
-    revisionForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      if (!pendingRevisionAction) return;
-
-      const formData = new FormData(revisionForm);
-      const note = (formData.get('revision_note') || '').toString().trim();
-      const postMessage = formData.get('post_message') === '1';
-      if (!note) return alert('Please describe what needs to change.');
-
-      try {
-        selectedTaskId = pendingRevisionAction.taskId;
-        const preserveBoardOrder = pendingRevisionAction.type === 'move';
-        let result;
-        if (pendingRevisionAction.type === 'move') {
-          result = await api('tasks/move', {
-            method: 'POST',
-            body: JSON.stringify({
-              task_id: pendingRevisionAction.taskId,
-              target_task_id: pendingRevisionAction.targetTaskId || 0,
-              position: pendingRevisionAction.position || 'after',
-              target_status: 'revision_requested',
-              priority_direction: 'keep',
-              swap_due_dates: false,
-              note: note,
-              message_body: postMessage ? note : '',
-            }),
-          });
-        } else {
-          result = await api('tasks/' + pendingRevisionAction.taskId + '/status', {
-            method: 'POST',
-            body: JSON.stringify({
-              status: 'revision_requested',
-              note: note,
-              message_body: postMessage ? note : '',
-            }),
-          });
-        }
-        await closeRevisionModal(false);
-        if (result && result.task) {
-          upsertTask(result.task);
-          if (result.target_task) {
-            upsertTask(result.target_task);
-          }
-          if (preserveBoardOrder) {
-            syncOrderFromBoardDom();
-          }
-          await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar' });
-        } else {
-          await loadTasks();
-        }
-        await selectTask(selectedTaskId, true, {
-          preservePanelState: !postMessage,
-          loadParticipants: false,
-          loadWorkspace: false,
-        });
-        await activateWorkspaceTab(postMessage ? 'messages' : 'meetings');
-      } catch (err) {
-        alert(err.message);
-        await closeRevisionModal(true);
-      }
-    });
-  }
+  // Bridge for modals — must be set before wire calls so admin-queue-modals.js can read it
+  window.wpPqPortalUI = Object.assign({}, window.wpPqPortalUI || {}, {
+    // Bridge for modals
+    getActiveTask: () => activeTaskRecord ? { ...activeTaskRecord } : null,
+    getTaskById: (id) => getTaskById(id),
+    getKnownTask: (id) => getKnownTask(id),
+    getSelectedTaskId: () => selectedTaskId,
+    setSelectedTaskId: (id) => { selectedTaskId = id; },
+    api: api,
+    alert: alert,
+    upsertTask: upsertTask,
+    loadTasks: loadTasks,
+    selectTask: selectTask,
+    refreshFromCache: refreshFromCache,
+    syncOrderFromBoardDom: syncOrderFromBoardDom,
+    activateWorkspaceTab: activateWorkspaceTab,
+    currentView: () => currentView,
+    humanizeToken: humanizeToken,
+    escapeHtml: escapeHtml,
+    formatDateTime: formatDateTime,
+    removeTaskById: removeTaskById,
+    closeDrawer: closeDrawer,
+    openDrawer: openDrawer,
+    focusMeetingStart: () => { if (meetingStartInput) meetingStartInput.focus(); },
+  });
 
   wireCreateForm();
   wireBoardFilters();
@@ -3296,31 +2482,11 @@
   wireAssignment();
   wirePriority();
   wireBatching();
-  wirePrefs();
-  wireInbox();
   wireUnifiedFilters();
   wireJobNav();
   wireStatusActions();
   wireDrawerControls();
-  wireMoveModal();
-  wireCompletionModal();
-  wireDeleteModal();
-  wireRevisionModal();
   wireTogglePanel(openCreateBtn, createPanel, closeCreateBtn);
-  if (openPrefsBtn && prefPanel) {
-    openPrefsBtn.addEventListener('click', (event) => {
-      event.preventDefault();
-      openPreferencesPanel().catch((err) => alert(err.message));
-    });
-  }
-  if (closePrefsBtn && prefPanel) {
-    closePrefsBtn.addEventListener('click', () => {
-      closePreferencesPanel();
-    });
-  }
-  if (prefList && prefSaveBtn && !openPrefsBtn) {
-    refreshPreferencesPanel().catch(console.error);
-  }
   initViewToggle();
   initWorkspaceTabs();
   initCalendar();
@@ -3329,20 +2495,4 @@
   resetTaskSummary();
 
   loadTasks().catch(console.error);
-  loadPrefs()
-    .catch(console.error)
-    .finally(() => loadInbox().catch(console.error));
-  window.setInterval(() => {
-    loadInbox().catch(console.error);
-  }, 30000);
-
-  window.wpPqPortalUI = Object.assign({}, window.wpPqPortalUI || {}, {
-    openPreferences: openPreferencesPanel,
-    closePreferences: closePreferencesPanel,
-    refreshPreferences: refreshPreferencesPanel,
-    loadPrefs,
-    loadInbox,
-    dismissNotifications,
-    openTaskFromAlert,
-  });
 })();

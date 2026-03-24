@@ -79,6 +79,16 @@
       .replace(/'/g, '&#039;');
   }
 
+  function invoiceStatusLabel(status) {
+    switch (String(status || '')) {
+      case 'written_off': return 'No Charge';
+      case 'unbilled': return 'Unbilled';
+      case 'invoiced': return 'Invoiced';
+      case 'paid': return 'Paid';
+      default: return String(status || 'Unbilled').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+  }
+
   function toast(message, isError) {
     if (window.wp?.data?.dispatch) {
       window.wp.data.dispatch('core/notices').createNotice(isError ? 'error' : 'success', message, { isDismissible: true });
@@ -521,7 +531,7 @@
           entry.hours || '',
           entry.rate || '',
           entry.amount || '',
-          entry.invoice_status || '',
+          invoiceStatusLabel(entry.invoice_status),
         ]);
       });
     });
@@ -573,7 +583,7 @@
             <option value="unbilled"${status === 'unbilled' ? ' selected' : ''}>Unbilled</option>
             <option value="invoiced"${status === 'invoiced' ? ' selected' : ''}>Invoiced</option>
             <option value="paid"${status === 'paid' ? ' selected' : ''}>Paid</option>
-            <option value="written_off"${status === 'written_off' ? ' selected' : ''}>Included</option>
+            <option value="written_off"${status === 'written_off' ? ' selected' : ''}>No Charge</option>
           </select>
         </label>
         <button class="button wp-pq-secondary-action" type="button" id="wp-pq-monthly-export-csv">Export CSV</button>
@@ -586,7 +596,7 @@
         <div class="wp-pq-section-heading">
           <div>
             <h3>${esc(group.client_name || 'Client')} · ${esc(group.job_name || 'Job')}</h3>
-            <p class="wp-pq-panel-note">${esc(group.month || data.month)} · Unbilled ${Number(group.counts?.unbilled || 0)} · Invoiced ${Number(group.counts?.invoiced || 0)} · Paid ${Number(group.counts?.paid || 0)} · Included ${Number(group.counts?.written_off || 0)}</p>
+            <p class="wp-pq-panel-note">${esc(group.month || data.month)} · Unbilled ${Number(group.counts?.unbilled || 0)} · Invoiced ${Number(group.counts?.invoiced || 0)} · Paid ${Number(group.counts?.paid || 0)} · No Charge ${Number(group.counts?.written_off || 0)}</p>
           </div>
         </div>
         <table class="wp-pq-admin-table wp-pq-manager-table">
@@ -599,7 +609,7 @@
                 <td>${esc(entry.owner_name || 'Unassigned')}</td>
                 <td>${esc(entry.billing_mode || '')} · ${esc(entry.billing_category || '')}</td>
                 <td>${esc(entry.hours || '')} ${entry.hours ? 'hrs · ' : ''}${esc(entry.rate || '')}${entry.rate ? ' rate · ' : ''}${esc(entry.amount || '')}</td>
-                <td>${esc(entry.invoice_status || '')}</td>
+                <td>${esc(invoiceStatusLabel(entry.invoice_status))}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -639,7 +649,7 @@
                   <td>${esc(entry.owner_name || 'Unassigned')}</td>
                   <td>${esc(entry.billing_mode || '')} · ${esc(entry.billing_category || '')}</td>
                   <td>${esc(entry.hours || '')} ${entry.hours ? 'hrs ' : ''}${esc(entry.rate || '')} ${entry.rate ? 'rate ' : ''}${esc(entry.amount || '')}</td>
-                  <td>${esc(entry.invoice_status || '')}</td>
+                  <td>${esc(invoiceStatusLabel(entry.invoice_status))}</td>
                 </tr>
               `).join('')}</tbody>
             </table>
@@ -1134,6 +1144,10 @@
     }
 
     renderPreview();
+    if (state.aiPreview) {
+      const importBtn = document.getElementById('wp-pq-ai-import-confirm');
+      if (importBtn) importBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
 
     const clientSelect = document.getElementById('wp-pq-ai-client');
     const jobSelect = document.getElementById('wp-pq-ai-job');
@@ -1185,8 +1199,8 @@
       showQueue(false);
       showManagerPanel(false);
       showPreferences(true);
-      if (window.wpPqPortalUI && typeof window.wpPqPortalUI.openPreferences === 'function') {
-        await window.wpPqPortalUI.openPreferences();
+      if (window.wpPqAlerts && typeof window.wpPqAlerts.openPreferences === 'function') {
+        await window.wpPqAlerts.openPreferences();
       }
       return;
     }
@@ -1352,7 +1366,8 @@
         });
         state.aiPreview = response.preview || null;
         await renderAiImport();
-        toast(response.message || 'Parsed.', false);
+        const taskCount = (response.preview?.tasks || []).length;
+        toast((response.message || 'Parsed.') + (taskCount > 0 ? ' Review below, then click Import Tasks.' : ''), false);
         return;
       }
     } catch (error) {

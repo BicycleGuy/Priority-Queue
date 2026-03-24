@@ -3629,7 +3629,7 @@ document.addEventListener('DOMContentLoaded', function () {
             case 'paid':
                 return 'Paid';
             case 'written_off':
-                return 'Included';
+                return 'No Charge';
             case 'unbilled':
                 return 'Eligible';
             default:
