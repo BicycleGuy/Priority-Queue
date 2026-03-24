@@ -1068,7 +1068,7 @@
         </label>
         <label class="wp-pq-span-2">Paste source text <textarea name="source_text" rows="5"></textarea></label>
         <label class="wp-pq-span-2">Or upload a source file <input type="file" name="source_file"></label>
-        <button class="button button-primary" type="submit">Parse with AI</button>
+        <button class="button button-primary wp-pq-span-2" type="submit">Parse with AI</button>
       </form>
     `;
 
