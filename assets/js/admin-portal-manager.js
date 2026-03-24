@@ -573,7 +573,7 @@
             <option value="unbilled"${status === 'unbilled' ? ' selected' : ''}>Unbilled</option>
             <option value="invoiced"${status === 'invoiced' ? ' selected' : ''}>Invoiced</option>
             <option value="paid"${status === 'paid' ? ' selected' : ''}>Paid</option>
-            <option value="written_off"${status === 'written_off' ? ' selected' : ''}>Written off</option>
+            <option value="written_off"${status === 'written_off' ? ' selected' : ''}>Included</option>
           </select>
         </label>
         <button class="button wp-pq-secondary-action" type="button" id="wp-pq-monthly-export-csv">Export CSV</button>
@@ -586,7 +586,7 @@
         <div class="wp-pq-section-heading">
           <div>
             <h3>${esc(group.client_name || 'Client')} · ${esc(group.job_name || 'Job')}</h3>
-            <p class="wp-pq-panel-note">${esc(group.month || data.month)} · Unbilled ${Number(group.counts?.unbilled || 0)} · Invoiced ${Number(group.counts?.invoiced || 0)} · Paid ${Number(group.counts?.paid || 0)} · Written off ${Number(group.counts?.written_off || 0)}</p>
+            <p class="wp-pq-panel-note">${esc(group.month || data.month)} · Unbilled ${Number(group.counts?.unbilled || 0)} · Invoiced ${Number(group.counts?.invoiced || 0)} · Paid ${Number(group.counts?.paid || 0)} · Included ${Number(group.counts?.written_off || 0)}</p>
           </div>
         </div>
         <table class="wp-pq-admin-table wp-pq-manager-table">
@@ -960,15 +960,18 @@
               <button class="button wp-pq-secondary-action" type="button" data-action="delete-statement">Delete Draft</button>
             </div>
           </div>
-          <div class="wp-pq-manager-detail-copy">
+          <form id="wp-pq-statement-update-form" class="wp-pq-manager-detail-copy">
             <p><strong>Client email:</strong> ${esc(statement.client_email || 'No client email on file')}</p>
-            <p><strong>Notes:</strong> ${esc(statement.notes || 'None')}</p>
-          </div>
+            <label><strong>Notes</strong> <textarea name="notes" rows="2">${esc(statement.notes || '')}</textarea></label>
+            <div class="wp-pq-manager-inline-actions">
+              <button class="button" type="submit">Save Notes</button>
+            </div>
+          </form>
           <div class="wp-pq-manager-split wp-pq-manager-split-tight">
             <section class="wp-pq-panel wp-pq-manager-subcard">
               <h4>Line items</h4>
               <table class="wp-pq-admin-table wp-pq-manager-table">
-                <thead><tr><th>Description</th><th>Type</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
+                <thead><tr><th>Description</th><th>Type</th><th>Qty</th><th>Rate</th><th>Amount</th><th></th></tr></thead>
                 <tbody>
                   ${(statement.lines || []).length ? (statement.lines || []).map((line) => `
                     <tr>
@@ -977,23 +980,39 @@
                       <td>${esc(line.quantity || '')} ${esc(line.unit || '')}</td>
                       <td>${esc(line.unit_rate || '')}</td>
                       <td>${esc(line.line_amount || '')}</td>
+                      <td><button class="button wp-pq-secondary-action" type="button" data-action="delete-line" data-line-id="${line.id}">Remove</button></td>
                     </tr>
-                  `).join('') : '<tr><td colspan="5">This draft has no line items yet.</td></tr>'}
+                  `).join('') : '<tr><td colspan="6">This draft has no line items yet.</td></tr>'}
                 </tbody>
               </table>
+              <form id="wp-pq-statement-line-form" class="wp-pq-inline-action-form">
+                <label>Description <input type="text" name="description" required></label>
+                <label>Type
+                  <select name="line_type">
+                    <option value="hours">Hours</option>
+                    <option value="fixed">Fixed</option>
+                    <option value="expense">Expense</option>
+                  </select>
+                </label>
+                <label>Qty <input type="number" name="quantity" step="any" value="1"></label>
+                <label>Rate <input type="number" name="unit_rate" step="any" value="0"></label>
+                <label>Amount <input type="number" name="line_amount" step="any" value="0"></label>
+                <button class="button" type="submit">Add Line</button>
+              </form>
             </section>
             <section class="wp-pq-panel wp-pq-manager-subcard">
               <h4>Linked completed work</h4>
               <table class="wp-pq-admin-table wp-pq-manager-table">
-                <thead><tr><th>Task</th><th>Status</th><th>Job</th></tr></thead>
+                <thead><tr><th>Task</th><th>Status</th><th>Job</th><th></th></tr></thead>
                 <tbody>
                   ${(statement.tasks || []).length ? (statement.tasks || []).map((task) => `
                     <tr>
                       <td><strong>${esc(task.title || '')}</strong></td>
                       <td>${esc(task.status || '')}</td>
                       <td>${esc(task.bucket_name || '')}</td>
+                      <td><button class="button wp-pq-secondary-action" type="button" data-action="remove-task" data-task-id="${task.id}">Remove</button></td>
                     </tr>
-                  `).join('') : '<tr><td colspan="3">No completed work entries are linked to this draft.</td></tr>'}
+                  `).join('') : '<tr><td colspan="4">No completed work entries are linked to this draft.</td></tr>'}
                 </tbody>
               </table>
             </section>

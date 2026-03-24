@@ -1685,7 +1685,7 @@
     completionForm.reset();
 
     const defaultMode = String(task.billing_mode || '').trim()
-      || ((!task.is_billable || String(task.billing_status || '') === 'not_billable') ? 'non_billable' : 'fixed_fee');
+      || ((Number(task.is_billable) === 0 || String(task.billing_status || '') === 'not_billable' || task.action_owner_is_client) ? 'non_billable' : 'fixed_fee');
     if (completionBillingModeEl) completionBillingModeEl.value = defaultMode;
     if (completionBillingCategoryEl) completionBillingCategoryEl.value = String(task.billing_category || task.bucket_name || '');
     if (completionWorkSummaryEl) completionWorkSummaryEl.value = String(task.work_summary || task.description || task.title || '');

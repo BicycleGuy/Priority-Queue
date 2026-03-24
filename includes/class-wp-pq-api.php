@@ -314,6 +314,7 @@ class WP_PQ_API
         $table = $wpdb->prefix . 'pq_tasks';
         $user_id = get_current_user_id();
         $items = (array) $request->get_param('items');
+        $last_task_id = 0;
 
         foreach ($items as $index => $item) {
             $task_id = (int) ($item['id'] ?? 0);
@@ -332,11 +333,12 @@ class WP_PQ_API
                 'queue_position' => $index + 1,
                 'updated_at' => current_time('mysql', true),
             ], ['id' => $task_id]);
+            $last_task_id = $task_id;
         }
 
         return new WP_REST_Response([
             'ok' => true,
-            'task' => self::get_enriched_task($task_id),
+            'task' => $last_task_id > 0 ? self::get_enriched_task($last_task_id) : null,
         ], 200);
     }
 
@@ -1020,7 +1022,6 @@ class WP_PQ_API
 
         self::store_task_message($task_id, get_current_user_id(), $body, $task);
 
-        global $wpdb;
         $table = $wpdb->prefix . 'pq_task_messages';
         $message = $wpdb->get_row(
             $wpdb->prepare("SELECT * FROM {$table} WHERE task_id = %d ORDER BY id DESC LIMIT 1", $task_id),
