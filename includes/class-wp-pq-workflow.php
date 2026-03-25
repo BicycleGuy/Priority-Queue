@@ -117,7 +117,7 @@ class WP_PQ_Workflow
             return $is_manager || $is_worker;
         }
 
-        return $is_manager || $is_worker || $user_id > 0;
+        return false;
     }
 
     public static function notification_events(): array
