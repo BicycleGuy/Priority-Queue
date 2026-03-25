@@ -150,6 +150,10 @@
 │  ├── Cross-column move   → calls wpPqModals.openMoveModal()           │
 │  └── Simple transition   → POST /tasks/move (no modal needed)         │
 │                                                                         │
+│  STATUS BUTTONS ──────────────────────────────────────────────────── │
+│  ├── in_progress shows: Needs Review, Delivered, Needs Clarification  │
+│  └── Delivered button triggers window.confirm() review-skip warning   │
+│                                                                         │
 │  Does NOT contain: modals, alerts, notifications, or preferences.     │
 │  Those live in satellite files that communicate via the bridge.        │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -173,6 +177,8 @@
 │  │                                                                     │
 │  ├── Move Modal         Cross-column move with options                │
 │  │   ├── Meeting request checkbox, email notification option           │
+│  │   ├── Context-aware: shows "Deliver Without Review?" when          │
+│  │   │   dragging from in_progress directly to delivered               │
 │  │   └── POST /tasks/move                                              │
 │  │                                                                     │
 │  ├── Completion Modal   Capture billing details when marking done     │
@@ -281,26 +287,34 @@
           │  IN_PROGRESS     │ ◄──┘───────────────┘
           └────────┬────────┘
                    │
-                   ▼
-          ┌─────────────────┐
-          │  NEEDS_REVIEW    │
-          └────────┬────────┘
-                   │
-          ┌────────┼─────────────────────────┐
-          │        │                         │
-          │        ▼                         ▼
-          │  ┌───────────┐          ┌─────────────────┐
-          │  │ DELIVERED  │          │  IN_PROGRESS     │ (revision)
-          │  └─────┬─────┘          └─────────────────┘
-          │        │
-          │        ▼
-          │  ┌───────────┐
-          └─►│   DONE     │ ◄── completion modal captures billing
-             └───────────┘
+          ┌────────┼──────────────────────┐
+          │        │                      │
+          │        ▼                      ▼  (skip review — confirmation required)
+          │  ┌─────────────────┐   ┌───────────┐
+          │  │  NEEDS_REVIEW    │   │ DELIVERED  │
+          │  └────────┬────────┘   └─────┬─────┘
+          │           │                  │
+          │  ┌────────┼───────┐          │
+          │  │        │       │          │
+          │  │        ▼       ▼          │
+          │  │  ┌──────────┐ ┌────────┐  │
+          │  │  │DELIVERED │ │IN_PROG.│  │
+          │  │  └────┬─────┘ │(revsn) │  │
+          │  │       │       └────────┘  │
+          │  │       │                   │
+          │  └───────┼───────────────────┘
+          │          │
+          │          ▼
+          │    ┌───────────┐
+          └───►│   DONE     │ ◄── completion modal captures billing
+               └───────────┘
 
   Transition rules enforced by WP_PQ_Workflow::can_transition()
   ├── approve/reject: requires CAP_APPROVE (manager)
   ├── in_progress/review/deliver/done: requires CAP_WORK or CAP_APPROVE
+  ├── in_progress → delivered (direct): skips needs_review, user sees
+  │   "Proceed without third-party review?" confirmation (button click
+  │   uses window.confirm; drag-and-drop uses move modal with warning)
   └── done: opens completion modal → writes to work ledger
 ```
 
