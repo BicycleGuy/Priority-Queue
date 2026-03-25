@@ -2549,7 +2549,7 @@ class WP_PQ_API
 
     private static function should_suppress_generic_client_email(array $task, int $user_id, string $event_key): bool
     {
-        if (! in_array($event_key, ['task_created', 'task_approved', 'task_rejected', 'task_revision_requested', 'task_delivered', 'task_archived'], true)) {
+        if (! in_array($event_key, ['task_created', 'task_approved', 'task_rejected', 'task_sent_back', 'task_delivered', 'task_archived'], true)) {
             return false;
         }
 
@@ -2696,10 +2696,10 @@ class WP_PQ_API
                     'title' => 'Clarification requested',
                     'body' => '"' . $title . "\" was returned for clarification" . ($deadline ? ' before ' . $deadline : '') . '.',
                 ];
-            case 'task_revision_requested':
+            case 'task_sent_back':
                 return [
-                    'title' => 'Revision requested',
-                    'body' => 'Changes were requested on "' . $title . "\".",
+                    'title' => 'Task sent back',
+                    'body' => '"' . $title . "\" was sent back for changes.",
                 ];
             case 'task_delivered':
                 return [
@@ -2744,7 +2744,7 @@ class WP_PQ_API
         } elseif ($new_status === 'needs_clarification') {
             self::emit_event($task_id, 'task_rejected', 'Task needs clarification', 'Your task needs clarification and was returned.');
         } elseif ($new_status === 'in_progress' && in_array($old_status, ['needs_review', 'delivered'], true)) {
-            self::emit_event($task_id, 'task_revision_requested', 'Revision requested', 'A revision was requested for this task.');
+            self::emit_event($task_id, 'task_sent_back', 'Task sent back', 'This task was sent back for changes.');
         } elseif ($new_status === 'delivered') {
             self::emit_event($task_id, 'task_delivered', 'Task delivered', 'Work product has been delivered.');
         } elseif ($new_status === 'archived') {

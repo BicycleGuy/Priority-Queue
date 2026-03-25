@@ -31,6 +31,7 @@ final class WP_PQ_Plugin
         WP_PQ_DB::migrate_workflow_ledger_model();
         WP_PQ_DB::migrate_portal_manager_model();
         WP_PQ_DB::migrate_ledger_closure_model();
+        WP_PQ_DB::migrate_notification_event_keys();
         WP_PQ_Housekeeping::init();
         WP_PQ_Admin::init();
         WP_PQ_API::init();

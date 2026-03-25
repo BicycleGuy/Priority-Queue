@@ -305,12 +305,12 @@ canonical values.
                     ┌──────────────┼──────────────┐
                     ▼              │               ▼
           ┌─────────────────┐     │    ┌──────────────────────┐
-          │    APPROVED      │     │    │ NEEDS_CLARIFICATION  │
-          └────────┬────────┘     │    └──────────┬───────────┘
-                   │              │               │
-                   ▼              │               │ (client responds)
-          ┌─────────────────┐     │               │
-          │  IN_PROGRESS     │ ◄──┘───────────────┘
+          │    APPROVED      │ ◄──┼────│ NEEDS_CLARIFICATION  │
+          └────────┬────────┘     │    └──────┬───┬───────────┘
+                   │              │           │   │
+                   ▼              │           │   │ (mid-work: resume)
+          ┌─────────────────┐     │           │   │
+          │  IN_PROGRESS     │ ◄──┘───────────┘───┘
           └────────┬────────┘
                    │
           ┌────────┼──────────────────────┐
@@ -347,7 +347,7 @@ canonical values.
   FROM                  → TO (allowed)
   ─────────────────────────────────────────────────────────────────
   pending_approval      → approved, needs_clarification
-  needs_clarification   → approved
+  needs_clarification   → approved, in_progress
   approved              → in_progress, needs_clarification
   in_progress           → needs_clarification, needs_review, delivered
   needs_review          → in_progress, delivered
@@ -467,7 +467,7 @@ canonical values.
                                └───────────────────┘
 
   Configurable events per user (Preferences panel):
-  ├── task_created              ├── task_revision_requested
+  ├── task_created              ├── task_sent_back
   ├── task_assigned             ├── task_delivered
   ├── task_approved             ├── task_archived
   ├── task_rejected             ├── statement_batched

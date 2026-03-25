@@ -206,9 +206,11 @@
         cta: 'Mark Approved',
       },
       in_progress: {
-        title: 'Start Work?',
-        body: 'This moves the task into active execution. It will appear in current work queues and progress tracking.',
-        cta: 'Start Work',
+        title: move.sourceStatus === 'needs_clarification' ? 'Resume Work?' : 'Start Work?',
+        body: move.sourceStatus === 'needs_clarification'
+          ? 'Clarification has been provided. This returns the task to active execution.'
+          : 'This moves the task into active execution. It will appear in current work queues and progress tracking.',
+        cta: move.sourceStatus === 'needs_clarification' ? 'Resume Work' : 'Start Work',
       },
       delivered: {
         title: move.sourceStatus === 'in_progress' ? 'Deliver Without Review?' : 'Mark as Delivered?',

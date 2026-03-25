@@ -1159,6 +1159,9 @@
     if (window.wpPqConfig.canApprove && task.status === 'needs_clarification') {
       buttons.push(buttonHtml(task.id, 'approved', 'Approve'));
     }
+    if (canOperate && task.status === 'needs_clarification') {
+      buttons.push(buttonHtml(task.id, 'in_progress', 'In Progress'));
+    }
     if (canOperate && task.status === 'approved') {
       buttons.push(buttonHtml(task.id, 'in_progress', 'In Progress'));
       if (window.wpPqConfig.canApprove) {

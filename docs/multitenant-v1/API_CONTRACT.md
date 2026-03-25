@@ -67,7 +67,7 @@ Headers:
 - `task_created`
 - `task_approved`
 - `task_rejected`
-- `task_revision_requested`
+- `task_sent_back`
 - `task_delivered`
-- `task_completed`
+- `task_archived`
 - `retention_day_300`

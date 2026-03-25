@@ -92,7 +92,7 @@ class WP_PQ_Workflow
 
         $matrix = [
             'pending_approval' => ['approved', 'needs_clarification'],
-            'needs_clarification' => ['approved'],
+            'needs_clarification' => ['approved', 'in_progress'],
             'approved' => ['in_progress', 'needs_clarification'],
             'in_progress' => ['needs_clarification', 'needs_review', 'delivered'],
             'needs_review' => ['in_progress', 'delivered'],
@@ -130,7 +130,7 @@ class WP_PQ_Workflow
             'task_mentioned',
             'task_reprioritized',
             'task_schedule_changed',
-            'task_revision_requested',
+            'task_sent_back',
             'task_delivered',
             'task_archived',
             'statement_batched',

@@ -994,6 +994,23 @@ class WP_PQ_DB
         update_option('wp_pq_ledger_closure_migration_161_applied', 1, false);
     }
 
+    public static function migrate_notification_event_keys(): void
+    {
+        global $wpdb;
+
+        if (get_option('wp_pq_notification_event_rename_180_applied')) {
+            return;
+        }
+
+        $prefs = $wpdb->prefix . 'pq_notification_prefs';
+        $notifications = $wpdb->prefix . 'pq_notifications';
+
+        $wpdb->update($prefs, ['event_key' => 'task_sent_back'], ['event_key' => 'task_revision_requested']);
+        $wpdb->update($notifications, ['event_key' => 'task_sent_back'], ['event_key' => 'task_revision_requested']);
+
+        update_option('wp_pq_notification_event_rename_180_applied', 1, false);
+    }
+
     public static function get_or_create_default_billing_bucket_id(int $client_id): int
     {
         global $wpdb;
