@@ -2634,6 +2634,7 @@ class WP_PQ_Admin
                 'name' => (string) ($client['name'] ?? ''),
                 'email' => (string) ($client['email'] ?? ''),
                 'label' => (string) $client['label'],
+                'primary_contact_user_id' => (int) ($client['primary_contact_user_id'] ?? 0),
                 'delivered_count' => (int) ($task_counts[$client_id]['delivered_count'] ?? 0),
                 'unbilled_count' => (int) ($task_counts[$client_id]['unbilled_count'] ?? 0),
                 'work_log_count' => count($client_work_logs),
