@@ -1165,6 +1165,7 @@
     }
     if (canOperate && task.status === 'in_progress') {
       buttons.push(buttonHtml(task.id, 'needs_review', 'Needs Review'));
+      buttons.push(buttonHtml(task.id, 'delivered', 'Delivered'));
       if (window.wpPqConfig.canApprove) {
         buttons.push(buttonHtml(task.id, 'needs_clarification', 'Needs Clarification'));
       }
@@ -2397,6 +2398,10 @@
         });
         window.wpPqModals.openMoveModal();
         return;
+      }
+
+      if (status === 'delivered' && task && task.status === 'in_progress') {
+        if (!window.confirm('You are about to mark this task delivered. Proceed without third-party review?')) return;
       }
 
       try {

@@ -211,8 +211,10 @@
         cta: 'Start Work',
       },
       delivered: {
-        title: 'Mark as Delivered?',
-        body: 'This records the task as delivered to the requester or client. It stays reversible until you explicitly mark it done.',
+        title: move.sourceStatus === 'in_progress' ? 'Deliver Without Review?' : 'Mark as Delivered?',
+        body: move.sourceStatus === 'in_progress'
+          ? 'You are about to mark this task delivered. Proceed without third-party review?'
+          : 'This records the task as delivered to the requester or client. It stays reversible until you explicitly mark it done.',
         cta: 'Mark Delivered',
       },
     };
