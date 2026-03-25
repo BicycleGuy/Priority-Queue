@@ -125,7 +125,7 @@
               task_id: pendingRevisionAction.taskId,
               target_task_id: pendingRevisionAction.targetTaskId || 0,
               position: pendingRevisionAction.position || 'after',
-              target_status: 'revision_requested',
+              target_status: 'in_progress',
               priority_direction: 'keep',
               swap_due_dates: false,
               note: note,
@@ -136,7 +136,7 @@
           result = await bridge.api('tasks/' + pendingRevisionAction.taskId + '/status', {
             method: 'POST',
             body: JSON.stringify({
-              status: 'revision_requested',
+              status: 'in_progress',
               note: note,
               message_body: postMessage ? note : '',
             }),

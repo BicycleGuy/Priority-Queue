@@ -992,7 +992,6 @@ class WP_PQ_Manager_API
                 if ($status_hint === 'done') {
                     $update['completed_at'] = current_time('mysql', true);
                     $update['done_at'] = current_time('mysql', true);
-                    $update['archived_at'] = current_time('mysql', true);
                 }
                 $wpdb->update($wpdb->prefix . 'pq_tasks', $update, ['id' => $task_id]);
             }
@@ -1029,8 +1028,9 @@ class WP_PQ_Manager_API
         if (! $task) {
             return new WP_REST_Response(['message' => 'Task not found.'], 404);
         }
-        if (WP_PQ_Workflow::normalize_status((string) ($task['status'] ?? '')) !== 'done') {
-            return new WP_REST_Response(['message' => 'Only completed tasks can be reopened from this flow.'], 422);
+        $current = WP_PQ_Workflow::normalize_status((string) ($task['status'] ?? ''));
+        if (! in_array($current, ['done', 'archived'], true)) {
+            return new WP_REST_Response(['message' => 'Only completed or archived tasks can be reopened from this flow.'], 422);
         }
 
         $ledger_entry = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$wpdb->prefix}pq_work_ledger_entries WHERE task_id = %d", $task_id), ARRAY_A);
@@ -1107,8 +1107,9 @@ class WP_PQ_Manager_API
         if (! $task) {
             return new WP_REST_Response(['message' => 'Task not found.'], 404);
         }
-        if (WP_PQ_Workflow::normalize_status((string) ($task['status'] ?? '')) !== 'done') {
-            return new WP_REST_Response(['message' => 'Only completed tasks can spawn a follow-up from this flow.'], 422);
+        $followup_source_status = WP_PQ_Workflow::normalize_status((string) ($task['status'] ?? ''));
+        if (! in_array($followup_source_status, ['done', 'archived'], true)) {
+            return new WP_REST_Response(['message' => 'Only completed or archived tasks can spawn a follow-up from this flow.'], 422);
         }
 
         $now = current_time('mysql', true);

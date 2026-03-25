@@ -1730,7 +1730,7 @@ class WP_PQ_Admin
                     'delivered_at' => $status_hint === 'delivered' ? current_time('mysql', true) : null,
                     'completed_at' => $status_hint === 'done' ? current_time('mysql', true) : null,
                     'done_at' => $status_hint === 'done' ? current_time('mysql', true) : null,
-                    'archived_at' => $status_hint === 'done' ? current_time('mysql', true) : null,
+                    'archived_at' => $status_hint === 'archived' ? current_time('mysql', true) : null,
                     'updated_at' => current_time('mysql', true),
                 ], ['id' => $task_id]);
             }

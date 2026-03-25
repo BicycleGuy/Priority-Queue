@@ -493,6 +493,10 @@ class WP_PQ_API
             return new WP_REST_Response(['message' => 'Use Mark Done so completion details can be captured before closing the task.'], 422);
         }
 
+        if ($resolved_target_status === 'archived') {
+            return new WP_REST_Response(['message' => 'Tasks can only be archived after being marked done.'], 422);
+        }
+
         if (self::is_billing_locked_reopen($task, $current_status, $resolved_target_status)) {
             return new WP_REST_Response(['message' => 'This delivered task is still tied to billing. Remove it from the invoice draft first.'], 422);
         }
@@ -502,9 +506,9 @@ class WP_PQ_API
         }
 
         $visible_rows = current_user_can(WP_PQ_Roles::CAP_VIEW_ALL)
-            ? $wpdb->get_results("SELECT * FROM {$tasks_table} WHERE status <> 'done' ORDER BY queue_position ASC, id DESC", ARRAY_A)
+            ? $wpdb->get_results("SELECT * FROM {$tasks_table} WHERE status NOT IN ('done','archived') ORDER BY queue_position ASC, id DESC", ARRAY_A)
             : $wpdb->get_results(
-                $wpdb->prepare("SELECT * FROM {$tasks_table} WHERE submitter_id = %d AND status <> 'done' ORDER BY queue_position ASC, id DESC", $user_id),
+                $wpdb->prepare("SELECT * FROM {$tasks_table} WHERE submitter_id = %d AND status NOT IN ('done','archived') ORDER BY queue_position ASC, id DESC", $user_id),
                 ARRAY_A
             );
         $visible_rows = self::sort_task_rows($visible_rows);
@@ -839,7 +843,6 @@ class WP_PQ_API
             'delivered_at' => $delivered_at,
             'completed_at' => $now,
             'done_at' => $now,
-            'archived_at' => $now,
             'updated_at' => $now,
         ];
 
@@ -1360,7 +1363,7 @@ class WP_PQ_API
         if ($can_view_all) {
             $where = [];
             $params = [];
-            $where[] = "status <> 'done'";
+            $where[] = "status NOT IN ('done','archived')";
             if ($selected_client_id > 0) {
                 $where[] = 'client_id = %d';
                 $params[] = $selected_client_id;
@@ -2546,7 +2549,7 @@ class WP_PQ_API
 
     private static function should_suppress_generic_client_email(array $task, int $user_id, string $event_key): bool
     {
-        if (! in_array($event_key, ['task_created', 'task_approved', 'task_rejected', 'task_revision_requested', 'task_delivered'], true)) {
+        if (! in_array($event_key, ['task_created', 'task_approved', 'task_rejected', 'task_revision_requested', 'task_delivered', 'task_archived'], true)) {
             return false;
         }
 
@@ -2703,6 +2706,11 @@ class WP_PQ_API
                     'title' => 'Work delivered',
                     'body' => 'A deliverable was posted to "' . $title . "\".",
                 ];
+            case 'task_archived':
+                return [
+                    'title' => 'Task archived',
+                    'body' => '"' . $title . "\" has been archived.",
+                ];
             case 'statement_batched':
                 return [
                     'title' => 'Added to invoice draft',
@@ -2739,6 +2747,8 @@ class WP_PQ_API
             self::emit_event($task_id, 'task_revision_requested', 'Revision requested', 'A revision was requested for this task.');
         } elseif ($new_status === 'delivered') {
             self::emit_event($task_id, 'task_delivered', 'Task delivered', 'Work product has been delivered.');
+        } elseif ($new_status === 'archived') {
+            self::emit_event($task_id, 'task_archived', 'Task archived', 'This task has been archived.');
         }
     }
 
@@ -3956,6 +3966,10 @@ class WP_PQ_API
             return 'marked_done';
         }
 
+        if ($to_status === 'archived') {
+            return 'archived';
+        }
+
         if ($to_status === 'needs_clarification') {
             return $from_status === 'delivered' ? 'feedback_incomplete' : 'clarification_requested';
         }
@@ -4244,8 +4258,11 @@ class WP_PQ_API
             return [
                 'completed_at' => $now,
                 'done_at' => $now,
-                'archived_at' => $now,
             ];
+        }
+
+        if ($status === 'archived') {
+            return ['archived_at' => $now];
         }
 
         return [];

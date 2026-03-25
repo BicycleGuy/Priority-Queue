@@ -774,7 +774,8 @@
       if (!task.is_billable) return 'Delivered · non-billable';
       return task.billing_status === 'batched' ? 'Added to invoice draft' : 'Waiting for invoice drafting or client response';
     }
-    if (status === 'done') return 'Completed and archived from the active board';
+    if (status === 'done') return 'Completed — ready to archive';
+    if (status === 'archived') return 'Archived and removed from the active board';
     return humanizeToken(status);
   }
 
@@ -837,7 +838,8 @@
       : (!task.is_billable
         ? 'Delivered and ready to close. This task is marked non-billable, so it will stay out of billing rollups.'
         : 'Delivered work stays here until you mark it done, add it to an invoice draft, or reopen it.');
-    if (status === 'done') return 'This task is complete and no longer appears in active workflow views.';
+    if (status === 'done') return 'This task is complete. A manager can archive it or reopen it.';
+    if (status === 'archived') return 'This task is archived and no longer appears in active workflow views.';
     return '';
   }
 

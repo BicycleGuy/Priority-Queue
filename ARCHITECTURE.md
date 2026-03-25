@@ -25,6 +25,31 @@
 
 ---
 
+## Canonical Statuses (Source of Truth)
+
+One status system across DB, PHP, API, JS, and UI. No duplicates. No aliases.
+
+```
+  pending_approval      Waiting for manager approval
+  approved              Ready to begin work
+  needs_clarification   Waiting on additional information
+  in_progress           Active execution
+  needs_review          Ready for internal review
+  delivered             Delivered to client/requester
+  done                  Completed — billing captured
+  archived              Closed out — off the board permanently
+```
+
+**Board columns** show: `pending_approval` through `delivered` (6 columns).
+`done` and `archived` do not appear on the board.
+
+**Legacy aliases** (`draft`, `not_approved`, `pending_review`, `revision_requested`,
+`completed`) exist only in `status_aliases()` for data migration safety. No runtime
+code depends on them. All JS sends canonical values. All API responses return
+canonical values.
+
+---
+
 ## User Roles & Capabilities
 
 ```
@@ -152,7 +177,8 @@
 │                                                                         │
 │  STATUS BUTTONS ──────────────────────────────────────────────────── │
 │  ├── in_progress shows: Needs Review, Delivered, Needs Clarification  │
-│  └── Delivered button triggers window.confirm() review-skip warning   │
+│  ├── Delivered button (from in_progress): window.confirm() review-skip│
+│  └── done button: opens completion modal (captures billing)           │
 │                                                                         │
 │  Does NOT contain: modals, alerts, notifications, or preferences.     │
 │  Those live in satellite files that communicate via the bridge.        │
@@ -172,7 +198,7 @@
 │    wire*Modal()  → attach submit/cancel/backdrop listeners             │
 │                                                                         │
 │  ├── Revision Modal     Request changes with note + optional message  │
-│  │   ├── Supports drag-move revisions and status-button revisions     │
+│  │   ├── Sends canonical status: in_progress (not revision_requested) │
 │  │   └── POST /tasks/{id}/status or /tasks/move                       │
 │  │                                                                     │
 │  ├── Move Modal         Cross-column move with options                │
@@ -289,7 +315,7 @@
                    │
           ┌────────┼──────────────────────┐
           │        │                      │
-          │        ▼                      ▼  (skip review — confirmation required)
+          │        ▼                      ▼  (skip review — confirm required)
           │  ┌─────────────────┐   ┌───────────┐
           │  │  NEEDS_REVIEW    │   │ DELIVERED  │
           │  └────────┬────────┘   └─────┬─────┘
@@ -307,15 +333,54 @@
           │          ▼
           │    ┌───────────┐
           └───►│   DONE     │ ◄── completion modal captures billing
-               └───────────┘
+               └─────┬─────┘
+                     │
+                     ▼  (manager only)
+               ┌───────────┐
+               │  ARCHIVED  │  No transitions out. Reopen creates
+               └───────────┘  follow-up or moves back to active status.
+```
 
-  Transition rules enforced by WP_PQ_Workflow::can_transition()
-  ├── approve/reject: requires CAP_APPROVE (manager)
-  ├── in_progress/review/deliver/done: requires CAP_WORK or CAP_APPROVE
-  ├── in_progress → delivered (direct): skips needs_review, user sees
-  │   "Proceed without third-party review?" confirmation (button click
-  │   uses window.confirm; drag-and-drop uses move modal with warning)
-  └── done: opens completion modal → writes to work ledger
+### Explicit Transition Matrix
+
+```
+  FROM                  → TO (allowed)
+  ─────────────────────────────────────────────────────────────────
+  pending_approval      → approved, needs_clarification
+  needs_clarification   → approved
+  approved              → in_progress, needs_clarification
+  in_progress           → needs_clarification, needs_review, delivered
+  needs_review          → in_progress, delivered
+  delivered             → in_progress, needs_clarification, needs_review, done
+  done                  → archived, in_progress, needs_clarification, needs_review
+  archived              → (none — use reopen or follow-up)
+```
+
+### Permission Rules
+
+```
+  approve / reject (→ approved, pending→needs_clarification): CAP_APPROVE only
+  archive (→ archived):                                       CAP_APPROVE only
+  work transitions (→ in_progress, needs_review, delivered,
+                      needs_clarification, done):             CAP_APPROVE or CAP_WORK
+```
+
+### Confirmation Dialogs
+
+```
+  in_progress → delivered (button click):  window.confirm("Proceed without third-party review?")
+  in_progress → delivered (drag-and-drop): move modal title "Deliver Without Review?"
+  delivered   → done:                      completion modal (captures billing)
+  done        → archived:                  status button (manager only)
+```
+
+### Timestamp Behavior
+
+```
+  → delivered:   sets delivered_at
+  → done:        sets completed_at, done_at
+  → archived:    sets archived_at
+  reopen:        clears done_at, archived_at, completed_at
 ```
 
 ---
@@ -366,6 +431,11 @@
   │ Payment Recorded │  statement status → paid
   │                  │  All linked ledger entries → paid
   └──────────────────┘
+
+  Reopen behavior:
+  ├── done → active status: clears timestamps, reopens ledger entry
+  ├── blocked if ledger entry is invoiced or paid
+  └── follow-up task created instead when blocked
 ```
 
 ---
@@ -397,13 +467,13 @@
                                └───────────────────┘
 
   Configurable events per user (Preferences panel):
-  ├── task_created           ├── task_revision_requested
-  ├── task_assigned          ├── task_delivered
-  ├── task_approved          ├── statement_batched
-  ├── task_rejected          ├── client_status_updates
-  ├── task_mentioned         ├── client_daily_digest
-  ├── task_reprioritized     └── retention_day_300
-  └── task_schedule_changed
+  ├── task_created              ├── task_revision_requested
+  ├── task_assigned             ├── task_delivered
+  ├── task_approved             ├── task_archived
+  ├── task_rejected             ├── statement_batched
+  ├── task_mentioned            ├── client_status_updates
+  ├── task_reprioritized        ├── client_daily_digest
+  └── task_schedule_changed     └── retention_day_300
 ```
 
 ---
@@ -548,7 +618,7 @@
   ├── POST      /manager/ai-import/revalidate   ► update context
   ├── POST      /manager/ai-import/import       ► create tasks
   ├── POST      /manager/ai-import/discard      ► clear preview
-  ├── POST      /tasks/{id}/reopen-completed    ► reopen done task
+  ├── POST      /tasks/{id}/reopen-completed    ► reopen done/archived
   └── POST      /tasks/{id}/followup            ► create followup
 
   CAP_ASSIGN (manager / admin)

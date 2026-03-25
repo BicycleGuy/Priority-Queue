@@ -6,6 +6,10 @@ if (! defined('ABSPATH')) {
 
 class WP_PQ_Workflow
 {
+    /**
+     * Legacy aliases — used ONLY by data migrations.
+     * No runtime code should depend on these.
+     */
     public static function status_aliases(): array
     {
         return [
@@ -14,7 +18,6 @@ class WP_PQ_Workflow
             'pending_review' => 'needs_review',
             'revision_requested' => 'in_progress',
             'completed' => 'done',
-            'archived' => 'done',
         ];
     }
 
@@ -28,6 +31,7 @@ class WP_PQ_Workflow
             'needs_review',
             'delivered',
             'done',
+            'archived',
         ];
     }
 
@@ -45,7 +49,7 @@ class WP_PQ_Workflow
 
     public static function billing_source_statuses(): array
     {
-        return ['delivered', 'done'];
+        return ['delivered', 'done', 'archived'];
     }
 
     public static function is_known_status(string $status): bool
@@ -74,6 +78,7 @@ class WP_PQ_Workflow
             'needs_review' => 'Needs Review',
             'delivered' => 'Delivered',
             'done' => 'Done',
+            'archived' => 'Archived',
             default => ucwords(str_replace('_', ' ', trim($status))),
         };
     }
@@ -92,7 +97,8 @@ class WP_PQ_Workflow
             'in_progress' => ['needs_clarification', 'needs_review', 'delivered'],
             'needs_review' => ['in_progress', 'delivered'],
             'delivered' => ['in_progress', 'needs_clarification', 'needs_review', 'done'],
-            'done' => [],
+            'done' => ['archived', 'in_progress', 'needs_clarification', 'needs_review'],
+            'archived' => [],
         ];
 
         if (! isset($matrix[$from]) || ! in_array($to, $matrix[$from], true)) {
@@ -100,6 +106,10 @@ class WP_PQ_Workflow
         }
 
         if ($to === 'approved' || ($from === 'pending_approval' && $to === 'needs_clarification')) {
+            return $is_manager;
+        }
+
+        if ($to === 'archived') {
             return $is_manager;
         }
 
@@ -122,6 +132,7 @@ class WP_PQ_Workflow
             'task_schedule_changed',
             'task_revision_requested',
             'task_delivered',
+            'task_archived',
             'statement_batched',
             'client_status_updates',
             'client_daily_digest',
