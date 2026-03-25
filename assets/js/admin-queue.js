@@ -611,7 +611,8 @@
       return tasks.filter((task) => parseInt(task.action_owner_id || 0, 10) === parseInt(window.wpPqConfig.currentUserId || 0, 10));
     }
     if (taskFilter.mode === 'responsibility' && taskFilter.value === 'awaiting_client') {
-      return tasks.filter((task) => !!task.action_owner_is_client && !['delivered', 'done', 'archived'].includes(normalizeStatus(task.status)));
+      const myId = parseInt(window.wpPqConfig.currentUserId || 0, 10);
+      return tasks.filter((task) => !!task.action_owner_is_client && parseInt(task.action_owner_id || 0, 10) !== myId && !['delivered', 'done', 'archived'].includes(normalizeStatus(task.status)));
     }
     if (taskFilter.mode === 'status' && taskFilter.value === 'pending_approval') {
       return tasks.filter((task) => normalizeStatus(task.status) === 'pending_approval');
@@ -657,7 +658,8 @@
     const deliveredCount = tasks.filter((task) => normalizeStatus(task.status) === 'delivered').length;
     const unbilledCount = tasks.filter((task) => normalizeStatus(task.status) === 'delivered' && task.is_billable && task.billing_status === 'unbilled').length;
     const awaitingMeCount = tasks.filter((task) => parseInt(task.action_owner_id || 0, 10) === parseInt(window.wpPqConfig.currentUserId || 0, 10)).length;
-    const awaitingClientCount = tasks.filter((task) => !!task.action_owner_is_client && !['delivered', 'done', 'archived'].includes(normalizeStatus(task.status))).length;
+    const currentId = parseInt(window.wpPqConfig.currentUserId || 0, 10);
+    const awaitingClientCount = tasks.filter((task) => !!task.action_owner_is_client && parseInt(task.action_owner_id || 0, 10) !== currentId && !['delivered', 'done', 'archived'].includes(normalizeStatus(task.status))).length;
 
     const groups = [
       {
