@@ -2524,5 +2524,27 @@
   setActiveView(true);
   resetTaskSummary();
 
+  /* ── Dark-mode toggle ──────────────────────────────── */
+  (function initDarkMode() {
+    const wrap = document.querySelector('.wp-pq-wrap');
+    const toggle = document.getElementById('wp-pq-dark-toggle');
+    if (!wrap || !toggle) return;
+    const key = 'wp_pq_theme';
+    const saved = localStorage.getItem(key);
+    if (saved === 'dark') {
+      wrap.setAttribute('data-theme', 'dark');
+      toggle.checked = true;
+    }
+    toggle.addEventListener('change', function () {
+      if (this.checked) {
+        wrap.setAttribute('data-theme', 'dark');
+        localStorage.setItem(key, 'dark');
+      } else {
+        wrap.removeAttribute('data-theme');
+        localStorage.setItem(key, 'light');
+      }
+    });
+  })();
+
   loadTasks().catch(console.error);
 })();
