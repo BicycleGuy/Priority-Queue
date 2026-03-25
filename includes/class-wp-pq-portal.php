@@ -201,7 +201,7 @@ class WP_PQ_Portal
         echo '          <option value="urgent">Urgent</option>';
         echo '        </select>';
         echo '      </label>';
-        echo '      <label>Requested Deadline <input type="datetime-local" name="requested_deadline" step="900"></label>';
+        echo '      <label>Requested Deadline <input type="datetime-local" name="requested_deadline" step="60"></label>';
         echo '      <label class="inline wp-pq-span-2"><input type="checkbox" name="needs_meeting"> Meeting Requested</label>';
         echo '      <label class="inline wp-pq-manager-only wp-pq-span-2"><input type="checkbox" name="is_billable" checked> Billable task</label>';
         echo '      <div class="wp-pq-create-actions wp-pq-span-2">';
