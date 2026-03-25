@@ -683,6 +683,10 @@ class WP_PQ_DB
 
     public static function ensure_default_billing_buckets(): void
     {
+        if (get_option('wp_pq_default_billing_buckets_applied')) {
+            return;
+        }
+
         global $wpdb;
 
         $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
@@ -690,6 +694,7 @@ class WP_PQ_DB
 
         $client_user_ids = $wpdb->get_col("SELECT DISTINCT submitter_id FROM {$tasks_table} WHERE submitter_id > 0");
         if (empty($client_user_ids)) {
+            update_option('wp_pq_default_billing_buckets_applied', 1, false);
             return;
         }
 
@@ -714,6 +719,8 @@ class WP_PQ_DB
                 ));
             }
         }
+
+        update_option('wp_pq_default_billing_buckets_applied', 1, false);
     }
 
     public static function migrate_named_default_buckets(): void
@@ -1028,6 +1035,24 @@ class WP_PQ_DB
         update_option('wp_pq_notification_event_rename_rejected_applied', 1, false);
     }
 
+    public static function migrate_clear_false_archived_at(): void
+    {
+        global $wpdb;
+
+        if (get_option('wp_pq_clear_false_archived_at_applied')) {
+            return;
+        }
+
+        $wpdb->query(
+            "UPDATE {$wpdb->prefix}pq_tasks
+             SET archived_at = NULL
+             WHERE status = 'done'
+               AND archived_at IS NOT NULL"
+        );
+
+        update_option('wp_pq_clear_false_archived_at_applied', 1, false);
+    }
+
     public static function get_or_create_default_billing_bucket_id(int $client_id): int
     {
         global $wpdb;
@@ -1055,9 +1080,11 @@ class WP_PQ_DB
             return $first_bucket_id;
         }
 
+        $primary_user_id = self::get_primary_contact_user_id($client_id);
+        $bucket_name = self::suggest_default_bucket_name($client_id);
         $created_by = get_current_user_id();
         if ($created_by <= 0) {
-            $created_by = self::get_primary_contact_user_id($client_id);
+            $created_by = $primary_user_id;
         }
         if ($created_by <= 0) {
             $created_by = 1;
@@ -1065,9 +1092,9 @@ class WP_PQ_DB
 
         $wpdb->insert($buckets_table, [
             'client_id' => $client_id,
-            'client_user_id' => self::get_primary_contact_user_id($client_id),
-            'bucket_name' => self::suggest_default_bucket_name($client_id),
-            'bucket_slug' => sanitize_title(self::suggest_default_bucket_name($client_id)),
+            'client_user_id' => $primary_user_id,
+            'bucket_name' => $bucket_name,
+            'bucket_slug' => sanitize_title($bucket_name),
             'description' => '',
             'is_default' => 1,
             'created_by' => $created_by,
@@ -1149,7 +1176,16 @@ class WP_PQ_DB
             'updated_at' => $now,
         ]);
 
-        return (int) $wpdb->insert_id;
+        if ((int) $wpdb->insert_id > 0) {
+            return (int) $wpdb->insert_id;
+        }
+
+        // Slug collision from concurrent request — re-check for existing client.
+        $existing_id = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT id FROM {$clients_table} WHERE primary_contact_user_id = %d LIMIT 1",
+            $primary_contact_user_id
+        ));
+        return $existing_id;
     }
 
     public static function ensure_client_member(int $client_id, int $user_id, string $role = 'client_contributor'): void

@@ -982,18 +982,8 @@ class WP_PQ_Manager_API
             }
 
             $task_id = (int) (($response->get_data()['task_id'] ?? 0));
-            $status_hint = WP_PQ_Workflow::normalize_status((string) ($task['status_hint'] ?? 'pending_approval'));
-            if ($task_id > 0 && $status_hint !== 'pending_approval') {
-                $update = [
-                    'status' => $status_hint,
-                    'delivered_at' => in_array($status_hint, ['delivered', 'done'], true) ? current_time('mysql', true) : null,
-                    'updated_at' => current_time('mysql', true),
-                ];
-                if ($status_hint === 'done') {
-                    $update['done_at'] = current_time('mysql', true);
-                }
-                $wpdb->update($wpdb->prefix . 'pq_tasks', $update, ['id' => $task_id]);
-            }
+            $status_hint = (string) ($task['status_hint'] ?? 'pending_approval');
+            WP_PQ_API::import_set_initial_status($task_id, $status_hint);
             $imported++;
         }
 
@@ -1249,8 +1239,10 @@ class WP_PQ_Manager_API
             return $matched_bucket_id;
         }
 
+        // Only create a new bucket when the preview explicitly flagged it
+        // as a new job AND the user confirmed new-job creation.
         $job_name = trim((string) ($task['job_name'] ?? ''));
-        if ($job_name !== '') {
+        if ($job_name !== '' && ! empty($task['requires_new_job'])) {
             return WP_PQ_Admin::create_bucket_for_client($client_id, $job_name);
         }
 

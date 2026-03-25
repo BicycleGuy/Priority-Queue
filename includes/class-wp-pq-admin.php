@@ -1078,7 +1078,7 @@ class WP_PQ_Admin
 
     public static function handle_google_oauth_start(): void
     {
-        if (! current_user_can('read')) {
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
             wp_die('Forbidden');
         }
 
@@ -1722,17 +1722,8 @@ class WP_PQ_Admin
             }
 
             $task_id = (int) (($response->get_data()['task_id'] ?? 0));
-            $status_hint = WP_PQ_Workflow::normalize_status((string) ($task['status_hint'] ?? 'pending_approval'));
-            if ($task_id > 0 && in_array($status_hint, ['needs_review', 'delivered', 'done'], true)) {
-                global $wpdb;
-                $wpdb->update($wpdb->prefix . 'pq_tasks', [
-                    'status' => $status_hint,
-                    'delivered_at' => $status_hint === 'delivered' ? current_time('mysql', true) : null,
-                    'done_at' => $status_hint === 'done' ? current_time('mysql', true) : null,
-                    'archived_at' => $status_hint === 'archived' ? current_time('mysql', true) : null,
-                    'updated_at' => current_time('mysql', true),
-                ], ['id' => $task_id]);
-            }
+            $status_hint = (string) ($task['status_hint'] ?? 'pending_approval');
+            WP_PQ_API::import_set_initial_status($task_id, $status_hint);
             $imported++;
         }
 
@@ -2050,7 +2041,7 @@ class WP_PQ_Admin
         $selected_jobs = $selected_client_id > 0 ? ($buckets_by_client[$selected_client_id] ?? []) : [];
         $html = '<section class="wp-pq-panel">';
         $html .= '<h2>Clients &amp; Jobs</h2>';
-        $html .= '<p class="wp-pq-panel-note">Jobs are always selected or explicitly created. They are never inferred from free text on this screen.</p>';
+        $html .= '<p class="wp-pq-panel-note">Jobs are selected or explicitly created here. This screen never infers jobs from free text.</p>';
         $html .= self::render_client_datalist($clients, 'wp-pq-client-options');
         $html .= '<div class="wp-pq-admin-stack">';
         $html .= self::render_rollup_create_client_form($range);
@@ -2243,7 +2234,7 @@ class WP_PQ_Admin
         echo '<h2>Importer Rules</h2>';
         echo '<div class="wp-pq-admin-callout">';
         echo '<p><strong>Flow:</strong> parse → preview → import.</p>';
-        echo '<p><strong>Jobs:</strong> existing jobs are reused by normalized name. New jobs require explicit confirmation before import.</p>';
+        echo '<p><strong>Jobs:</strong> the importer can match existing jobs by normalized name and create new jobs during import after preview confirmation.</p>';
         echo '<p><strong>Warnings:</strong> unresolved assignees and bad deadlines warn only. Client/context mismatches block import.</p>';
         echo '<p><strong>Requester:</strong> imported tasks are attributed to the client primary contact, not to you as PM.</p>';
         echo '</div>';
@@ -2485,8 +2476,10 @@ class WP_PQ_Admin
             return $matched_bucket_id;
         }
 
+        // Only create a new bucket when the preview explicitly flagged it
+        // as a new job AND the user confirmed new-job creation.
         $job_name = trim((string) ($task['job_name'] ?? ''));
-        if ($job_name !== '') {
+        if ($job_name !== '' && ! empty($task['requires_new_job'])) {
             return self::create_bucket_for_client($client_id, $job_name);
         }
 
@@ -3663,7 +3656,7 @@ document.addEventListener('DOMContentLoaded', function () {
     private static function billing_status_label(string $status): string
     {
         $status = trim($status);
-        if ($status === 'batched') {
+        if ($status === 'invoiced') {
             return 'In invoice draft';
         }
 

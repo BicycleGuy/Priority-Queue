@@ -9,6 +9,7 @@ class WP_PQ_Housekeeping
     public static function init(): void
     {
         add_action('wp_pq_daily_housekeeping', [self::class, 'run_daily']);
+        self::schedule();
     }
 
     public static function schedule(): void
@@ -144,17 +145,30 @@ class WP_PQ_Housekeeping
         $members_table = $wpdb->prefix . 'pq_client_members';
         $task_table = $wpdb->prefix . 'pq_tasks';
         $history_table = $wpdb->prefix . 'pq_task_status_history';
+        $prefs_table = $wpdb->prefix . 'pq_notification_prefs';
 
         $members = $wpdb->get_results(
             "SELECT DISTINCT user_id FROM {$members_table} ORDER BY user_id ASC",
             ARRAY_A
         );
 
+        // Batch-load digest prefs for all client members in one query.
+        $member_user_ids = array_map(static fn(array $r): int => (int) ($r['user_id'] ?? 0), (array) $members);
+        $member_user_ids = array_values(array_filter($member_user_ids));
+        $digest_disabled_ids = [];
+        if (! empty($member_user_ids)) {
+            $ids_in = implode(',', array_map('intval', $member_user_ids));
+            $disabled_rows = $wpdb->get_col(
+                "SELECT user_id FROM {$prefs_table} WHERE event_key = 'client_daily_digest' AND is_enabled = 0 AND user_id IN ({$ids_in})"
+            );
+            $digest_disabled_ids = array_flip(array_map('intval', (array) $disabled_rows));
+        }
+
         $now = current_time('mysql', true);
 
         foreach ((array) $members as $member_row) {
             $user_id = (int) ($member_row['user_id'] ?? 0);
-            if ($user_id <= 0 || ! self::is_event_enabled($user_id, 'client_daily_digest')) {
+            if ($user_id <= 0 || isset($digest_disabled_ids[$user_id])) {
                 continue;
             }
 
@@ -168,13 +182,25 @@ class WP_PQ_Housekeeping
                 $last_sent_at = gmdate('Y-m-d H:i:s', strtotime('-1 day'));
             }
 
+            // Scope to tasks belonging to this user's client accounts.
+            $client_ids = array_map(
+                static fn(array $m): int => (int) ($m['client_id'] ?? 0),
+                WP_PQ_DB::get_user_client_memberships($user_id)
+            );
+            $client_ids = array_values(array_filter($client_ids));
+            if (empty($client_ids)) {
+                update_user_meta($user_id, 'wp_pq_client_digest_last_sent_at', $now);
+                continue;
+            }
+
+            $client_ids_in = implode(',', array_map('intval', $client_ids));
             $task_ids = array_map('intval', (array) $wpdb->get_col($wpdb->prepare(
                 "SELECT DISTINCT h.task_id
                  FROM {$history_table} h
                  INNER JOIN {$task_table} t ON t.id = h.task_id
                  WHERE h.created_at > %s
                    AND h.created_at <= %s
-                   AND t.client_id > 0",
+                   AND t.client_id IN ({$client_ids_in})",
                 $last_sent_at,
                 $now
             )));
@@ -194,6 +220,13 @@ class WP_PQ_Housekeeping
                 update_user_meta($user_id, 'wp_pq_client_digest_last_sent_at', $now);
                 continue;
             }
+
+            // Batch-preload submitter users for this digest.
+            $submitter_ids = array_values(array_unique(array_filter(array_map(
+                static fn(array $t): int => (int) ($t['submitter_id'] ?? 0),
+                $visible_tasks
+            ))));
+            WP_PQ_API::preload_users($submitter_ids);
 
             $groups = [
                 'Awaiting you' => [],
@@ -236,7 +269,7 @@ class WP_PQ_Housekeeping
 
     private static function normalize_task_for_digest(array $task): array
     {
-        $submitter = isset($task['submitter_id']) ? get_user_by('ID', (int) $task['submitter_id']) : null;
+        $submitter = isset($task['submitter_id']) ? WP_PQ_API::get_cached_user((int) $task['submitter_id']) : null;
         $task['submitter_name'] = $submitter ? (string) $submitter->display_name : '';
         return $task;
     }

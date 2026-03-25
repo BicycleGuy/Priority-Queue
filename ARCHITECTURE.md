@@ -7,7 +7,7 @@
 │                        WORDPRESS CORE                                   │
 │                                                                         │
 │  plugins_loaded ──► WP_PQ_Plugin::boot()                               │
-│                      ├── DB migrations (12 migrate_* calls)             │
+│                      ├── DB migrations (15 migrate_* calls)             │
 │                      ├── WP_PQ_Housekeeping::init()  ► cron hooks      │
 │                      ├── WP_PQ_Admin::init()         ► wp-admin pages  │
 │                      ├── WP_PQ_API::init()           ► REST routes     │
@@ -565,8 +565,10 @@ canonical values.
 ## REST API Route Map (50+ endpoints)
 
 ```
-  PUBLIC (no auth)
+  PUBLIC (no auth — callback only)
   ├── GET/POST  /pq/v1/google/oauth/callback
+
+  CAP_APPROVE (Google OAuth initiation)
   ├── GET       /pq/v1/google/oauth/url
   └── POST      /pq/v1/calendar/webhook
 
@@ -665,11 +667,22 @@ canonical values.
        │
        ▼
   For each preview task:
-  └── POST /pq/v1/tasks (internal) → creates real task
+  ├── POST /pq/v1/tasks (internal) → creates real task
+  └── WP_PQ_API::import_set_initial_status()
+      ├── Sets status + timestamps via status_timestamp_updates()
+      ├── Records status history (reason_code: 'imported')
+      └── For 'done': creates work ledger entry (billing integrity)
        │
        ▼
   Toast: "Imported N tasks."
   Board refreshes with new tasks
+
+  Job creation policy during import:
+  ├── Only during final import (never during parse/revalidate)
+  ├── Only if preview flagged requires_new_job on the task
+  ├── Only if user checked "Confirm new job creation" checkbox
+  ├── Created by normalized unique slug per client
+  └── Unconfirmed job names fall back to default bucket
 ```
 
 ---
@@ -677,17 +690,24 @@ canonical values.
 ## Cron / Housekeeping
 
 ```
+  WP_PQ_Housekeeping::init()
+  ├── Registers cron hook
+  └── Calls schedule() to ensure event is registered
+
   wp_pq_daily_housekeeping (runs daily at 8am local)
   │
   ├── File retention reminders
-  │   └── Files at 300 days → email submitter
+  │   └── Files at 300 days → email submitter (deduplicated via history note)
   │
   ├── Expired file cleanup
-  │   └── Files past 365 days → wp_delete_attachment + DB delete
+  │   └── Files past storage_expires_at → wp_delete_attachment + DB delete
   │
   └── Client daily digests
-      └── For each client member:
+      ├── Batch-loads digest prefs (single query for all members)
+      └── For each client member (scoped to user's client accounts):
           ├── Gather tasks with status changes since last digest
+          ├── Filter by can_access_task()
+          ├── Batch preload submitter users (eliminates N+1)
           ├── Group: Awaiting you / Delivered / Needs clarification / Other
           └── wp_mail() digest email
 ```

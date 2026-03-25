@@ -9,7 +9,7 @@ class WP_PQ_API
     /** @var array<int, \WP_User|false> */
     private static array $user_cache = [];
 
-    private static function get_cached_user(int $user_id): ?\WP_User
+    public static function get_cached_user(int $user_id): ?\WP_User
     {
         if ($user_id <= 0) {
             return null;
@@ -22,7 +22,7 @@ class WP_PQ_API
         return self::$user_cache[$user_id] ?: null;
     }
 
-    private static function preload_users(array $user_ids): void
+    public static function preload_users(array $user_ids): void
     {
         $missing = [];
         foreach ($user_ids as $id) {
@@ -945,6 +945,57 @@ class WP_PQ_API
             'task' => self::get_enriched_task($task_id),
             'ledger_entry' => $ledger_entry,
         ], 200);
+    }
+
+    /**
+     * Seed a freshly-created imported task to a non-default status.
+     *
+     * Unlike a normal workflow transition this skips can_transition()
+     * (the task has no real history to protect) but it does record
+     * status history, timestamps, and — for 'done' — the ledger entry
+     * so that billing integrity is preserved.
+     */
+    public static function import_set_initial_status(int $task_id, string $status_hint): void
+    {
+        global $wpdb;
+
+        $status_hint = WP_PQ_Workflow::normalize_status($status_hint);
+        if ($status_hint === 'pending_approval' || $task_id <= 0) {
+            return;
+        }
+
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $history_table = $wpdb->prefix . 'pq_task_status_history';
+        $user_id = get_current_user_id();
+
+        $update = array_merge(
+            ['status' => $status_hint, 'updated_at' => current_time('mysql', true)],
+            self::status_timestamp_updates($status_hint)
+        );
+
+        if ($status_hint === 'done') {
+            $update['billing_status'] = 'unbilled';
+            $update['delivered_at'] = $update['delivered_at'] ?? current_time('mysql', true);
+        }
+
+        $wpdb->update($tasks_table, $update, ['id' => $task_id]);
+
+        self::insert_status_history(
+            $history_table,
+            $task_id,
+            'pending_approval',
+            $status_hint,
+            $user_id,
+            'ai_import',
+            'imported'
+        );
+
+        if ($status_hint === 'done') {
+            $task = self::get_task_row($task_id);
+            if ($task) {
+                self::upsert_work_ledger_entry($task);
+            }
+        }
     }
 
     public static function approve_batch(WP_REST_Request $request): WP_REST_Response
