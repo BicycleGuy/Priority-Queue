@@ -66,7 +66,7 @@ Headers:
 ## Event keys
 - `task_created`
 - `task_approved`
-- `task_rejected`
+- `task_clarification_requested`
 - `task_returned_to_work`
 - `task_delivered`
 - `task_archived`

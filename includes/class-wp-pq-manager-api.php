@@ -363,14 +363,12 @@ class WP_PQ_Manager_API
         if (! in_array($role, ['client_admin', 'client_contributor', 'client_viewer'], true)) {
             $role = 'client_contributor';
         }
-        if (! WP_PQ_Admin::can_manage_client($client_id) || $user_id <= 0 || ! get_user_by('ID', $user_id)) {
+        $user = $user_id > 0 ? get_user_by('ID', $user_id) : null;
+        if (! WP_PQ_Admin::can_manage_client($client_id) || ! $user) {
             return new WP_REST_Response(['message' => 'Choose a valid user to add to this client.'], 422);
         }
 
-        $user = get_user_by('ID', $user_id);
-        if ($user) {
-            $user->add_role('pq_client');
-        }
+        $user->add_role('pq_client');
         WP_PQ_DB::ensure_client_member($client_id, $user_id, $role);
 
         return new WP_REST_Response(['ok' => true, 'message' => 'Client member saved.'], 200);
@@ -607,7 +605,8 @@ class WP_PQ_Manager_API
         global $wpdb;
 
         $work_log_id = (int) $request['id'];
-        if ($work_log_id <= 0) {
+        $exists = $work_log_id > 0 && $wpdb->get_var($wpdb->prepare("SELECT id FROM {$wpdb->prefix}pq_work_logs WHERE id = %d", $work_log_id));
+        if (! $exists) {
             return new WP_REST_Response(['message' => 'Work statement not found.'], 404);
         }
         $wpdb->update($wpdb->prefix . 'pq_work_logs', [
@@ -673,7 +672,8 @@ class WP_PQ_Manager_API
         global $wpdb;
 
         $statement_id = (int) $request['id'];
-        if ($statement_id <= 0) {
+        $exists = $statement_id > 0 && $wpdb->get_var($wpdb->prepare("SELECT id FROM {$wpdb->prefix}pq_statements WHERE id = %d", $statement_id));
+        if (! $exists) {
             return new WP_REST_Response(['message' => 'Invoice draft not found.'], 404);
         }
 
@@ -983,7 +983,7 @@ class WP_PQ_Manager_API
 
             $task_id = (int) (($response->get_data()['task_id'] ?? 0));
             $status_hint = WP_PQ_Workflow::normalize_status((string) ($task['status_hint'] ?? 'pending_approval'));
-            if ($task_id > 0 && in_array($status_hint, ['needs_review', 'delivered', 'done'], true)) {
+            if ($task_id > 0 && $status_hint !== 'pending_approval') {
                 $update = [
                     'status' => $status_hint,
                     'delivered_at' => in_array($status_hint, ['delivered', 'done'], true) ? current_time('mysql', true) : null,
@@ -1038,8 +1038,8 @@ class WP_PQ_Manager_API
             $reason_code = $invoice_status === 'paid' ? 'blocked_reopen_paid' : 'blocked_reopen_invoiced';
             $wpdb->insert($wpdb->prefix . 'pq_task_status_history', [
                 'task_id' => $task_id,
-                'old_status' => 'done',
-                'new_status' => 'done',
+                'old_status' => $current,
+                'new_status' => $current,
                 'changed_by' => get_current_user_id(),
                 'reason_code' => $reason_code,
                 'note' => $note !== '' ? $note : 'Blocked reopen of completed work.',
@@ -1074,7 +1074,7 @@ class WP_PQ_Manager_API
 
         $wpdb->insert($wpdb->prefix . 'pq_task_status_history', [
             'task_id' => $task_id,
-            'old_status' => 'done',
+            'old_status' => $current,
             'new_status' => $target_status,
             'changed_by' => get_current_user_id(),
             'reason_code' => 'reopened_after_done',
@@ -1130,10 +1130,10 @@ class WP_PQ_Manager_API
             'billing_bucket_id' => (int) ($task['billing_bucket_id'] ?? 0) ?: null,
             'billing_mode' => (string) ($task['billing_mode'] ?? ''),
             'billing_category' => (string) ($task['billing_category'] ?? ''),
-            'work_summary' => (string) ($task['work_summary'] ?? ''),
-            'hours' => $task['hours'] !== null ? $task['hours'] : null,
+            'work_summary' => '',
+            'hours' => null,
             'rate' => $task['rate'] !== null ? $task['rate'] : null,
-            'amount' => $task['amount'] !== null ? $task['amount'] : null,
+            'amount' => null,
             'revision_count' => 0,
             'non_billable_reason' => (string) ($task['non_billable_reason'] ?? ''),
             'expense_reference' => (string) ($task['expense_reference'] ?? ''),
@@ -1159,8 +1159,8 @@ class WP_PQ_Manager_API
 
         $wpdb->insert($wpdb->prefix . 'pq_task_status_history', [
             'task_id' => $task_id,
-            'old_status' => 'done',
-            'new_status' => 'done',
+            'old_status' => $followup_source_status,
+            'new_status' => $followup_source_status,
             'changed_by' => get_current_user_id(),
             'reason_code' => 'followup_created_from_done',
             'note' => $note !== '' ? $note : 'Follow-up task created from completed work.',
@@ -1381,7 +1381,7 @@ class WP_PQ_Manager_API
              SET billing_status = %s,
                  updated_at = %s
              WHERE statement_id = %d",
-            $is_paid ? 'paid' : 'batched',
+            $is_paid ? 'paid' : 'invoiced',
             $now,
             $statement_id
         ));

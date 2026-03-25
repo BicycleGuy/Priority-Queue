@@ -1,6 +1,7 @@
 (function () {
   const bridge = window.wpPqPortalUI;
   if (!bridge || !bridge.api) return;
+  const normalizeStatus = bridge.normalizeStatus || function (s) { return String(s || '').toLowerCase(); };
 
   // --- Modal DOM elements ---
   const revisionModalBackdrop = document.getElementById('wp-pq-revision-modal-backdrop');
@@ -52,14 +53,17 @@
 
   function openRevisionModal(action) {
     if (!revisionModal || !revisionModalBackdrop || !revisionForm || !action) return;
-    pendingRevisionAction = action;
     const task = bridge.getTaskById(action.taskId);
+    const sourceStatus = normalizeStatus(action.sourceStatus || (task ? task.status : ''));
+    const revisionTarget = ['needs_review', 'delivered'].includes(sourceStatus) ? 'in_progress' : 'needs_clarification';
+    pendingRevisionAction = Object.assign({}, action, { revisionTarget: revisionTarget });
     const textarea = revisionForm.querySelector('textarea[name="revision_note"]');
     const checkbox = revisionForm.querySelector('input[name="post_message"]');
     if (revisionSummaryEl) {
-      revisionSummaryEl.textContent = task
-        ? 'Explain what needs to change on "' + task.title + '". This will guide the next revision cycle.'
-        : 'Add a short note so the requester knows what to revise.';
+      var summaryPrefix = revisionTarget === 'in_progress'
+        ? 'Explain what needs to change on "' + (task ? task.title : 'this task') + '". This returns it to the worker for revisions.'
+        : 'Explain what needs clarification on "' + (task ? task.title : 'this task') + '". This sends it back to the requester.';
+      revisionSummaryEl.textContent = summaryPrefix;
     }
     if (textarea) textarea.value = '';
     if (checkbox) checkbox.checked = true;
@@ -105,6 +109,7 @@
 
     if (!revisionForm) return;
 
+    const revisionSubmitBtn = revisionForm.querySelector('button[type="submit"]');
     revisionForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       if (!pendingRevisionAction) return;
@@ -114,10 +119,12 @@
       const postMessage = formData.get('post_message') === '1';
       if (!note) return bridge.alert('Please describe what needs to change.');
 
+      if (revisionSubmitBtn) revisionSubmitBtn.disabled = true;
       try {
         bridge.setSelectedTaskId(pendingRevisionAction.taskId);
         const preserveBoardOrder = pendingRevisionAction.type === 'move';
         let result;
+        var targetStatus = pendingRevisionAction.revisionTarget || 'needs_clarification';
         if (pendingRevisionAction.type === 'move') {
           result = await bridge.api('tasks/move', {
             method: 'POST',
@@ -125,7 +132,7 @@
               task_id: pendingRevisionAction.taskId,
               target_task_id: pendingRevisionAction.targetTaskId || 0,
               position: pendingRevisionAction.position || 'after',
-              target_status: 'in_progress',
+              target_status: targetStatus,
               priority_direction: 'keep',
               swap_due_dates: false,
               note: note,
@@ -136,7 +143,7 @@
           result = await bridge.api('tasks/' + pendingRevisionAction.taskId + '/status', {
             method: 'POST',
             body: JSON.stringify({
-              status: 'in_progress',
+              status: targetStatus,
               note: note,
               message_body: postMessage ? note : '',
             }),
@@ -164,6 +171,8 @@
       } catch (err) {
         bridge.alert(err.message);
         await closeRevisionModal(true);
+      } finally {
+        if (revisionSubmitBtn) revisionSubmitBtn.disabled = false;
       }
     });
   }
@@ -171,7 +180,7 @@
   // --- Move modal ---
 
   function shouldPromptForMoveDecision(sourceStatus, targetStatus) {
-    const effectiveStatus = targetStatus || sourceStatus;
+    const effectiveStatus = normalizeStatus(targetStatus || sourceStatus);
     return ['pending_approval', 'needs_clarification', 'approved', 'in_progress', 'needs_review', 'delivered'].includes(effectiveStatus);
   }
 
@@ -234,9 +243,9 @@
     const action = pendingMove || pendingStatusAction;
     const movedTask = bridge.getTaskById(action.taskId);
     const targetTask = pendingMove ? bridge.getTaskById(pendingMove.targetTaskId) : null;
-    const targetStatus = pendingMove ? pendingMove.targetStatus : pendingStatusAction.status;
+    const targetStatus = normalizeStatus(pendingMove ? pendingMove.targetStatus : pendingStatusAction.status);
     const config = moveDecisionConfig({
-      sourceStatus: pendingMove ? pendingMove.sourceStatus : (movedTask ? movedTask.status : ''),
+      sourceStatus: normalizeStatus(pendingMove ? pendingMove.sourceStatus : (movedTask ? movedTask.status : '')),
       targetStatus: targetStatus,
     });
     if (moveTitleEl) moveTitleEl.textContent = config.title;
@@ -326,6 +335,7 @@
       const requestMeeting = formData.get('request_meeting') === '1';
       const sendUpdateEmail = formData.get('send_update_email') === '1';
 
+      if (applyMoveBtn) applyMoveBtn.disabled = true;
       try {
         bridge.setSelectedTaskId(pendingMove ? pendingMove.taskId : pendingStatusAction.taskId);
         const preserveBoardOrder = !!pendingMove;
@@ -376,6 +386,8 @@
       } catch (err) {
         bridge.alert(err.message);
         await closeMoveModal(true);
+      } finally {
+        if (applyMoveBtn) applyMoveBtn.disabled = false;
       }
     });
   }
@@ -505,12 +517,14 @@
 
     if (!completionForm) return;
 
+    const completionSubmitBtn = completionForm.querySelector('button[type="submit"]');
     completionForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       if (!pendingCompletionTaskId) return;
 
       const formData = new FormData(completionForm);
       const taskId = pendingCompletionTaskId;
+      if (completionSubmitBtn) completionSubmitBtn.disabled = true;
       try {
         bridge.setSelectedTaskId(taskId);
         await bridge.api('tasks/' + taskId + '/done', {
@@ -527,12 +541,13 @@
           }),
         });
         closeCompletionModal();
-        bridge.removeTaskById(taskId);
         bridge.closeDrawer();
         await bridge.loadTasks();
         bridge.alert('Task marked done and added to the work ledger.', 'success');
       } catch (err) {
         bridge.alert(err.message);
+      } finally {
+        if (completionSubmitBtn) completionSubmitBtn.disabled = false;
       }
     });
   }
@@ -586,7 +601,6 @@
       confirmDeleteBtn.disabled = true;
       try {
         await bridge.api('tasks/' + taskId, { method: 'DELETE' });
-        bridge.removeTaskById(taskId);
         closeDeleteModal();
         bridge.closeDrawer();
         await bridge.loadTasks();

@@ -19,12 +19,29 @@
     needs_review: 'Needs Review',
     needs_clarification: 'Needs Clarification',
     done: 'Done',
-    task_rejected: 'Clarification Requested',
+    task_clarification_requested: 'Clarification Requested',
     task_assigned: 'Task Assigned',
     task_reprioritized: 'Priority Changed',
     task_schedule_changed: 'Schedule Changed',
     statement_batched: 'In Invoice Draft',
   };
+
+  const boardStatuses = [
+    'pending_approval',
+    'needs_clarification',
+    'approved',
+    'in_progress',
+    'needs_review',
+    'delivered',
+  ];
+
+  function normalizeStatus(s) {
+    return String(s || '').toLowerCase();
+  }
+
+  function isBoardVisible(status) {
+    return boardStatuses.includes(normalizeStatus(status));
+  }
 
   const binderIcons = {
     jobs: '▣',
@@ -241,7 +258,7 @@
     const currentUserId = parseInt(window.wpPqConfig.currentUserId || 0, 10) || 0;
     return currentUserId > 0
       && parseInt(task.submitter_id || 0, 10) === currentUserId
-      && ['pending_approval', 'needs_clarification'].includes(String(task.status || ''))
+      && ['pending_approval', 'needs_clarification'].includes(normalizeStatus(task.status))
       && !(parseInt(task.statement_id || 0, 10) || 0)
       && !(parseInt(task.work_log_id || 0, 10) || 0)
       && !['batched', 'statement_sent', 'paid'].includes(String(task.billing_status || ''));
@@ -557,13 +574,13 @@
     selectedApprovalTaskIds = new Set(
       Array.from(selectedApprovalTaskIds).filter((taskId) => {
         const task = tasksCache.find((item) => item.id === taskId);
-        return !!task && task.status === 'pending_approval';
+        return !!task && normalizeStatus(task.status) === 'pending_approval';
       })
     );
     selectedBatchTaskIds = new Set(
       Array.from(selectedBatchTaskIds).filter((taskId) => {
         const task = tasksCache.find((item) => item.id === taskId);
-        return !!task && task.status === 'delivered' && task.is_billable && task.billing_status === 'unbilled';
+        return !!task && normalizeStatus(task.status) === 'delivered' && task.is_billable && task.billing_status === 'unbilled';
       })
     );
   }
@@ -594,19 +611,19 @@
       return tasks.filter((task) => parseInt(task.action_owner_id || 0, 10) === parseInt(window.wpPqConfig.currentUserId || 0, 10));
     }
     if (taskFilter.mode === 'responsibility' && taskFilter.value === 'awaiting_client') {
-      return tasks.filter((task) => !!task.action_owner_is_client && !['delivered', 'done'].includes(String(task.status || '')));
+      return tasks.filter((task) => !!task.action_owner_is_client && !['delivered', 'done', 'archived'].includes(normalizeStatus(task.status)));
     }
     if (taskFilter.mode === 'status' && taskFilter.value === 'pending_approval') {
-      return tasks.filter((task) => String(task.status || '') === 'pending_approval');
+      return tasks.filter((task) => normalizeStatus(task.status) === 'pending_approval');
     }
     if (taskFilter.mode === 'status' && taskFilter.value === 'needs_review') {
-      return tasks.filter((task) => String(task.status || '') === 'needs_review');
+      return tasks.filter((task) => normalizeStatus(task.status) === 'needs_review');
     }
     if (taskFilter.mode === 'status' && taskFilter.value === 'delivered') {
-      return tasks.filter((task) => String(task.status || '') === 'delivered');
+      return tasks.filter((task) => normalizeStatus(task.status) === 'delivered');
     }
     if (taskFilter.mode === 'status' && taskFilter.value === 'unbilled') {
-      return tasks.filter((task) => String(task.status || '') === 'delivered' && !!task.is_billable && String(task.billing_status || '') === 'unbilled');
+      return tasks.filter((task) => normalizeStatus(task.status) === 'delivered' && !!task.is_billable && String(task.billing_status || '') === 'unbilled');
     }
     if (taskFilter.mode === 'status' && taskFilter.value === 'urgent') {
       return tasks.filter((task) => String(task.priority || '') === 'urgent');
@@ -635,12 +652,12 @@
     if (!filterListEl) return;
 
     const urgentCount = tasks.filter((task) => task.priority === 'urgent').length;
-    const approvalCount = tasks.filter((task) => task.status === 'pending_approval').length;
-    const reviewCount = tasks.filter((task) => task.status === 'needs_review').length;
-    const deliveredCount = tasks.filter((task) => task.status === 'delivered').length;
-    const unbilledCount = tasks.filter((task) => task.status === 'delivered' && task.is_billable && task.billing_status === 'unbilled').length;
+    const approvalCount = tasks.filter((task) => normalizeStatus(task.status) === 'pending_approval').length;
+    const reviewCount = tasks.filter((task) => normalizeStatus(task.status) === 'needs_review').length;
+    const deliveredCount = tasks.filter((task) => normalizeStatus(task.status) === 'delivered').length;
+    const unbilledCount = tasks.filter((task) => normalizeStatus(task.status) === 'delivered' && task.is_billable && task.billing_status === 'unbilled').length;
     const awaitingMeCount = tasks.filter((task) => parseInt(task.action_owner_id || 0, 10) === parseInt(window.wpPqConfig.currentUserId || 0, 10)).length;
-    const awaitingClientCount = tasks.filter((task) => !!task.action_owner_is_client && !['delivered', 'done'].includes(String(task.status || ''))).length;
+    const awaitingClientCount = tasks.filter((task) => !!task.action_owner_is_client && !['delivered', 'done', 'archived'].includes(normalizeStatus(task.status))).length;
 
     const groups = [
       {
@@ -764,7 +781,7 @@
   }
 
   function nextStepLabel(task) {
-    const status = String(task.status || '');
+    const status = normalizeStatus(task.status);
     if (status === 'pending_approval') return 'Waiting for approval';
     if (status === 'needs_clarification') return 'Clarification needed from client';
     if (status === 'approved') return 'Ready to begin work';
@@ -821,7 +838,7 @@
   }
 
   function taskGuidance(task) {
-    const status = String(task.status || '');
+    const status = normalizeStatus(task.status);
     if (status === 'pending_approval') {
       return window.wpPqConfig.canApprove
         ? 'Awaiting your approval. Approve this request to move it into active workflow, or send it back for clarification.'
@@ -845,7 +862,7 @@
 
   function taskActorLabel(task) {
     if (task.action_owner_name) return 'Awaiting ' + task.action_owner_name;
-    if (task.client_account_name && task.status === 'needs_clarification') return 'Awaiting ' + task.client_account_name;
+    if (task.client_account_name && normalizeStatus(task.status) === 'needs_clarification') return 'Awaiting ' + task.client_account_name;
     return 'Awaiting assignment';
   }
 
@@ -870,11 +887,11 @@
   }
 
   function cardActionHtml(task) {
-    if (window.wpPqConfig.canApprove && task.status === 'pending_approval') {
+    if (window.wpPqConfig.canApprove && normalizeStatus(task.status) === 'pending_approval') {
       return '<button type="button" class="wp-pq-card-inline-action" data-approve-task-id="' + escapeHtml(task.id) + '">Approve →</button>';
     }
 
-    if (window.wpPqConfig.canBatch && task.status === 'delivered' && task.is_billable && task.billing_status === 'unbilled') {
+    if (window.wpPqConfig.canBatch && normalizeStatus(task.status) === 'delivered' && task.is_billable && task.billing_status === 'unbilled') {
       return '<button type="button" class="wp-pq-card-inline-action ' + (selectedBatchTaskIds.has(task.id) ? 'is-selected' : '') + '" data-batch-task-id="' + escapeHtml(task.id) + '">' +
         (selectedBatchTaskIds.has(task.id) ? 'Queued' : 'Batch') +
         '</button>';
@@ -1023,7 +1040,7 @@
 
   function boardCard(task) {
     const card = document.createElement('article');
-    card.className = 'wp-pq-task-card is-status-' + String(task.status || 'pending_approval').replaceAll('_', '-');
+    card.className = 'wp-pq-task-card is-status-' + normalizeStatus(task.status || 'pending_approval').replaceAll('_', '-');
     card.dataset.id = task.id;
 
     const brief = truncateText(task.description || 'No request brief yet.', 160);
@@ -1152,34 +1169,35 @@
     const buttons = [];
     const billingLocked = parseInt(task.statement_id || 0, 10) > 0 || ['batched', 'statement_sent', 'paid'].includes(String(task.billing_status || ''));
     const canOperate = !!window.wpPqConfig.canApprove || !!window.wpPqConfig.canWork;
-    if (window.wpPqConfig.canApprove && task.status === 'pending_approval') {
+    const status = normalizeStatus(task.status);
+    if (window.wpPqConfig.canApprove && status === 'pending_approval') {
       buttons.push(buttonHtml(task.id, 'approved', 'Approve'));
       buttons.push(buttonHtml(task.id, 'needs_clarification', 'Needs Clarification'));
     }
-    if (window.wpPqConfig.canApprove && task.status === 'needs_clarification') {
+    if (window.wpPqConfig.canApprove && status === 'needs_clarification') {
       buttons.push(buttonHtml(task.id, 'approved', 'Approve'));
     }
-    if (canOperate && task.status === 'needs_clarification') {
+    if (canOperate && status === 'needs_clarification') {
       buttons.push(buttonHtml(task.id, 'in_progress', 'In Progress'));
     }
-    if (canOperate && task.status === 'approved') {
+    if (canOperate && status === 'approved') {
       buttons.push(buttonHtml(task.id, 'in_progress', 'In Progress'));
       if (window.wpPqConfig.canApprove) {
         buttons.push(buttonHtml(task.id, 'needs_clarification', 'Needs Clarification'));
       }
     }
-    if (canOperate && task.status === 'in_progress') {
+    if (canOperate && status === 'in_progress') {
       buttons.push(buttonHtml(task.id, 'needs_review', 'Needs Review'));
       buttons.push(buttonHtml(task.id, 'delivered', 'Delivered'));
       if (window.wpPqConfig.canApprove) {
         buttons.push(buttonHtml(task.id, 'needs_clarification', 'Needs Clarification'));
       }
     }
-    if (canOperate && task.status === 'needs_review') {
+    if (canOperate && status === 'needs_review') {
       buttons.push(buttonHtml(task.id, 'in_progress', 'In Progress'));
       buttons.push(buttonHtml(task.id, 'delivered', 'Delivered'));
     }
-    if (canOperate && task.status === 'delivered') {
+    if (canOperate && status === 'delivered') {
       if (window.wpPqModals && window.wpPqModals.completionModal) {
         buttons.push(buttonHtml(task.id, 'done', 'Mark Done'));
       }
@@ -1208,7 +1226,7 @@
     boardEl.innerHTML = '';
 
     statusColumns.forEach((column) => {
-      const tasksInColumn = tasks.filter((task) => task.status === column.key);
+      const tasksInColumn = tasks.filter((task) => normalizeStatus(task.status) === column.key);
       const columnEl = document.createElement('section');
       const shouldCollapse = tasksInColumn.length === 0;
       columnEl.className = 'wp-pq-board-column' + (shouldCollapse ? ' is-collapsed' : '');
@@ -1288,8 +1306,8 @@
           boardEl.classList.remove('is-dragging');
           if (appShellEl) appShellEl.classList.remove('is-board-dragging');
           setBoardDragTarget(null);
-          const sourceStatus = evt.from && evt.from.dataset ? evt.from.dataset.status : '';
-          const targetStatus = evt.to && evt.to.dataset ? evt.to.dataset.status : sourceStatus;
+          const sourceStatus = normalizeStatus(evt.from && evt.from.dataset ? evt.from.dataset.status : '');
+          const targetStatus = normalizeStatus(evt.to && evt.to.dataset ? evt.to.dataset.status : sourceStatus);
           if (evt.oldIndex === evt.newIndex && sourceStatus === targetStatus) return;
 
           const movedTaskId = parseInt(evt.item.dataset.id, 10);
@@ -2385,7 +2403,7 @@
       const status = btn.dataset.status;
       if (!id || !status) return;
 
-      if (status === 'done') {
+      if (normalizeStatus(status) === 'done') {
         selectedTaskId = id;
         window.wpPqModals.setPendingMove(null);
         window.wpPqModals.setPendingStatusAction(null);
@@ -2394,7 +2412,7 @@
       }
 
       const task = getKnownTask(id);
-      if (status === 'needs_clarification' && task) {
+      if (normalizeStatus(status) === 'needs_clarification' && task) {
         selectedTaskId = id;
         window.wpPqModals.setPendingMove(null);
         window.wpPqModals.setPendingStatusAction({
@@ -2405,7 +2423,7 @@
         return;
       }
 
-      if (status === 'delivered' && task && task.status === 'in_progress') {
+      if (normalizeStatus(status) === 'delivered' && task && normalizeStatus(task.status) === 'in_progress') {
         if (!window.confirm('You are about to mark this task delivered. Proceed without third-party review?')) return;
       }
 
@@ -2473,6 +2491,8 @@
     syncOrderFromBoardDom: syncOrderFromBoardDom,
     activateWorkspaceTab: activateWorkspaceTab,
     currentView: () => currentView,
+    normalizeStatus: normalizeStatus,
+    isBoardVisible: isBoardVisible,
     humanizeToken: humanizeToken,
     escapeHtml: escapeHtml,
     formatDateTime: formatDateTime,

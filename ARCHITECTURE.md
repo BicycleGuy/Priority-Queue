@@ -470,7 +470,7 @@ canonical values.
   ├── task_created              ├── task_returned_to_work
   ├── task_assigned             ├── task_delivered
   ├── task_approved             ├── task_archived
-  ├── task_rejected             ├── statement_batched
+  ├── task_clarification_requested ├── statement_batched
   ├── task_mentioned            ├── client_status_updates
   ├── task_reprioritized        ├── client_daily_digest
   └── task_schedule_changed     └── retention_day_300

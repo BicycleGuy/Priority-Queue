@@ -6,6 +6,51 @@ if (! defined('ABSPATH')) {
 
 class WP_PQ_API
 {
+    /** @var array<int, \WP_User|false> */
+    private static array $user_cache = [];
+
+    private static function get_cached_user(int $user_id): ?\WP_User
+    {
+        if ($user_id <= 0) {
+            return null;
+        }
+
+        if (! array_key_exists($user_id, self::$user_cache)) {
+            self::$user_cache[$user_id] = get_user_by('ID', $user_id);
+        }
+
+        return self::$user_cache[$user_id] ?: null;
+    }
+
+    private static function preload_users(array $user_ids): void
+    {
+        $missing = [];
+        foreach ($user_ids as $id) {
+            $id = (int) $id;
+            if ($id > 0 && ! array_key_exists($id, self::$user_cache)) {
+                $missing[] = $id;
+            }
+        }
+
+        if (empty($missing)) {
+            return;
+        }
+
+        $users = get_users([
+            'include' => array_values(array_unique($missing)),
+            'fields' => 'all',
+        ]);
+        foreach ($users as $user) {
+            self::$user_cache[(int) $user->ID] = $user;
+        }
+
+        foreach ($missing as $id) {
+            if (! array_key_exists($id, self::$user_cache)) {
+                self::$user_cache[$id] = false;
+            }
+        }
+    }
+
     public static function init(): void
     {
         add_action('rest_api_init', [self::class, 'register_routes']);
@@ -299,7 +344,7 @@ class WP_PQ_API
             }
         }
         self::sync_task_calendar_event((array) self::get_task_row($task_id));
-        self::emit_event($task_id, 'task_created', 'Task created', 'A new task was submitted and is pending approval.');
+        self::emit_event($task_id, 'task_created');
         self::emit_assignment_event($task_id, 0, $action_owner_id);
 
         return new WP_REST_Response([
@@ -424,7 +469,7 @@ class WP_PQ_API
             'priority:' . $current_priority . '->' . $new_priority
         );
 
-        self::emit_event($task_id, 'task_reprioritized', 'Task reprioritized', 'The task priority was updated.');
+        self::emit_event($task_id, 'task_reprioritized');
 
         return new WP_REST_Response([
             'ok' => true,
@@ -643,13 +688,13 @@ class WP_PQ_API
         }
 
         if ($priority_changed) {
-            self::emit_event($task_id, 'task_reprioritized', 'Task reprioritized', 'A task was moved and its priority changed.');
+            self::emit_event($task_id, 'task_reprioritized');
         }
 
         if ($schedule_changed) {
-            self::emit_event($task_id, 'task_schedule_changed', 'Task schedule changed', 'A task move changed one or more due dates.');
+            self::emit_event($task_id, 'task_schedule_changed');
             if ($target_task_id > 0) {
-                self::emit_event($target_task_id, 'task_schedule_changed', 'Task schedule changed', 'A task move changed one or more due dates.');
+                self::emit_event($target_task_id, 'task_schedule_changed');
             }
         }
 
@@ -700,7 +745,7 @@ class WP_PQ_API
         ], ['id' => $task_id]);
 
         self::insert_history_note($history, $task_id, (string) $task['status'], get_current_user_id(), 'calendar_drag:' . $when);
-        self::emit_event($task_id, 'task_schedule_changed', 'Task schedule changed', 'A task move changed one or more due dates.');
+        self::emit_event($task_id, 'task_schedule_changed');
         self::sync_task_calendar_event((array) self::get_task_row($task_id));
 
         return new WP_REST_Response([
@@ -1272,7 +1317,7 @@ class WP_PQ_API
         return new WP_REST_Response(['ok' => true], 200);
     }
 
-    public static function get_calendar_events(): WP_REST_Response
+    public static function get_calendar_events(WP_REST_Request $request): WP_REST_Response
     {
         global $wpdb;
 
@@ -1280,7 +1325,7 @@ class WP_PQ_API
         $meetings_table = $wpdb->prefix . 'pq_task_meetings';
         $user_id = get_current_user_id();
 
-        $tasks = self::get_visible_tasks_for_request($request ?? null, $user_id, true);
+        $tasks = self::get_visible_tasks_for_request($request, $user_id, true);
 
         self::backfill_task_calendar_events($tasks);
 
@@ -1384,23 +1429,55 @@ class WP_PQ_API
                 : $wpdb->get_results($wpdb->prepare($sql, ...$params), ARRAY_A);
         }
 
-        $rows = $wpdb->get_results("SELECT * FROM {$tasks_table} ORDER BY " . ($calendar_order ? 'id DESC' : 'queue_position ASC, id DESC'), ARRAY_A);
+        $where = ["status NOT IN ('done','archived')"];
+        $params = [];
 
-        return array_values(array_filter((array) $rows, static function (array $task) use ($user_id, $selected_client_id, $selected_bucket_id): bool {
-            if (WP_PQ_Workflow::normalize_status((string) ($task['status'] ?? '')) === 'done') {
-                return false;
+        if ($selected_client_id > 0) {
+            $where[] = 'client_id = %d';
+            $params[] = $selected_client_id;
+        }
+
+        if ($selected_bucket_id > 0) {
+            $where[] = 'billing_bucket_id = %d';
+            $params[] = $selected_bucket_id;
+        }
+
+        if (! user_can($user_id, WP_PQ_Roles::CAP_WORK)) {
+            $access = [];
+            $access[] = 'submitter_id = %d';
+            $params[] = $user_id;
+            $access[] = 'client_user_id = %d';
+            $params[] = $user_id;
+            $access[] = 'action_owner_id = %d';
+            $params[] = $user_id;
+            $access[] = $wpdb->prepare("JSON_CONTAINS(owner_ids, %s)", (string) $user_id);
+
+            $memberships = WP_PQ_DB::get_user_client_memberships($user_id);
+            $admin_client_ids = [];
+            foreach ($memberships as $membership) {
+                if ((string) ($membership['role'] ?? '') === 'client_admin') {
+                    $admin_client_ids[] = (int) ($membership['client_id'] ?? 0);
+                }
             }
-            if (! self::can_access_task($task, $user_id)) {
-                return false;
+            $admin_client_ids = array_values(array_unique(array_filter($admin_client_ids)));
+            if (! empty($admin_client_ids)) {
+                $access[] = 'client_id IN (' . implode(',', array_map('intval', $admin_client_ids)) . ')';
             }
-            if ($selected_client_id > 0 && (int) ($task['client_id'] ?? 0) !== $selected_client_id) {
-                return false;
+
+            $job_bucket_ids = WP_PQ_DB::get_job_member_ids_for_user($user_id);
+            if (! empty($job_bucket_ids)) {
+                $access[] = 'billing_bucket_id IN (' . implode(',', array_map('intval', $job_bucket_ids)) . ')';
             }
-            if ($selected_bucket_id > 0 && (int) ($task['billing_bucket_id'] ?? 0) !== $selected_bucket_id) {
-                return false;
-            }
-            return true;
-        }));
+
+            $where[] = '(' . implode(' OR ', $access) . ')';
+        }
+
+        $sql = "SELECT * FROM {$tasks_table} WHERE " . implode(' AND ', $where);
+        $sql .= $calendar_order ? ' ORDER BY id DESC' : ' ORDER BY queue_position ASC, id DESC';
+
+        return empty($params)
+            ? (array) $wpdb->get_results($sql, ARRAY_A)
+            : (array) $wpdb->get_results($wpdb->prepare($sql, ...$params), ARRAY_A);
     }
 
     private static function build_task_filters_payload(int $user_id): array
@@ -2114,7 +2191,7 @@ class WP_PQ_API
                 ], ['id' => $task_id]);
 
                 self::insert_history_note($history_table, $task_id, (string) ($row['task_status'] ?? 'done'), $user_id, 'invoice_draft:' . $statement_code);
-                self::emit_event($task_id, 'statement_batched', 'Invoice draft created', 'This completed work item was added to invoice draft ' . $statement_code . '.');
+                self::emit_event($task_id, 'statement_batched');
             }
         }
 
@@ -2309,7 +2386,7 @@ class WP_PQ_API
         ]);
     }
 
-    private static function emit_event(int $task_id, string $event_key, string $subject, string $body): void
+    private static function emit_event(int $task_id, string $event_key): void
     {
         if ($task_id <= 0) {
             return;
@@ -2470,20 +2547,24 @@ class WP_PQ_API
 
         $ids = array_merge($ids, self::client_notification_recipient_ids($task));
 
-        $staff = get_users([
-            'role__in' => ['pq_worker', 'pq_manager', 'administrator'],
-            'fields' => ['ID', 'display_name', 'user_login', 'user_nicename'],
-        ]);
+        static $staff_cache = null;
+        if ($staff_cache === null) {
+            $staff_cache = get_users([
+                'role__in' => ['pq_worker', 'pq_manager', 'administrator'],
+                'fields' => ['ID', 'display_name', 'user_login', 'user_nicename'],
+            ]);
+        }
 
-        foreach ($staff as $user) {
+        foreach ($staff_cache as $user) {
             $ids[] = (int) $user->ID;
         }
 
         $ids = array_values(array_unique(array_filter($ids)));
+        self::preload_users($ids);
         $people = [];
 
         foreach ($ids as $id) {
-            $user = get_user_by('ID', $id);
+            $user = self::get_cached_user($id);
             if (! $user) {
                 continue;
             }
@@ -2548,7 +2629,7 @@ class WP_PQ_API
 
     private static function should_suppress_generic_client_email(array $task, int $user_id, string $event_key): bool
     {
-        if (! in_array($event_key, ['task_created', 'task_approved', 'task_rejected', 'task_returned_to_work', 'task_delivered', 'task_archived'], true)) {
+        if (! in_array($event_key, ['task_created', 'task_approved', 'task_clarification_requested', 'task_returned_to_work', 'task_delivered', 'task_archived'], true)) {
             return false;
         }
 
@@ -2611,14 +2692,38 @@ class WP_PQ_API
             return '';
         }
 
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$tasks_table} WHERE client_id = %d ORDER BY queue_position ASC, id DESC",
-            $client_id
-        ), ARRAY_A);
+        $where = [$wpdb->prepare("t.client_id = %d", $client_id)];
+        $where[] = "t.status NOT IN ('done','archived')";
 
-        $visible_tasks = array_values(array_filter((array) $rows, static function (array $row) use ($recipient_id): bool {
-            return self::can_access_task($row, $recipient_id);
-        }));
+        if (! user_can($recipient_id, WP_PQ_Roles::CAP_VIEW_ALL) && ! user_can($recipient_id, WP_PQ_Roles::CAP_WORK)) {
+            $access = [];
+            $access[] = $wpdb->prepare("t.submitter_id = %d", $recipient_id);
+            $access[] = $wpdb->prepare("t.client_user_id = %d", $recipient_id);
+            $access[] = $wpdb->prepare("t.action_owner_id = %d", $recipient_id);
+            $access[] = $wpdb->prepare("JSON_CONTAINS(t.owner_ids, %s)", (string) $recipient_id);
+
+            $memberships = WP_PQ_DB::get_user_client_memberships($recipient_id);
+            $is_admin = false;
+            foreach ($memberships as $membership) {
+                if ((int) ($membership['client_id'] ?? 0) === $client_id && (string) ($membership['role'] ?? '') === 'client_admin') {
+                    $is_admin = true;
+                    break;
+                }
+            }
+
+            if (! $is_admin) {
+                $job_bucket_ids = WP_PQ_DB::get_job_member_ids_for_user($recipient_id);
+                if (! empty($job_bucket_ids)) {
+                    $access[] = 't.billing_bucket_id IN (' . implode(',', array_map('intval', $job_bucket_ids)) . ')';
+                }
+                $where[] = '(' . implode(' OR ', $access) . ')';
+            }
+        }
+
+        $visible_tasks = (array) $wpdb->get_results(
+            "SELECT * FROM {$tasks_table} t WHERE " . implode(' AND ', $where) . " ORDER BY queue_position ASC, id DESC",
+            ARRAY_A
+        );
 
         $groups = [
             'Awaiting you' => [],
@@ -2653,7 +2758,7 @@ class WP_PQ_API
     {
         foreach ($rows as &$row) {
             $author_id = (int) ($row['author_id'] ?? 0);
-            $user = $author_id > 0 ? get_user_by('ID', $author_id) : null;
+            $user = $author_id > 0 ? self::get_cached_user($author_id) : null;
             $row['author_name'] = $user ? (string) $user->display_name : 'Collaborator';
         }
 
@@ -2690,7 +2795,7 @@ class WP_PQ_API
                     'title' => 'Request approved',
                     'body' => '"' . $title . "\" is approved and ready to move forward.",
                 ];
-            case 'task_rejected':
+            case 'task_clarification_requested':
                 return [
                     'title' => 'Clarification requested',
                     'body' => '"' . $title . "\" was returned for clarification" . ($deadline ? ' before ' . $deadline : '') . '.',
@@ -2739,15 +2844,15 @@ class WP_PQ_API
         $new_status = WP_PQ_Workflow::normalize_status($new_status);
 
         if ($new_status === 'approved') {
-            self::emit_event($task_id, 'task_approved', 'Task approved', 'Your task was approved.');
+            self::emit_event($task_id, 'task_approved');
         } elseif ($new_status === 'needs_clarification') {
-            self::emit_event($task_id, 'task_rejected', 'Task needs clarification', 'Your task needs clarification and was returned.');
+            self::emit_event($task_id, 'task_clarification_requested');
         } elseif ($new_status === 'in_progress' && in_array($old_status, ['needs_review', 'delivered'], true)) {
-            self::emit_event($task_id, 'task_returned_to_work', 'Returned to work', 'This task was returned to in-progress for changes.');
+            self::emit_event($task_id, 'task_returned_to_work');
         } elseif ($new_status === 'delivered') {
-            self::emit_event($task_id, 'task_delivered', 'Task delivered', 'Work product has been delivered.');
+            self::emit_event($task_id, 'task_delivered');
         } elseif ($new_status === 'archived') {
-            self::emit_event($task_id, 'task_archived', 'Task archived', 'This task has been archived.');
+            self::emit_event($task_id, 'task_archived');
         }
     }
 
@@ -2760,9 +2865,23 @@ class WP_PQ_API
         }
 
         $task_ids = [];
+        $preload_user_ids = [];
+        foreach ($rows as $row) {
+            $task_ids[] = (int) ($row['id'] ?? 0);
+            $preload_user_ids[] = (int) ($row['submitter_id'] ?? 0);
+            $preload_user_ids[] = (int) ($row['client_user_id'] ?? 0);
+            $preload_user_ids[] = (int) ($row['action_owner_id'] ?? 0);
+            $owners = json_decode((string) ($row['owner_ids'] ?? ''), true);
+            if (is_array($owners)) {
+                foreach ($owners as $oid) {
+                    $preload_user_ids[] = (int) $oid;
+                }
+            }
+        }
+        self::preload_users($preload_user_ids);
+
         foreach ($rows as &$row) {
             $row = self::normalize_task_row($row);
-            $task_ids[] = (int) $row['id'];
         }
 
         $task_ids = array_values(array_unique(array_filter($task_ids)));
@@ -3870,12 +3989,17 @@ class WP_PQ_API
         $table = $wpdb->prefix . 'pq_statements';
         $statement_month = self::normalize_statement_month($statement_month);
         $month = str_replace('-', '', $statement_month);
-        $count = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM {$table} WHERE statement_month = %s",
+        $prefix = 'STM-' . $month . '-';
+        $max_code = (string) $wpdb->get_var($wpdb->prepare(
+            "SELECT MAX(statement_code) FROM {$table} WHERE statement_month = %s",
             $statement_month
         ));
+        $seq = 1;
+        if ($max_code !== '' && str_starts_with($max_code, $prefix)) {
+            $seq = ((int) substr($max_code, strlen($prefix))) + 1;
+        }
 
-        return 'STM-' . $month . '-' . str_pad((string) ($count + 1), 3, '0', STR_PAD_LEFT);
+        return $prefix . str_pad((string) $seq, 3, '0', STR_PAD_LEFT);
     }
 
     private static function generate_work_log_code(string $seed_date = ''): string
@@ -3885,12 +4009,17 @@ class WP_PQ_API
         $table = $wpdb->prefix . 'pq_work_logs';
         $month = preg_match('/^\d{4}-\d{2}-\d{2}$/', $seed_date) ? substr($seed_date, 0, 7) : wp_date('Y-m');
         $code_month = str_replace('-', '', $month);
-        $count = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM {$table} WHERE DATE_FORMAT(created_at, '%%Y-%%m') = %s",
+        $prefix = 'LOG-' . $code_month . '-';
+        $max_code = (string) $wpdb->get_var($wpdb->prepare(
+            "SELECT MAX(work_log_code) FROM {$table} WHERE DATE_FORMAT(created_at, '%%Y-%%m') = %s",
             $month
         ));
+        $seq = 1;
+        if ($max_code !== '' && str_starts_with($max_code, $prefix)) {
+            $seq = ((int) substr($max_code, strlen($prefix))) + 1;
+        }
 
-        return 'LOG-' . $code_month . '-' . str_pad((string) ($count + 1), 3, '0', STR_PAD_LEFT);
+        return $prefix . str_pad((string) $seq, 3, '0', STR_PAD_LEFT);
     }
 
     private static function task_rollup_date(array $task): string
@@ -4171,20 +4300,20 @@ class WP_PQ_API
         $row['statement_batched_at'] = (string) ($row['statement_batched_at'] ?? '');
 
         foreach ((array) $row['owner_ids'] as $owner_id) {
-            $user = get_user_by('ID', (int) $owner_id);
+            $user = self::get_cached_user((int) $owner_id);
             if ($user) {
                 $row['owner_names'][] = (string) $user->display_name;
             }
         }
 
-        $submitter = isset($row['submitter_id']) ? get_user_by('ID', (int) $row['submitter_id']) : null;
+        $submitter = isset($row['submitter_id']) ? self::get_cached_user((int) $row['submitter_id']) : null;
         $row['submitter_name'] = $submitter ? (string) $submitter->display_name : '';
         $row['submitter_email'] = ($submitter && is_email($submitter->user_email)) ? (string) $submitter->user_email : '';
-        $client = $row['client_user_id'] > 0 ? get_user_by('ID', $row['client_user_id']) : null;
+        $client = $row['client_user_id'] > 0 ? self::get_cached_user($row['client_user_id']) : null;
         $row['client_name'] = $client ? (string) $client->display_name : '';
         $row['client_email'] = ($client && is_email($client->user_email)) ? (string) $client->user_email : '';
         $row['client_account_name'] = $row['client_id'] > 0 ? WP_PQ_DB::get_client_name($row['client_id']) : ($row['client_name'] ?: '');
-        $action_owner = $row['action_owner_id'] > 0 ? get_user_by('ID', $row['action_owner_id']) : null;
+        $action_owner = $row['action_owner_id'] > 0 ? self::get_cached_user($row['action_owner_id']) : null;
         $row['action_owner_name'] = $action_owner ? (string) $action_owner->display_name : '';
         $row['action_owner_email'] = ($action_owner && is_email($action_owner->user_email)) ? (string) $action_owner->user_email : '';
         $row['action_owner_is_client'] = $row['action_owner_id'] > 0 && $row['client_id'] > 0
@@ -4204,7 +4333,7 @@ class WP_PQ_API
             return '';
         }
 
-        $user = get_user_by('ID', $user_id);
+        $user = self::get_cached_user($user_id);
         return $user ? (string) $user->display_name : '';
     }
 

@@ -9,7 +9,7 @@
       key: 'review',
       label: 'Reviews and approvals',
       description: 'New requests, approvals, and clarification requests',
-      events: ['task_created', 'task_assigned', 'task_approved', 'task_rejected'],
+      events: ['task_created', 'task_assigned', 'task_approved', 'task_clarification_requested'],
     },
     {
       key: 'mentions',
@@ -187,12 +187,19 @@
     }
   }
 
+  var inboxLoading = false;
   async function loadInbox() {
-    var data = await bridge.api('notifications', { method: 'GET' });
-    var notifications = data.notifications || [];
-    notificationsCache = notifications;
-    renderPersistentAlerts(notifications);
-    return data;
+    if (inboxLoading) return;
+    inboxLoading = true;
+    try {
+      var data = await bridge.api('notifications', { method: 'GET' });
+      var notifications = data.notifications || [];
+      notificationsCache = notifications;
+      renderPersistentAlerts(notifications);
+      return data;
+    } finally {
+      inboxLoading = false;
+    }
   }
 
   async function openTaskFromAlert(notification) {
@@ -205,7 +212,9 @@
     }
 
     bridge.setSelectedTaskId(taskId);
-    await bridge.loadTasks();
+    if (!bridge.getTaskById(taskId)) {
+      await bridge.loadTasks();
+    }
     var drawerEl = document.getElementById('wp-pq-task-drawer');
     await bridge.selectTask(taskId, !!drawerEl);
 

@@ -126,7 +126,7 @@ class WP_PQ_Workflow
             'task_created',
             'task_assigned',
             'task_approved',
-            'task_rejected',
+            'task_clarification_requested',
             'task_mentioned',
             'task_reprioritized',
             'task_schedule_changed',
