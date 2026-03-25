@@ -1005,8 +1005,8 @@ class WP_PQ_DB
         $prefs = $wpdb->prefix . 'pq_notification_prefs';
         $notifications = $wpdb->prefix . 'pq_notifications';
 
-        $wpdb->update($prefs, ['event_key' => 'task_sent_back'], ['event_key' => 'task_revision_requested']);
-        $wpdb->update($notifications, ['event_key' => 'task_sent_back'], ['event_key' => 'task_revision_requested']);
+        $wpdb->update($prefs, ['event_key' => 'task_returned_to_work'], ['event_key' => 'task_revision_requested']);
+        $wpdb->update($notifications, ['event_key' => 'task_returned_to_work'], ['event_key' => 'task_revision_requested']);
 
         update_option('wp_pq_notification_event_rename_180_applied', 1, false);
     }

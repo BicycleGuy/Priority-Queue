@@ -841,7 +841,6 @@ class WP_PQ_API
             'non_billable_reason' => $validated['non_billable_reason'] !== '' ? $validated['non_billable_reason'] : null,
             'expense_reference' => $validated['expense_reference'] !== '' ? $validated['expense_reference'] : null,
             'delivered_at' => $delivered_at,
-            'completed_at' => $now,
             'done_at' => $now,
             'updated_at' => $now,
         ];
@@ -2549,7 +2548,7 @@ class WP_PQ_API
 
     private static function should_suppress_generic_client_email(array $task, int $user_id, string $event_key): bool
     {
-        if (! in_array($event_key, ['task_created', 'task_approved', 'task_rejected', 'task_sent_back', 'task_delivered', 'task_archived'], true)) {
+        if (! in_array($event_key, ['task_created', 'task_approved', 'task_rejected', 'task_returned_to_work', 'task_delivered', 'task_archived'], true)) {
             return false;
         }
 
@@ -2696,10 +2695,10 @@ class WP_PQ_API
                     'title' => 'Clarification requested',
                     'body' => '"' . $title . "\" was returned for clarification" . ($deadline ? ' before ' . $deadline : '') . '.',
                 ];
-            case 'task_sent_back':
+            case 'task_returned_to_work':
                 return [
-                    'title' => 'Task sent back',
-                    'body' => '"' . $title . "\" was sent back for changes.",
+                    'title' => 'Returned to work',
+                    'body' => '"' . $title . "\" was returned to in-progress for changes.",
                 ];
             case 'task_delivered':
                 return [
@@ -2744,7 +2743,7 @@ class WP_PQ_API
         } elseif ($new_status === 'needs_clarification') {
             self::emit_event($task_id, 'task_rejected', 'Task needs clarification', 'Your task needs clarification and was returned.');
         } elseif ($new_status === 'in_progress' && in_array($old_status, ['needs_review', 'delivered'], true)) {
-            self::emit_event($task_id, 'task_sent_back', 'Task sent back', 'This task was sent back for changes.');
+            self::emit_event($task_id, 'task_returned_to_work', 'Returned to work', 'This task was returned to in-progress for changes.');
         } elseif ($new_status === 'delivered') {
             self::emit_event($task_id, 'task_delivered', 'Task delivered', 'Work product has been delivered.');
         } elseif ($new_status === 'archived') {
@@ -4255,10 +4254,7 @@ class WP_PQ_API
         }
 
         if ($status === 'done') {
-            return [
-                'completed_at' => $now,
-                'done_at' => $now,
-            ];
+            return ['done_at' => $now];
         }
 
         if ($status === 'archived') {

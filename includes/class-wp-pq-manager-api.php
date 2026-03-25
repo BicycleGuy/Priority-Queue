@@ -990,7 +990,6 @@ class WP_PQ_Manager_API
                     'updated_at' => current_time('mysql', true),
                 ];
                 if ($status_hint === 'done') {
-                    $update['completed_at'] = current_time('mysql', true);
                     $update['done_at'] = current_time('mysql', true);
                 }
                 $wpdb->update($wpdb->prefix . 'pq_tasks', $update, ['id' => $task_id]);

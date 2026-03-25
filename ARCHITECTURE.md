@@ -359,7 +359,7 @@ canonical values.
 ### Permission Rules
 
 ```
-  approve / reject (→ approved, pending→needs_clarification): CAP_APPROVE only
+  approve / request clarification (→ approved, →needs_clarification): CAP_APPROVE only
   archive (→ archived):                                       CAP_APPROVE only
   work transitions (→ in_progress, needs_review, delivered,
                       needs_clarification, done):             CAP_APPROVE or CAP_WORK
@@ -378,9 +378,9 @@ canonical values.
 
 ```
   → delivered:   sets delivered_at
-  → done:        sets completed_at, done_at
+  → done:        sets done_at
   → archived:    sets archived_at
-  reopen:        clears done_at, archived_at, completed_at
+  reopen:        clears done_at, archived_at
 ```
 
 ---
@@ -467,7 +467,7 @@ canonical values.
                                └───────────────────┘
 
   Configurable events per user (Preferences panel):
-  ├── task_created              ├── task_sent_back
+  ├── task_created              ├── task_returned_to_work
   ├── task_assigned             ├── task_delivered
   ├── task_approved             ├── task_archived
   ├── task_rejected             ├── statement_batched

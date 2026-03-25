@@ -130,7 +130,7 @@ class WP_PQ_Workflow
             'task_mentioned',
             'task_reprioritized',
             'task_schedule_changed',
-            'task_sent_back',
+            'task_returned_to_work',
             'task_delivered',
             'task_archived',
             'statement_batched',

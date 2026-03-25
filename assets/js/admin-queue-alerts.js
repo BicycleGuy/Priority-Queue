@@ -27,7 +27,7 @@
       key: 'delivery',
       label: 'Delivery and revisions',
       description: 'Deliveries, revisions, and invoice draft creation',
-      events: ['task_sent_back', 'task_delivered', 'statement_batched'],
+      events: ['task_returned_to_work', 'task_delivered', 'statement_batched'],
     },
     {
       key: 'retention',
