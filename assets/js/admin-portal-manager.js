@@ -338,7 +338,7 @@
     const browserList = filteredClients.map((client) => {
       const letter = String(client.name || '?').trim().charAt(0).toUpperCase() || '#';
       return `
-        <button class="wp-pq-manager-list-item wp-pq-client-browser-item${Number(client.id) === Number(selectedClient?.id || 0) ? ' is-active' : ''}" type="button" data-open-client="${client.id}">
+        <button class="wp-pq-manager-list-item wp-pq-client-browser-item${Number(client.id) === Number(selectedClient?.id || 0) ? ' is-active' : ''}" type="button" data-open-client="${client.id}" data-client-letter="${esc(letter)}">
           <strong>${esc(client.name || 'Client')}</strong>
           <span>${esc(client.email || 'No primary contact email')}</span>
           <small>${letter} · ${Number(client.delivered_count || 0)} completed · ${Number(client.unbilled_count || 0)} unbilled</small>
@@ -346,7 +346,8 @@
       `;
     }).join('');
 
-    const letters = Array.from(new Set(filteredClients.map((client) => (String(client.name || '?').trim().charAt(0).toUpperCase() || '#'))));
+    const activeLetters = new Set(filteredClients.map((client) => (String(client.name || '?').trim().charAt(0).toUpperCase() || '#')));
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ#'.split('');
 
     let detailHtml = '<div class="wp-pq-empty-state">No client matches that search.</div>';
     if (selectedClient) {
@@ -450,7 +451,7 @@
               ${browserList || '<div class="wp-pq-empty-state">No clients yet.</div>'}
             </div>
             <div class="wp-pq-client-alpha-rail">
-              ${letters.map((letter) => `<button type="button" class="button wp-pq-client-alpha-btn" data-client-alpha="${esc(letter)}">${esc(letter)}</button>`).join('')}
+              ${letters.map((letter) => `<button type="button" class="button wp-pq-client-alpha-btn${activeLetters.has(letter) ? '' : ' is-dim'}" data-client-alpha="${esc(letter)}"${activeLetters.has(letter) ? '' : ' disabled'}>${esc(letter)}</button>`).join('')}
             </div>
           </div>
         </section>
@@ -1431,12 +1432,15 @@
       }
       if (button.dataset.clientAlpha) {
         const alpha = String(button.dataset.clientAlpha || '').toUpperCase();
-        const match = sortedClients().find((client) => String(client.name || '').trim().toUpperCase().startsWith(alpha));
-        if (match) {
-          state.selectedClientId = Number(match.id || 0);
-          replaceSectionUrl('clients', { client_id: state.selectedClientId });
-          await renderClients();
+        const listEl = document.querySelector('.wp-pq-client-browser-list');
+        if (listEl) {
+          const target = listEl.querySelector(`[data-client-letter="${alpha}"]`);
+          if (target) {
+            target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          }
         }
+        // highlight active letter
+        document.querySelectorAll('.wp-pq-client-alpha-btn').forEach((btn) => btn.classList.toggle('is-active', String(btn.dataset.clientAlpha || '').toUpperCase() === alpha));
         return;
       }
       if (button.dataset.openWorkLog) {

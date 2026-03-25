@@ -1227,6 +1227,17 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.wp-pq-manager-card-grid > div {
+  min-width: 0;
+  overflow: auto;
+}
+
+@media (max-width: 1440px) {
+  .wp-pq-manager-card-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .wp-pq-manager-form-card,
 .wp-pq-manager-subcard {
   padding: 18px;
@@ -1247,8 +1258,9 @@
 .wp-pq-manager-browser-layout {
   display: grid;
   gap: 18px;
-  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
   align-items: start;
+  overflow: hidden;
 }
 
 .wp-pq-manager-browser-panel {
@@ -1264,8 +1276,8 @@
 .wp-pq-manager-browser-body {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  gap: 4px;
   align-items: start;
 }
 
@@ -1279,18 +1291,52 @@
 }
 
 .wp-pq-client-alpha-rail {
-  display: grid;
-  gap: 6px;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
   position: sticky;
-  top: 18px;
+  top: 8px;
+  padding: 6px 0;
+  background: var(--pq-soft);
+  border-radius: 999px;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .wp-pq-client-alpha-btn {
   min-width: 0 !important;
-  min-height: 30px !important;
+  min-height: 0 !important;
+  width: 26px !important;
+  height: 20px !important;
   padding: 0 !important;
+  border: 0 !important;
   border-radius: 999px !important;
+  background: transparent !important;
+  color: var(--pq-muted) !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  line-height: 20px !important;
+  text-align: center !important;
+  cursor: pointer;
+  box-shadow: none !important;
+  transition: color 0.15s, background 0.15s;
+}
+
+.wp-pq-client-alpha-btn:hover,
+.wp-pq-client-alpha-btn:focus {
+  color: var(--pq-accent) !important;
+  background: var(--pq-accent-soft) !important;
+}
+
+.wp-pq-client-alpha-btn.is-active {
+  color: var(--pq-surface) !important;
+  background: var(--pq-accent) !important;
+}
+
+.wp-pq-client-alpha-btn.is-dim {
+  opacity: 0.28;
+  cursor: default;
 }
 
 .wp-pq-manager-split {
