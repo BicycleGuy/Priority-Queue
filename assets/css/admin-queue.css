@@ -395,13 +395,6 @@
   gap: 12px;
 }
 
-.wp-pq-job-row {
-  align-items: start;
-  display: grid;
-  gap: 8px;
-  grid-template-columns: 1fr;
-}
-
 .wp-pq-job-row .wp-pq-inline-action-form {
   margin-top: 0;
 }
@@ -1420,6 +1413,173 @@ button.wp-pq-manager-list-item.is-active {
 
 .wp-pq-manager-inline-form {
   margin-top: 12px;
+}
+
+/* --- Toolbar actions --- */
+.wp-pq-manager-toolbar-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* --- Modal dialogs --- */
+.wp-pq-modal-dialog {
+  border: 0;
+  border-radius: var(--pq-radius-lg);
+  padding: 0;
+  background: var(--pq-surface);
+  box-shadow: var(--pq-shadow-lg);
+  max-width: 420px;
+  width: 90vw;
+}
+
+.wp-pq-modal-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.wp-pq-modal-body {
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+}
+
+.wp-pq-modal-body h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.wp-pq-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding-top: 6px;
+}
+
+/* --- Client tabs --- */
+.wp-pq-client-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--pq-border);
+}
+
+.wp-pq-client-tab-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent !important;
+  border: 0 !important;
+  border-bottom: 2px solid transparent !important;
+  padding: 10px 16px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: var(--pq-muted) !important;
+  cursor: pointer;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.wp-pq-client-tab-btn:hover {
+  color: var(--pq-ink) !important;
+}
+
+.wp-pq-client-tab-btn.is-active {
+  color: var(--pq-accent) !important;
+  border-bottom-color: var(--pq-accent) !important;
+}
+
+.wp-pq-client-tab-body {
+  padding: 16px 0 0;
+  display: grid;
+  gap: 14px;
+}
+
+.wp-pq-client-tab-body[hidden] {
+  display: none !important;
+}
+
+/* --- Client stats row --- */
+.wp-pq-client-stats {
+  display: flex;
+  gap: 24px;
+  padding: 12px 0;
+}
+
+.wp-pq-stat {
+  display: grid;
+  gap: 2px;
+  text-align: center;
+}
+
+.wp-pq-stat-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--pq-ink);
+}
+
+.wp-pq-stat-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pq-muted);
+}
+
+/* --- Access matrix --- */
+.wp-pq-access-matrix-wrap {
+  overflow-x: auto;
+}
+
+.wp-pq-access-matrix th,
+.wp-pq-access-matrix td {
+  text-align: center;
+  white-space: nowrap;
+}
+
+.wp-pq-access-matrix th:first-child,
+.wp-pq-access-matrix td:first-child {
+  text-align: left;
+}
+
+.wp-pq-access-col-head {
+  font-size: 12px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wp-pq-access-cell {
+  padding: 6px 10px !important;
+}
+
+.wp-pq-access-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.wp-pq-access-toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--pq-accent);
+  cursor: pointer;
+}
+
+.wp-pq-access-toggle span {
+  display: none;
+}
+
+/* --- Job actions inline --- */
+.wp-pq-job-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.wp-pq-job-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .wp-pq-manager-detail-copy {

@@ -63,6 +63,12 @@ class WP_PQ_Manager_API
             'permission_callback' => [self::class, 'can_manage'],
         ]);
 
+        register_rest_route('pq/v1', '/manager/jobs/(?P<id>\d+)/members/(?P<user_id>\d+)', [
+            'methods' => WP_REST_Server::DELETABLE,
+            'callback' => [self::class, 'unassign_job_member'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
         register_rest_route('pq/v1', '/manager/rollups', [
             'methods' => WP_REST_Server::READABLE,
             'callback' => [self::class, 'get_rollups'],
@@ -433,6 +439,22 @@ class WP_PQ_Manager_API
 
         WP_PQ_DB::ensure_job_member($bucket_id, $user_id);
         return new WP_REST_Response(['ok' => true, 'message' => 'Job access saved.'], 200);
+    }
+
+    public static function unassign_job_member(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+
+        $bucket_id = (int) $request['id'];
+        $user_id = (int) $request['user_id'];
+        $bucket = $bucket_id > 0 ? $wpdb->get_row($wpdb->prepare("SELECT id, client_id FROM {$wpdb->prefix}pq_billing_buckets WHERE id = %d", $bucket_id), ARRAY_A) : null;
+        $client_id = (int) ($bucket['client_id'] ?? 0);
+        if (! $bucket || ! WP_PQ_Admin::can_manage_client($client_id) || $user_id <= 0) {
+            return new WP_REST_Response(['message' => 'Invalid job or user.'], 422);
+        }
+
+        WP_PQ_DB::remove_job_member($bucket_id, $user_id);
+        return new WP_REST_Response(['ok' => true, 'message' => 'Job access removed.'], 200);
     }
 
     public static function get_rollups(WP_REST_Request $request): WP_REST_Response

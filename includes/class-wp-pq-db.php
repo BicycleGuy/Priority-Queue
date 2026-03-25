@@ -1272,6 +1272,23 @@ class WP_PQ_DB
         self::clear_job_membership_cache($billing_bucket_id, $user_id);
     }
 
+    public static function remove_job_member(int $billing_bucket_id, int $user_id): bool
+    {
+        global $wpdb;
+
+        if ($billing_bucket_id <= 0 || $user_id <= 0) {
+            return false;
+        }
+
+        $table = $wpdb->prefix . 'pq_job_members';
+        $deleted = $wpdb->delete($table, [
+            'billing_bucket_id' => $billing_bucket_id,
+            'user_id' => $user_id,
+        ]);
+        self::clear_job_membership_cache($billing_bucket_id, $user_id);
+        return $deleted > 0;
+    }
+
     private static function ensure_client_admin_job_access(int $client_id, int $user_id): void
     {
         global $wpdb;

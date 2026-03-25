@@ -3386,12 +3386,20 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
 
                 $job_names = array_values(array_unique($job_names_by_client_user[(int) $client_id][$user_id] ?? []));
+                $member_bucket_ids = [];
+                foreach ($bucket_labels_by_client[(int) $client_id] ?? [] as $bucket_id => $label) {
+                    if (in_array($user_id, $job_members_by_bucket[$bucket_id] ?? [], true)) {
+                        $member_bucket_ids[] = $bucket_id;
+                    }
+                }
                 $rows[(int) $client_id][] = [
                     'id' => $user_id,
+                    'user_id' => $user_id,
                     'name' => (string) $user->display_name,
                     'email' => (string) $user->user_email,
                     'role' => (string) ($membership['role'] ?? 'client_contributor'),
                     'job_names' => $job_names,
+                    'bucket_ids' => $member_bucket_ids,
                 ];
             }
 

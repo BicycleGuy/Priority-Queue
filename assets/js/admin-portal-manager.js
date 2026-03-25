@@ -312,36 +312,51 @@
       || null;
     state.selectedClientId = Number(selectedClient?.id || 0);
 
+    const clientTab = state.clientTab || 'overview';
+
     managerToolbar.innerHTML = `
-      <div class="wp-pq-manager-toolbar-grid">
-        <form id="wp-pq-manager-create-client" class="wp-pq-panel wp-pq-manager-form-card">
-          <h4>Create client</h4>
+      <div class="wp-pq-manager-toolbar-actions">
+        <button class="button button-primary" type="button" data-action="open-create-client-modal">New Client</button>
+        <button class="button" type="button" data-action="open-link-client-modal">Link User to Client</button>
+      </div>
+      <dialog id="wp-pq-create-client-dialog" class="wp-pq-modal-dialog">
+        <form id="wp-pq-manager-create-client" class="wp-pq-modal-body" method="dialog">
+          <h3>New Client</h3>
           <label>Name <input type="text" name="client_name" required></label>
-          <label>Email <input type="text" name="client_email" required></label>
-          <label>Initial job <input type="text" name="initial_bucket_name" placeholder="Main, Retainer, Launch"></label>
-          <button class="button button-primary" type="submit">Create Client</button>
+          <label>Email <input type="email" name="client_email" required></label>
+          <label>First job <input type="text" name="initial_bucket_name" placeholder="Main, Retainer, Launch"></label>
+          <div class="wp-pq-modal-actions">
+            <button class="button button-primary" type="submit">Create Client</button>
+            <button class="button" type="button" data-action="close-dialog">Cancel</button>
+          </div>
         </form>
-        <form id="wp-pq-manager-link-client" class="wp-pq-panel wp-pq-manager-form-card">
-          <h4>Link existing user</h4>
+      </dialog>
+      <dialog id="wp-pq-link-client-dialog" class="wp-pq-modal-dialog">
+        <form id="wp-pq-manager-link-client" class="wp-pq-modal-body" method="dialog">
+          <h3>Link Existing User</h3>
           <label>User
             <select name="user_id" required>
               <option value="0">Choose user</option>
               ${memberOptions(linkable, 0)}
             </select>
           </label>
-          <label>Initial job <input type="text" name="initial_bucket_name" placeholder="Main, Retainer, Launch"></label>
-          <button class="button" type="submit">Link Existing User</button>
+          <label>First job <input type="text" name="initial_bucket_name" placeholder="Main, Retainer, Launch"></label>
+          <div class="wp-pq-modal-actions">
+            <button class="button button-primary" type="submit">Link User</button>
+            <button class="button" type="button" data-action="close-dialog">Cancel</button>
+          </div>
         </form>
-      </div>
+      </dialog>
     `;
 
     const browserList = filteredClients.map((client) => {
       const letter = String(client.name || '?').trim().charAt(0).toUpperCase() || '#';
+      const unbilled = Number(client.unbilled_count || 0);
       return `
         <button class="wp-pq-manager-list-item wp-pq-client-browser-item${Number(client.id) === Number(selectedClient?.id || 0) ? ' is-active' : ''}" type="button" data-open-client="${client.id}" data-client-letter="${esc(letter)}">
           <strong>${esc(client.name || 'Client')}</strong>
           <span>${esc(client.email || 'No primary contact email')}</span>
-          <small>${letter} · ${Number(client.delivered_count || 0)} completed · ${Number(client.unbilled_count || 0)} unbilled</small>
+          <small>${unbilled > 0 ? unbilled + ' unbilled' : 'Up to date'}</small>
         </button>
       `;
     }).join('');
@@ -349,91 +364,132 @@
     const activeLetters = new Set(filteredClients.map((client) => (String(client.name || '?').trim().charAt(0).toUpperCase() || '#')));
     const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ#'.split('');
 
-    let detailHtml = '<div class="wp-pq-empty-state">No client matches that search.</div>';
+    let detailHtml = '<div class="wp-pq-empty-state">Select a client to view details.</div>';
     if (selectedClient) {
-      const clientMemberOptions = (selectedClient.members || []).map((member) => `<option value="${member.user_id}"${Number(member.user_id) === Number(selectedClient.primary_contact_user_id || 0) ? ' selected' : ''}>${esc(member.name || member.email || 'Member')}</option>`).join('');
-      const memberRows = (selectedClient.members || []).map((member) => `
+      const members = selectedClient.members || [];
+      const buckets = selectedClient.buckets || [];
+      const clientMemberOptions = members.map((member) => `<option value="${member.user_id || member.id}"${Number(member.user_id || member.id) === Number(selectedClient.primary_contact_user_id || 0) ? ' selected' : ''}>${esc(member.name || member.email || 'Member')}</option>`).join('');
+
+      // Tab: Overview
+      const overviewTab = `
+        <div class="wp-pq-client-tab-body" data-tab="overview"${clientTab !== 'overview' ? ' hidden' : ''}>
+          <form class="wp-pq-inline-action-form" data-action="update-client" data-client-id="${selectedClient.id}">
+            <label>Name <input type="text" name="name" value="${esc(selectedClient.name || '')}" required></label>
+            <label>Primary contact
+              <select name="primary_contact_user_id">
+                <option value="0">Not set</option>
+                ${clientMemberOptions}
+              </select>
+            </label>
+            <button class="button" type="submit">Save</button>
+          </form>
+          <div class="wp-pq-client-stats">
+            <div class="wp-pq-stat"><span class="wp-pq-stat-value">${Number(selectedClient.delivered_count || 0)}</span><span class="wp-pq-stat-label">Completed</span></div>
+            <div class="wp-pq-stat"><span class="wp-pq-stat-value">${Number(selectedClient.unbilled_count || 0)}</span><span class="wp-pq-stat-label">Unbilled</span></div>
+            <div class="wp-pq-stat"><span class="wp-pq-stat-value">${Number(selectedClient.work_log_count || 0)}</span><span class="wp-pq-stat-label">Work Statements</span></div>
+            <div class="wp-pq-stat"><span class="wp-pq-stat-value">${Number(selectedClient.statement_count || 0)}</span><span class="wp-pq-stat-label">Invoice Drafts</span></div>
+          </div>
+        </div>
+      `;
+
+      // Tab: Members
+      const memberRows = members.map((member) => `
         <tr>
           <td>${esc(member.name || '')}</td>
           <td>${esc(member.email || '')}</td>
           <td>${esc(member.role_label || member.role || '')}</td>
-          <td>${esc((member.job_names || []).join(', ') || 'All default access')}</td>
         </tr>
       `).join('');
-      const jobs = (selectedClient.buckets || []).map((bucket) => {
-        const memberChoices = (selectedClient.members || []).map((member) => `<option value="${member.user_id}">${esc(member.name || member.email || 'Member')}</option>`).join('');
+      const membersTab = `
+        <div class="wp-pq-client-tab-body" data-tab="members"${clientTab !== 'members' ? ' hidden' : ''}>
+          <table class="wp-pq-admin-table wp-pq-manager-table">
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead>
+            <tbody>${memberRows || '<tr><td colspan="3">No members yet.</td></tr>'}</tbody>
+          </table>
+          <form class="wp-pq-inline-action-form" data-action="add-client-member" data-client-id="${selectedClient.id}">
+            <label>
+              <select name="user_id" required>
+                <option value="0">Choose user</option>
+                ${memberOptions(candidates, 0)}
+              </select>
+            </label>
+            <label>
+              <select name="client_role">
+                <option value="client_contributor">Client contributor</option>
+                <option value="client_admin">Client admin</option>
+                <option value="client_viewer">Client viewer</option>
+              </select>
+            </label>
+            <button class="button" type="submit">Add Member</button>
+          </form>
+        </div>
+      `;
+
+      // Tab: Jobs
+      const jobRows = buckets.map((bucket) => {
+        const memberCount = members.filter((m) => (m.bucket_ids || []).map(Number).includes(Number(bucket.id))).length;
+        const isEmpty = memberCount === 0;
         return `
           <div class="wp-pq-job-row wp-pq-manager-subcard">
             <div class="wp-pq-job-summary">
               <strong>${esc(bucket.bucket_name || 'Job')}</strong>
-              <p class="wp-pq-job-row-note">${bucket.is_default ? 'Default job' : 'Secondary job'}${bucket.description ? ' · ' + esc(bucket.description) : ''}</p>
+              <small>${bucket.is_default ? 'Default' : ''} · ${memberCount} member${memberCount !== 1 ? 's' : ''}</small>
             </div>
-            <form class="wp-pq-inline-action-form wp-pq-job-assign-form" data-action="assign-job-member" data-bucket-id="${bucket.id}" data-client-id="${selectedClient.id}">
-              <label>
-                <select name="user_id" required>
-                  <option value="0">Choose member</option>
-                  ${memberChoices}
-                </select>
-              </label>
-              <button class="button" type="submit">Assign to Job</button>
-              <button class="button wp-pq-secondary-action" type="button" data-action="delete-job" data-job-id="${bucket.id}">Delete Empty Job</button>
-            </form>
+            <div class="wp-pq-job-actions">
+              <button class="button wp-pq-secondary-action" type="button" data-action="delete-job" data-job-id="${bucket.id}"${!isEmpty ? ' disabled title="Remove all members first"' : ''}>Delete</button>
+            </div>
           </div>
         `;
       }).join('');
+      const jobsTab = `
+        <div class="wp-pq-client-tab-body" data-tab="jobs"${clientTab !== 'jobs' ? ' hidden' : ''}>
+          <form class="wp-pq-inline-action-form" data-action="create-job" data-client-id="${selectedClient.id}">
+            <label><input type="text" name="bucket_name" placeholder="New job name" required></label>
+            <button class="button" type="submit">Add Job</button>
+          </form>
+          <div class="wp-pq-bucket-list">${jobRows || '<p class="wp-pq-empty-state">No jobs yet.</p>'}</div>
+        </div>
+      `;
+
+      // Tab: Access (matrix)
+      const accessHeaderCells = buckets.map((bucket) => `<th class="wp-pq-access-col-head" title="${esc(bucket.bucket_name || '')}">${esc((bucket.bucket_name || '').length > 18 ? (bucket.bucket_name || '').slice(0, 16) + '…' : (bucket.bucket_name || ''))}</th>`).join('');
+      const accessRows = members.map((member) => {
+        const memberBucketIds = (member.bucket_ids || []).map(Number);
+        const cells = buckets.map((bucket) => {
+          const assigned = memberBucketIds.includes(Number(bucket.id));
+          return `<td class="wp-pq-access-cell"><label class="wp-pq-access-toggle"><input type="checkbox" data-action="toggle-job-access" data-bucket-id="${bucket.id}" data-user-id="${member.user_id || member.id}" data-client-id="${selectedClient.id}" ${assigned ? 'checked' : ''}><span>${assigned ? '✓' : ''}</span></label></td>`;
+        }).join('');
+        return `<tr><td>${esc(member.name || '')}</td>${cells}</tr>`;
+      }).join('');
+      const accessTab = `
+        <div class="wp-pq-client-tab-body" data-tab="access"${clientTab !== 'access' ? ' hidden' : ''}>
+          ${members.length > 0 && buckets.length > 0 ? `
+            <div class="wp-pq-access-matrix-wrap">
+              <table class="wp-pq-admin-table wp-pq-manager-table wp-pq-access-matrix">
+                <thead><tr><th>Member</th>${accessHeaderCells}</tr></thead>
+                <tbody>${accessRows}</tbody>
+              </table>
+            </div>
+          ` : '<p class="wp-pq-empty-state">Add members and jobs first to configure access.</p>'}
+        </div>
+      `;
 
       detailHtml = `
         <section class="wp-pq-panel wp-pq-manager-card" data-client-id="${selectedClient.id}">
           <div class="wp-pq-section-heading">
-            <div>
-              <h3>${esc(selectedClient.name || 'Client')}</h3>
-              <p class="wp-pq-panel-note">${esc(selectedClient.email || 'No primary contact email')} · Completed work ${Number(selectedClient.delivered_count || 0)} · Unbilled ${Number(selectedClient.unbilled_count || 0)} · Work Statements ${Number(selectedClient.work_log_count || 0)} · Invoice Drafts ${Number(selectedClient.statement_count || 0)}</p>
-            </div>
+            <h3>${esc(selectedClient.name || 'Client')}</h3>
+            <p class="wp-pq-panel-note">${esc(selectedClient.email || '')}</p>
           </div>
-          <div class="wp-pq-manager-card-grid">
-            <div>
-              <h4>Client Details</h4>
-              <form class="wp-pq-inline-action-form" data-action="update-client" data-client-id="${selectedClient.id}">
-                <label><input type="text" name="name" value="${esc(selectedClient.name || '')}" required></label>
-                <label>
-                  <select name="primary_contact_user_id">
-                    <option value="0">Primary contact</option>
-                    ${clientMemberOptions}
-                  </select>
-                </label>
-                <button class="button" type="submit">Save Client</button>
-              </form>
-              <h4>Members</h4>
-              <table class="wp-pq-admin-table wp-pq-manager-table">
-                <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Jobs</th></tr></thead>
-                <tbody>${memberRows || '<tr><td colspan="4">No members yet.</td></tr>'}</tbody>
-              </table>
-              <form class="wp-pq-inline-action-form" data-action="add-client-member" data-client-id="${selectedClient.id}">
-                <label>
-                  <select name="user_id" required>
-                    <option value="0">Choose user</option>
-                    ${memberOptions(candidates, 0)}
-                  </select>
-                </label>
-                <label>
-                  <select name="client_role">
-                    <option value="client_contributor">Client contributor</option>
-                    <option value="client_admin">Client admin</option>
-                    <option value="client_viewer">Client viewer</option>
-                  </select>
-                </label>
-                <button class="button" type="submit">Add Member</button>
-              </form>
-            </div>
-            <div>
-              <h4>Jobs</h4>
-              <form class="wp-pq-inline-action-form" data-action="create-job" data-client-id="${selectedClient.id}">
-                <label><input type="text" name="bucket_name" placeholder="Add a new job" required></label>
-                <button class="button" type="submit">Add Job</button>
-              </form>
-              <div class="wp-pq-bucket-list">${jobs || '<p class="wp-pq-empty-state">No jobs yet.</p>'}</div>
-            </div>
+          <div class="wp-pq-client-tabs">
+            <button type="button" class="wp-pq-client-tab-btn${clientTab === 'overview' ? ' is-active' : ''}" data-client-tab="overview">Overview</button>
+            <button type="button" class="wp-pq-client-tab-btn${clientTab === 'members' ? ' is-active' : ''}" data-client-tab="members">Members</button>
+            <button type="button" class="wp-pq-client-tab-btn${clientTab === 'jobs' ? ' is-active' : ''}" data-client-tab="jobs">Jobs</button>
+            <button type="button" class="wp-pq-client-tab-btn${clientTab === 'access' ? ' is-active' : ''}" data-client-tab="access">Access</button>
           </div>
+          ${overviewTab}
+          ${membersTab}
+          ${jobsTab}
+          ${accessTab}
         </section>
       `;
     }
@@ -1269,6 +1325,21 @@
     const action = button.dataset.action;
 
     try {
+      if (action === 'open-create-client-modal') {
+        const dialog = document.getElementById('wp-pq-create-client-dialog');
+        if (dialog) dialog.showModal();
+        return;
+      }
+      if (action === 'open-link-client-modal') {
+        const dialog = document.getElementById('wp-pq-link-client-dialog');
+        if (dialog) dialog.showModal();
+        return;
+      }
+      if (action === 'close-dialog') {
+        const dialog = button.closest('dialog');
+        if (dialog) dialog.close();
+        return;
+      }
       if (action === 'start-create-work-log') {
         state.workLogMode = 'create';
         await renderWorkStatements();
@@ -1426,8 +1497,15 @@
     try {
       if (button.dataset.openClient) {
         state.selectedClientId = Number(button.dataset.openClient || 0);
+        state.clientTab = 'overview';
         replaceSectionUrl('clients', state.selectedClientId > 0 ? { client_id: state.selectedClientId } : {});
         await renderClients();
+        return;
+      }
+      if (button.dataset.clientTab) {
+        state.clientTab = button.dataset.clientTab;
+        document.querySelectorAll('.wp-pq-client-tab-btn').forEach((btn) => btn.classList.toggle('is-active', btn.dataset.clientTab === state.clientTab));
+        document.querySelectorAll('.wp-pq-client-tab-body').forEach((body) => { body.hidden = body.dataset.tab !== state.clientTab; });
         return;
       }
       if (button.dataset.clientAlpha) {
@@ -1510,6 +1588,20 @@
         state.invoiceDraftClientId = Number(target.value || 0);
         replaceSectionUrl('invoice-drafts', state.invoiceDraftClientId > 0 ? { client_id: state.invoiceDraftClientId, period: new URLSearchParams(window.location.search).get('period') || new Date().toISOString().slice(0, 7) } : { period: new URLSearchParams(window.location.search).get('period') || new Date().toISOString().slice(0, 7) });
         await renderInvoiceDrafts();
+        return;
+      }
+      if (target.dataset.action === 'toggle-job-access') {
+        const bucketId = Number(target.dataset.bucketId || 0);
+        const userId = Number(target.dataset.userId || 0);
+        const clientId = Number(target.dataset.clientId || 0);
+        if (bucketId <= 0 || userId <= 0) return;
+        if (target.checked) {
+          await submitJson(`manager/jobs/${bucketId}/members`, 'POST', { user_id: userId });
+        } else {
+          await api(`manager/jobs/${bucketId}/members/${userId}`, { method: 'DELETE', headers });
+        }
+        state.clients = null;
+        toast(target.checked ? 'Access granted.' : 'Access removed.', false);
         return;
       }
       if (target.matches('.wp-pq-rollup-job-select')) {
