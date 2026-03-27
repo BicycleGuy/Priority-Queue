@@ -2423,30 +2423,6 @@ button.wp-pq-manager-list-item.is-active {
   color: #dc2626;
 }
 
-.wp-pq-card-inline-action {
-  border: 0;
-  border-radius: 999px;
-  background: var(--pq-soft);
-  color: var(--pq-muted);
-  padding: 4px 8px;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-  cursor: pointer;
-  transition: background 140ms ease, color 140ms ease;
-}
-
-.wp-pq-card-inline-action:hover,
-.wp-pq-card-inline-action:focus-visible {
-  background: var(--pq-soft-2);
-  color: var(--pq-ink);
-}
-
-.wp-pq-card-inline-action.is-selected {
-  background: var(--pq-accent-soft);
-  color: var(--pq-accent);
-}
-
 .wp-pq-empty-state {
   margin: 0;
   padding: 14px;

@@ -888,11 +888,7 @@
     return '<span class="wp-pq-priority-marker priority-' + escapeHtml(normalized) + '" data-tooltip="' + escapeHtml(humanizeToken(normalized) + ' priority') + '">▲</span>';
   }
 
-  function cardActionHtml(task) {
-    if (window.wpPqConfig.canApprove && normalizeStatus(task.status) === 'pending_approval') {
-      return '<button type="button" class="wp-pq-card-inline-action" data-approve-task-id="' + escapeHtml(task.id) + '">Approve →</button>';
-    }
-
+  function cardActionHtml() {
     return '';
   }
 
@@ -1087,31 +1083,6 @@
       if (boardDragActive || Date.now() < boardDragLockUntil) return;
       selectTask(task.id, true);
     });
-    const approvePick = card.querySelector('[data-approve-task-id]');
-    if (approvePick) {
-      approvePick.addEventListener('click', (e) => e.stopPropagation());
-      approvePick.addEventListener('click', async (e) => {
-        const taskId = parseInt(e.currentTarget.getAttribute('data-approve-task-id'), 10);
-        if (!taskId) return;
-        e.currentTarget.disabled = true;
-        try {
-          const result = await api('tasks/' + taskId + '/status', {
-            method: 'POST',
-            body: JSON.stringify({ status: 'approved' }),
-          });
-          if (result.task) {
-            upsertTask(result.task);
-            await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar' });
-          } else {
-            await loadTasks();
-          }
-          alert('Task approved.', 'success');
-        } catch (err) {
-          e.currentTarget.disabled = false;
-          alert(err.message);
-        }
-      });
-    }
     const batchPick = card.querySelector('[data-batch-task-id]');
     if (batchPick) {
       batchPick.addEventListener('click', (e) => e.stopPropagation());
@@ -1637,6 +1608,10 @@
         }
         if (boardEl && selectedTaskId) {
           await selectTask(selectedTaskId, true);
+          if (body.needs_meeting) {
+            await activateWorkspaceTab('meetings');
+            seedMeetingForm(true);
+          }
         }
       } catch (err) {
         alert(err.message);
