@@ -1670,9 +1670,9 @@ button.wp-pq-manager-list-item.is-active {
 }
 
 .wp-pq-manager-status-grid {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: 1fr;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
 }
 
 .wp-pq-manager-status-option {
@@ -1693,6 +1693,27 @@ button.wp-pq-manager-list-item.is-active {
 
 .wp-pq-work-log-composer textarea {
   min-height: 120px;
+}
+
+.wp-pq-work-log-filters {
+  display: grid;
+  gap: 12px;
+}
+
+.wp-pq-wl-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.wp-pq-wl-filter-row > label {
+  flex: 1;
+  min-width: 140px;
+}
+
+.wp-pq-wl-filter-row > fieldset {
+  flex: 0 0 auto;
 }
 
 .wp-pq-board-shell {

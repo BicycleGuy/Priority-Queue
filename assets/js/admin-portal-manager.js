@@ -798,18 +798,20 @@
             <p class="wp-pq-panel-note">Filter by client, date range, jobs, and statuses. The preview updates live. Download as PDF when ready.</p>
           </div>
         </div>
-        <form id="wp-pq-work-log-filter-form" class="wp-pq-manager-card">
-          <div class="wp-pq-manager-card-grid">
+        <form id="wp-pq-work-log-filter-form" class="wp-pq-work-log-filters">
+          <div class="wp-pq-wl-filter-row">
             <label>Client
               <select name="client_id" id="wp-pq-work-log-client" required>${clientOptions(defaultClientId, false)}</select>
             </label>
             <label>Start <input type="date" name="range_start" value="${esc(rangeStart)}" required></label>
             <label>End <input type="date" name="range_end" value="${esc(rangeEnd)}" required></label>
-            <label class="wp-pq-span-2">Jobs
-              <select name="job_ids" id="wp-pq-work-log-jobs" class="wp-pq-manager-multiselect" multiple size="4"></select>
+            <label>Jobs
+              <select name="job_ids" id="wp-pq-work-log-jobs" class="wp-pq-manager-multiselect" multiple size="3"></select>
             </label>
-            <fieldset class="wp-pq-manager-statuses wp-pq-span-2">
-              <legend>Status filters</legend>
+          </div>
+          <div class="wp-pq-wl-filter-row">
+            <fieldset class="wp-pq-manager-statuses">
+              <legend>Status</legend>
               <div class="wp-pq-manager-status-grid">
                 ${['pending_approval', 'needs_clarification', 'approved', 'in_progress', 'needs_review', 'delivered', 'done'].map((statusKey) => `
                   <label class="wp-pq-manager-status-option">
@@ -819,7 +821,7 @@
                 `).join('')}
               </div>
             </fieldset>
-            <fieldset class="wp-pq-manager-statuses wp-pq-span-2">
+            <fieldset class="wp-pq-manager-statuses">
               <legend>Billable</legend>
               <div class="wp-pq-manager-status-grid">
                 <label class="wp-pq-manager-status-option"><input type="checkbox" name="billable" value="billable" checked><span>Billable</span></label>
