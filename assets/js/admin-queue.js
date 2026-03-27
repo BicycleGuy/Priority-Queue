@@ -1197,6 +1197,9 @@
       if (window.wpPqModals && window.wpPqModals.completionModal) {
         buttons.push(buttonHtml(task.id, 'done', 'Mark Done'));
       }
+      if (window.wpPqConfig.canApprove) {
+        buttons.push(buttonHtml(task.id, 'archived', 'Archive'));
+      }
       if (!billingLocked) {
         buttons.push(buttonHtml(task.id, 'in_progress', 'In Progress'));
         if (window.wpPqConfig.canApprove) {
@@ -1227,10 +1230,15 @@
       const shouldCollapse = tasksInColumn.length === 0;
       columnEl.className = 'wp-pq-board-column' + (shouldCollapse ? ' is-collapsed' : '');
       columnEl.dataset.status = column.key;
+      var archiveAllBtn = '';
+      if (column.key === 'delivered' && tasksInColumn.length > 0 && window.wpPqConfig.canApprove) {
+        archiveAllBtn = ' <button type="button" class="button button-small wp-pq-archive-all-btn" title="Archive all delivered tasks">Archive All</button>';
+      }
       columnEl.innerHTML =
         '<header class="wp-pq-board-column-head">' +
         '<h4>' + escapeHtml(column.label) + '</h4>' +
         '<span>' + tasksInColumn.length + '</span>' +
+        archiveAllBtn +
         '</header>';
 
       const listEl = document.createElement('div');
@@ -2438,6 +2446,25 @@
     });
   }
 
+  function wireArchiveAll() {
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.wp-pq-archive-all-btn');
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var deliveredCount = tasksCache.filter(function (t) { return normalizeStatus(t.status) === 'delivered'; }).length;
+      if (!deliveredCount) return;
+      if (!window.confirm('Archive all ' + deliveredCount + ' delivered task' + (deliveredCount === 1 ? '' : 's') + '? This cannot be undone.')) return;
+      try {
+        var result = await api('tasks/archive-delivered', { method: 'POST', body: JSON.stringify({}) });
+        alert(result.archived_count + ' task' + (result.archived_count === 1 ? '' : 's') + ' archived.', 'success');
+        await loadTasks();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  }
+
   function wireDrawerControls() {
     if (drawerCloseBtn) drawerCloseBtn.addEventListener('click', closeDrawer);
     if (drawerBackdrop) drawerBackdrop.addEventListener('click', closeDrawer);
@@ -2511,6 +2538,7 @@
   wireUnifiedFilters();
   wireJobNav();
   wireStatusActions();
+  wireArchiveAll();
   wireDrawerControls();
   wireTogglePanel(openCreateBtn, createPanel, closeCreateBtn);
   initViewToggle();

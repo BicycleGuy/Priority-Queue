@@ -89,6 +89,12 @@ class WP_PQ_API
             'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
         ]);
 
+        register_rest_route('pq/v1', '/tasks/archive-delivered', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'archive_delivered'],
+            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
+        ]);
+
         register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/status', [
             'methods' => WP_REST_Server::CREATABLE,
             'callback' => [self::class, 'update_status'],
@@ -823,7 +829,9 @@ class WP_PQ_API
         }
 
         self::emit_status_event($task_id, $current_status, $new_status);
-        self::sync_task_calendar_event((array) self::get_task_row($task_id));
+        if ($new_status !== 'archived') {
+            self::sync_task_calendar_event((array) self::get_task_row($task_id));
+        }
         if ($send_update_email) {
             self::send_client_status_update($task_id, $new_status);
         }
@@ -1049,6 +1057,52 @@ class WP_PQ_API
             'ok' => true,
             'tasks' => $updated,
             'task_count' => count($updated),
+        ], 200);
+    }
+
+    public static function archive_delivered(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $history = $wpdb->prefix . 'pq_task_status_history';
+        $user_id = get_current_user_id();
+        $now = current_time('mysql', true);
+
+        $client_id = (int) $request->get_param('client_id');
+        $where = "status = 'delivered'";
+        $params = [];
+        if ($client_id > 0) {
+            $where .= ' AND client_id = %d';
+            $params[] = $client_id;
+        }
+
+        $sql = "SELECT id, status FROM {$tasks_table} WHERE {$where}";
+        $rows = $params
+            ? $wpdb->get_results($wpdb->prepare($sql, ...$params), ARRAY_A)
+            : $wpdb->get_results($sql, ARRAY_A);
+
+        if (empty($rows)) {
+            return new WP_REST_Response(['message' => 'No delivered tasks to archive.'], 422);
+        }
+
+        $archived = [];
+        foreach ($rows as $row) {
+            $task_id = (int) $row['id'];
+            $wpdb->update($tasks_table, [
+                'status' => 'archived',
+                'archived_at' => $now,
+                'updated_at' => $now,
+            ], ['id' => $task_id]);
+
+            self::insert_status_history($history, $task_id, 'delivered', 'archived', $user_id, 'bulk_archive', 'archived');
+            self::emit_status_event($task_id, 'delivered', 'archived');
+            $archived[] = $task_id;
+        }
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'archived_count' => count($archived),
+            'archived_task_ids' => $archived,
         ], 200);
     }
 

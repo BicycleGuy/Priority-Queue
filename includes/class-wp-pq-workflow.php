@@ -96,7 +96,7 @@ class WP_PQ_Workflow
             'approved' => ['in_progress', 'needs_clarification'],
             'in_progress' => ['needs_clarification', 'needs_review', 'delivered'],
             'needs_review' => ['in_progress', 'delivered'],
-            'delivered' => ['in_progress', 'needs_clarification', 'needs_review', 'done'],
+            'delivered' => ['in_progress', 'needs_clarification', 'needs_review', 'done', 'archived'],
             'done' => ['archived', 'in_progress', 'needs_clarification', 'needs_review'],
             'archived' => [],
         ];

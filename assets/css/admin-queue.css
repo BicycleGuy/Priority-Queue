@@ -1951,6 +1951,15 @@ button.wp-pq-manager-list-item.is-active {
   color: var(--pq-muted);
 }
 
+.wp-pq-archive-all-btn {
+  font-size: 10px !important;
+  padding: 2px 8px !important;
+  line-height: 1.4 !important;
+  min-height: 0 !important;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
 .wp-pq-board-column.is-collapsed .wp-pq-board-column-head {
   flex-direction: column-reverse;
   align-items: center;
@@ -2024,7 +2033,7 @@ button.wp-pq-manager-list-item.is-active {
   cursor: pointer;
   transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
   box-shadow: var(--pq-shadow);
-  overflow: hidden;
+  overflow: visible;
 }
 
 .wp-pq-task-card::before {
@@ -2033,6 +2042,7 @@ button.wp-pq-manager-list-item.is-active {
   inset: 0 auto 0 0;
   width: 5px;
   background: var(--pq-card-status, #cbd5e1);
+  border-radius: var(--pq-radius) 0 0 var(--pq-radius);
 }
 
 .wp-pq-task-card:hover {
