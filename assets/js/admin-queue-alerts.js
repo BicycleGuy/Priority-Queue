@@ -122,15 +122,19 @@
 
   function scheduleAlertDismiss(item) {
     var notificationId = parseInt(item && item.id, 10);
-    if (!notificationId || !shouldAutoDismissAlerts()) return;
+    if (!notificationId) return;
     if (notificationDismissTimers.has(notificationId)) return;
-    var timer = window.setTimeout(async function () {
-      try {
-        await dismissNotifications([notificationId]);
-      } catch (err) {
-        console.error(err);
-      }
-    }, 2600);
+    var timer = window.setTimeout(function () {
+      // Remove the card from the DOM immediately so the user sees it vanish.
+      var card = document.querySelector('.wp-pq-alert-card[data-notification-id="' + notificationId + '"]');
+      if (card) card.remove();
+      var stack = portalAlertStack();
+      var remaining = stack.querySelectorAll('.wp-pq-alert-card');
+      if (!remaining.length) stack.hidden = true;
+      notificationDismissTimers.delete(notificationId);
+      // Fire the API dismiss in the background — no need to await.
+      dismissNotifications([notificationId]).catch(function (err) { console.error(err); });
+    }, 4000);
     notificationDismissTimers.set(notificationId, timer);
   }
 
@@ -206,16 +210,37 @@
     var notificationId = parseInt(notification && notification.id, 10);
     if (!taskId) return;
 
+    // 1. Switch to the queue section so the board & drawer are visible.
     if (window.wpPqPortalManager && typeof window.wpPqPortalManager.openSection === 'function') {
       await window.wpPqPortalManager.openSection('queue', { pushHistory: true });
     }
 
-    bridge.setSelectedTaskId(taskId);
+    // 2. If the task isn't already in the local cache (e.g. current filters
+    //    exclude it), reload tasks. We set selectedTaskId *after* loadTasks
+    //    returns so that loadTasks' "close drawer if selected task missing"
+    //    guard doesn't wipe it out.
     if (!bridge.getTaskById(taskId)) {
       await bridge.loadTasks();
     }
-    var drawerEl = document.getElementById('wp-pq-task-drawer');
-    await bridge.selectTask(taskId, !!drawerEl);
+
+    // 3. If still missing after the filtered load, fetch the full unfiltered
+    //    task list and upsert so selectTask can find it.
+    if (!bridge.getTaskById(taskId)) {
+      try {
+        var data = await bridge.api('tasks', { method: 'GET' });
+        var tasks = data && data.tasks ? data.tasks : [];
+        var match = tasks.find(function (t) { return t.id === taskId; });
+        if (match) bridge.upsertTask(match);
+      } catch (ignore) { /* best-effort */ }
+    }
+
+    // 4. Select the task and always open the drawer.
+    bridge.setSelectedTaskId(taskId);
+    await bridge.selectTask(taskId, true);
+
+    // 5. As a safety-net, explicitly open the drawer even if selectTask
+    //    bailed (e.g. task still missing due to permissions).
+    if (typeof bridge.openDrawer === 'function') bridge.openDrawer();
 
     if (notificationId > 0) {
       try {

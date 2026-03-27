@@ -893,12 +893,6 @@
       return '<button type="button" class="wp-pq-card-inline-action" data-approve-task-id="' + escapeHtml(task.id) + '">Approve →</button>';
     }
 
-    if (window.wpPqConfig.canBatch && normalizeStatus(task.status) === 'delivered' && task.is_billable && task.billing_status === 'unbilled') {
-      return '<button type="button" class="wp-pq-card-inline-action ' + (selectedBatchTaskIds.has(task.id) ? 'is-selected' : '') + '" data-batch-task-id="' + escapeHtml(task.id) + '">' +
-        (selectedBatchTaskIds.has(task.id) ? 'Queued' : 'Batch') +
-        '</button>';
-    }
-
     return '';
   }
 
