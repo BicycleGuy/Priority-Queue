@@ -77,6 +77,20 @@ canonical values.
 
 ## Frontend Architecture
 
+### CSS Theme System
+
+All colors, shadows, and radii use CSS custom properties on `.wp-pq-wrap`.
+Light theme is the default. Dark mode is planned as a variable override block.
+
+Key variable groups:
+- `--pq-bg`, `--pq-surface`, `--pq-ink`, `--pq-muted`, `--pq-border` (core palette)
+- `--pq-accent`, `--pq-accent-dark`, `--pq-accent-soft` (brand red)
+- `--pq-sidebar-*` (sidebar-specific: bg, ink, muted, hover, active, border)
+- `--pq-shadow`, `--pq-shadow-lg` (elevation)
+- `--pq-radius`, `--pq-radius-lg` (border radius)
+- `--pq-col-dot` (per-column status dot color via `data-status` attribute)
+
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                    [pq_client_portal] SHORTCODE                         │
@@ -90,11 +104,11 @@ canonical values.
 │  └── Manager sections (clients, billing, statements, AI)               │
 │                                                                         │
 │  Enqueues:                                                             │
-│  ├── admin-queue.css             (all styles)                          │
-│  ├── admin-queue.js              (~2,500 lines — core controller)     │
+│  ├── admin-queue.css             (all styles, ~2,980 lines)            │
+│  ├── admin-queue.js              (~2,550 lines — core controller)     │
 │  ├── admin-queue-modals.js       (~620 lines — modal systems)        │
 │  ├── admin-queue-alerts.js       (~310 lines — alerts & prefs)       │
-│  ├── admin-portal-manager.js     (~1,700 lines — manager features)   │
+│  ├── admin-portal-manager.js     (~1,800 lines — manager features)   │
 │  ├── SortableJS                  (drag-and-drop reorder)              │
 │  ├── FullCalendar                (calendar view)                      │
 │  └── Uppy                        (file uploads)                       │
@@ -251,14 +265,21 @@ canonical values.
 │                                                                         │
 │  SIDEBAR SECTIONS                                                      │
 │  ├── Clients          renderClients()                                  │
-│  │   ├── List view    GET /manager/clients                             │
-│  │   ├── Detail view  GET /manager/clients/{id}                        │
-│  │   ├── Create       POST /manager/clients                            │
-│  │   ├── Update       POST /manager/clients/{id}                       │
-│  │   ├── Add member   POST /manager/clients/{id}/members               │
-│  │   ├── Create job   POST /manager/jobs                               │
-│  │   ├── Delete job   DELETE /manager/jobs/{id}                        │
-│  │   └── Assign job member  POST /manager/jobs/{id}/members            │
+│  │   ├── Browser     Left panel: search + alpha rail (rolodex)         │
+│  │   │               Shows name, email, unbilled count per client      │
+│  │   ├── Creation    Modal dialogs (New Client / Link User to Client)  │
+│  │   ├── Detail      Tabbed panel: Overview | Members | Jobs | Access  │
+│  │   │   ├── Overview   Name, primary contact, stat cards              │
+│  │   │   ├── Members    Table (name, email, role) + add form           │
+│  │   │   ├── Jobs       List w/ member count, create/delete inline     │
+│  │   │   └── Access     Checkbox matrix (members × jobs), live toggle  │
+│  │   ├── GET/POST    /manager/clients                                  │
+│  │   ├── GET/POST    /manager/clients/{id}                             │
+│  │   ├── POST        /manager/clients/{id}/members                     │
+│  │   ├── POST        /manager/jobs                                     │
+│  │   ├── DELETE      /manager/jobs/{id}                                │
+│  │   ├── POST        /manager/jobs/{id}/members                        │
+│  │   └── DELETE      /manager/jobs/{id}/members/{user_id}              │
 │  │                                                                     │
 │  ├── Billing Rollup   renderBillingRollup()                            │
 │  │   ├── List view    GET /manager/rollups                             │
@@ -603,6 +624,7 @@ canonical values.
   ├── POST      /manager/jobs                   ► create job
   ├── DELETE    /manager/jobs/{id}              ► delete job
   ├── POST      /manager/jobs/{id}/members      ► assign job member
+  ├── DELETE    /manager/jobs/{id}/members/{uid} ► unassign job member
   ├── GET       /manager/rollups                ► billing rollup
   ├── POST      /manager/rollups/assign-job     ► assign job to entry
   ├── GET       /manager/monthly-statements     ► monthly aggregates
@@ -732,12 +754,12 @@ wp-priority-queue-plugin/
 │   ├── class-wp-pq-portal.php      Shortcode, asset registration
 │   └── class-wp-pq-housekeeping.php Cron jobs, digests, cleanup
 ├── assets/
-│   ├── css/admin-queue.css          All plugin styles (~2600 lines)
+│   ├── css/admin-queue.css          All plugin styles (~2980 lines)
 │   └── js/
 │       ├── admin-queue.js           Core app controller (~2500 lines)
 │       ├── admin-queue-modals.js    Modal systems (~620 lines)
 │       ├── admin-queue-alerts.js    Alerts & preferences (~310 lines)
-│       └── admin-portal-manager.js  Manager features (~1700 lines)
+│       └── admin-portal-manager.js  Manager features (~1800 lines)
 ├── ARCHITECTURE.md                  This file
 └── .claude/                         Claude Code commands & agents
 
