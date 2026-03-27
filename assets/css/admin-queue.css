@@ -972,6 +972,10 @@
   font-weight: 500 !important;
   text-align: left;
   box-shadow: none !important;
+  white-space: normal !important;
+  word-break: break-word;
+  line-height: 1.3 !important;
+  height: auto !important;
 }
 
 .wp-pq-binder .wp-pq-filter-nav .button:hover {

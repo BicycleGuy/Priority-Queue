@@ -2527,18 +2527,20 @@
     if (!wrap || !toggle) return;
     const key = 'wp_pq_theme';
     const saved = localStorage.getItem(key);
-    if (saved === 'dark') {
-      wrap.setAttribute('data-theme', 'dark');
-      toggle.checked = true;
-    }
-    toggle.addEventListener('change', function () {
-      if (this.checked) {
+    function applyTheme(isDark) {
+      if (isDark) {
         wrap.setAttribute('data-theme', 'dark');
-        localStorage.setItem(key, 'dark');
+        toggle.classList.add('is-active');
       } else {
         wrap.removeAttribute('data-theme');
-        localStorage.setItem(key, 'light');
+        toggle.classList.remove('is-active');
       }
+    }
+    applyTheme(saved === 'dark');
+    toggle.addEventListener('click', function () {
+      const isDark = wrap.getAttribute('data-theme') !== 'dark';
+      applyTheme(isDark);
+      localStorage.setItem(key, isDark ? 'dark' : 'light');
     });
   })();
 

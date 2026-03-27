@@ -167,7 +167,7 @@ class WP_PQ_Portal
         echo '        </div>';
         echo '      </div>';
         echo '      <div class="wp-pq-binder-section wp-pq-binder-section-bottom">';
-        echo '        <label class="wp-pq-theme-toggle"><span>Dark mode</span><input type="checkbox" id="wp-pq-dark-toggle"><span class="wp-pq-toggle-track"><span class="wp-pq-toggle-thumb"></span></span></label>';
+        echo '        <button class="button wp-pq-dark-mode-btn" type="button" id="wp-pq-dark-toggle"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">◐</span><span>Dark Mode</span></span></button>';
         echo '        <button class="button" type="button" id="wp-pq-open-prefs"' . ($is_manager ? ' hidden' : '') . '><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">○</span><span>Preferences</span></span></button>';
         echo '      </div>';
         echo '      </div>';
