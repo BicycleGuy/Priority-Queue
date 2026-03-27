@@ -7,7 +7,7 @@
 │                        WORDPRESS CORE                                   │
 │                                                                         │
 │  plugins_loaded ──► WP_PQ_Plugin::boot()                               │
-│                      ├── DB migrations (15 migrate_* calls)             │
+│                      ├── DB migrations (13 migrate_* calls)             │
 │                      ├── WP_PQ_Housekeeping::init()  ► cron hooks      │
 │                      ├── WP_PQ_Admin::init()         ► wp-admin pages  │
 │                      ├── WP_PQ_API::init()           ► REST routes     │
@@ -16,7 +16,7 @@
 │                                                                         │
 │  register_activation_hook  ──► WP_PQ_Installer::activate()             │
 │                                 ├── register_roles_and_caps()           │
-│                                 ├── create_tables() (19 tables)        │
+│                                 ├── create_tables() (18 tables)        │
 │                                 ├── ensure_default_billing_buckets()    │
 │                                 ├── set_default_options()               │
 │                                 └── schedule cron                       │
@@ -80,7 +80,8 @@ canonical values.
 ### CSS Theme System
 
 All colors, shadows, and radii use CSS custom properties on `.wp-pq-wrap`.
-Light theme is the default. Dark mode is planned as a variable override block.
+Light theme is the default. Dark mode is toggled via a button (`#wp-pq-dark-toggle`)
+that sets `data-theme="dark"` on `.wp-pq-wrap` and persists in localStorage (`wp_pq_theme`).
 
 Key variable groups:
 - `--pq-bg`, `--pq-surface`, `--pq-ink`, `--pq-muted`, `--pq-border` (core palette)
@@ -104,11 +105,11 @@ Key variable groups:
 │  └── Manager sections (clients, billing, statements, AI)               │
 │                                                                         │
 │  Enqueues:                                                             │
-│  ├── admin-queue.css             (all styles, ~2,980 lines)            │
+│  ├── admin-queue.css             (all styles, ~3,030 lines)            │
 │  ├── admin-queue.js              (~2,550 lines — core controller)     │
-│  ├── admin-queue-modals.js       (~620 lines — modal systems)        │
-│  ├── admin-queue-alerts.js       (~310 lines — alerts & prefs)       │
-│  ├── admin-portal-manager.js     (~1,800 lines — manager features)   │
+│  ├── admin-queue-modals.js       (~640 lines — modal systems)        │
+│  ├── admin-queue-alerts.js       (~350 lines — alerts & prefs)       │
+│  ├── admin-portal-manager.js     (~1,770 lines — manager features)   │
 │  ├── SortableJS                  (drag-and-drop reorder)              │
 │  ├── FullCalendar                (calendar view)                      │
 │  └── Uppy                        (file uploads)                       │
@@ -124,15 +125,16 @@ Key variable groups:
   wp-pq-admin (admin-queue.js)
        │
        ├── Sets window.wpPqPortalUI (narrow bridge)
-       │   { getActiveTask, getKnownTask, getSelectedTaskId,
-       │     setSelectedTaskId, api, alert, upsertTask, loadTasks,
-       │     selectTask, refreshFromCache, syncOrderFromBoardDom,
-       │     activateWorkspaceTab, currentView, humanizeToken,
+       │   { getActiveTask, getTaskById, getKnownTask,
+       │     getSelectedTaskId, setSelectedTaskId, api, alert,
+       │     upsertTask, loadTasks, selectTask, refreshFromCache,
+       │     syncOrderFromBoardDom, activateWorkspaceTab, currentView,
+       │     normalizeStatus, isBoardVisible, humanizeToken,
        │     escapeHtml, formatDateTime, removeTaskById,
        │     closeDrawer, openDrawer, focusMeetingStart }
        │
        ├──► wp-pq-modals (admin-queue-modals.js)
-       │    Reads: window.wpPqPortalUI (18 methods)
+       │    Reads: window.wpPqPortalUI (21 methods)
        │    Sets:  window.wpPqModals
        │           { openMoveModal, openRevisionModal, openCompletionModal,
        │             openDeleteModal, close*Modal, shouldPromptForMoveDecision,
@@ -192,7 +194,21 @@ Key variable groups:
 │  STATUS BUTTONS ──────────────────────────────────────────────────── │
 │  ├── in_progress shows: Needs Review, Delivered, Needs Clarification  │
 │  ├── Delivered button (from in_progress): window.confirm() review-skip│
-│  └── done button: opens completion modal (captures billing)           │
+│  ├── done button: opens completion modal (captures billing)           │
+│  └── archive button (from done): manager only — POST /tasks/{id}/status│
+│                                                                         │
+│  BULK ACTIONS ────────────────────────────────────────────────────── │
+│  ├── "Archive All" button on delivered column header                  │
+│  └── POST /tasks/archive-delivered → archives all delivered tasks     │
+│                                                                         │
+│  MEETING AUTO-ACTIVATION ─────────────────────────────────────────── │
+│  After status change, if response body includes needs_meeting: true,  │
+│  auto-switches to Meetings workspace tab and seeds the meeting form.  │
+│                                                                         │
+│  TOOLTIPS ────────────────────────────────────────────────────────── │
+│  Sticky note flags (.wp-pq-note-flag) and priority markers            │
+│  (.wp-pq-priority-marker) show styled hover tooltips via data-tooltip │
+│  attribute + CSS ::after pseudo-element.                              │
 │                                                                         │
 │  Does NOT contain: modals, alerts, notifications, or preferences.     │
 │  Those live in satellite files that communicate via the bridge.        │
@@ -289,11 +305,17 @@ Key variable groups:
 │  │   └── List view    GET /manager/monthly-statements                  │
 │  │                                                                     │
 │  ├── Work Statements  renderWorkStatements()                           │
-│  │   ├── List view    GET /manager/work-logs                           │
-│  │   ├── Detail view  GET /manager/work-logs/{id}                      │
-│  │   └── Create       POST /manager/work-logs                          │
+│  │   ├── Live-preview  POST /manager/work-logs/preview                 │
+│  │   │   Filters: client, date range, job, status, billable           │
+│  │   │   Debounced (300ms) — table updates as filters change          │
+│  │   ├── PDF download  Generates HTML → browser download               │
+│  │   ├── List view     GET /manager/work-logs                          │
+│  │   ├── Detail view   GET /manager/work-logs/{id}                     │
+│  │   └── Create        POST /manager/work-logs                         │
 │  │                                                                     │
 │  ├── Invoice Drafts   renderInvoiceDrafts()                            │
+│  │   (Sidebar nav removed — invoicing handled in QuickBooks.           │
+│  │    Code retained for backward compatibility; no UI entry point.)    │
 │  │   ├── List view    GET /manager/statements                          │
 │  │   ├── Detail view  GET /manager/statements/{id}                     │
 │  │   ├── Create       POST /manager/statements                         │
@@ -372,7 +394,7 @@ Key variable groups:
   approved              → in_progress, needs_clarification
   in_progress           → needs_clarification, needs_review, delivered
   needs_review          → in_progress, delivered
-  delivered             → in_progress, needs_clarification, needs_review, done
+  delivered             → in_progress, needs_clarification, needs_review, done, archived
   done                  → archived, in_progress, needs_clarification, needs_review
   archived              → (none — use reopen or follow-up)
 ```
@@ -393,6 +415,7 @@ Key variable groups:
   in_progress → delivered (drag-and-drop): move modal title "Deliver Without Review?"
   delivered   → done:                      completion modal (captures billing)
   done        → archived:                  status button (manager only)
+  delivered   → archived (bulk):           "Archive All" button on delivered column
 ```
 
 ### Timestamp Behavior
