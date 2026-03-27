@@ -2482,7 +2482,11 @@ class WP_PQ_API
                 && WP_PQ_Housekeeping::is_event_enabled($user_id, $event_key)
                 && ! self::should_suppress_generic_client_email($task, $user_id, $event_key)
             ) {
-                wp_mail($user->user_email, $message['title'], $message['body'] . "\n\nTask ID: {$task_id}");
+                try {
+                    wp_mail($user->user_email, $message['title'], $message['body'] . "\n\nTask ID: {$task_id}");
+                } catch (\Throwable $e) {
+                    // Mail failure must not block status transitions
+                }
             }
         }
     }
@@ -4608,6 +4612,15 @@ class WP_PQ_API
 
     private static function sync_task_calendar_event(array $task): void
     {
+        try {
+            self::sync_task_calendar_event_inner($task);
+        } catch (\Throwable $e) {
+            // Calendar sync must never block core operations
+        }
+    }
+
+    private static function sync_task_calendar_event_inner(array $task): void
+    {
         global $wpdb;
 
         if (empty($task) || empty($task['id'])) {
@@ -4669,7 +4682,7 @@ class WP_PQ_API
 
         $resp = wp_remote_request($url, [
             'method' => $method,
-            'timeout' => 20,
+            'timeout' => 3,
             'headers' => [
                 'Authorization' => 'Bearer ' . $token,
                 'Content-Type' => 'application/json',

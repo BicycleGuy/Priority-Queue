@@ -155,8 +155,7 @@
       card.className = 'wp-pq-alert-card';
       card.dataset.notificationId = String(item.id || '');
       card.innerHTML =
-        '<button type="button" class="wp-pq-alert-dismiss" data-dismiss-alert="' + bridge.escapeHtml(item.id) + '" aria-label="Dismiss alert">&times;</button>'
-        + '<div class="wp-pq-alert-copy">'
+        '<div class="wp-pq-alert-copy">'
           + '<strong>' + bridge.escapeHtml(item.title || bridge.humanizeToken(item.event_key)) + '</strong>'
           + '<small>' + bridge.escapeHtml(bridge.formatDateTime(item.created_at)) + '</small>'
           + '<p>' + bridge.escapeHtml(item.body || '') + '</p>'
@@ -259,10 +258,14 @@
       var dismissBtn = e.target.closest('[data-dismiss-alert]');
       if (dismissBtn) {
         e.preventDefault();
+        var alertCard = dismissBtn.closest('.wp-pq-alert-card');
+        if (alertCard) alertCard.remove();
+        var remainingCards = stack.querySelectorAll('.wp-pq-alert-card');
+        if (!remainingCards.length) stack.hidden = true;
         try {
           await dismissNotifications([parseInt(dismissBtn.dataset.dismissAlert || '0', 10)]);
         } catch (err) {
-          bridge.alert(err.message);
+          // silently fail — card already removed from DOM
         }
         return;
       }
@@ -270,6 +273,8 @@
       var openBtn = e.target.closest('[data-open-alert-task]');
       if (openBtn) {
         e.preventDefault();
+        var alertCard = openBtn.closest('.wp-pq-alert-card');
+        if (alertCard) alertCard.remove();
         try {
           await openTaskFromAlert({
             id: parseInt(openBtn.dataset.notificationId || '0', 10),
