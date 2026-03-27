@@ -130,7 +130,7 @@ class WP_PQ_Portal
             echo '          <button class="button" type="button" data-pq-section="billing-rollup"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">◔</span><span>Billing Rollup</span></span></button>';
             echo '          <button class="button" type="button" data-pq-section="monthly-statements"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">◫</span><span>Monthly Statements</span></span></button>';
             echo '          <button class="button" type="button" data-pq-section="work-statements"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">✎</span><span>Work Statements</span></span></button>';
-            echo '          <button class="button" type="button" data-pq-section="invoice-drafts"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">▣</span><span>Invoice Drafts</span></span></button>';
+
             echo '          <button class="button" type="button" data-pq-section="ai-import"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">✦</span><span>AI Import</span></span></button>';
             echo '          <button class="button" type="button" data-pq-section="preferences"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">○</span><span>Preferences</span></span></button>';
             echo '        </div>';
