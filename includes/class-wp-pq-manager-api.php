@@ -100,6 +100,12 @@ class WP_PQ_Manager_API
             ],
         ]);
 
+        register_rest_route('pq/v1', '/manager/work-logs/preview', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'preview_work_log'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
         register_rest_route('pq/v1', '/manager/work-logs/(?P<id>\d+)', [
             [
                 'methods' => WP_REST_Server::READABLE,
@@ -598,6 +604,22 @@ class WP_PQ_Manager_API
             return new WP_REST_Response(['message' => 'Work statement not found.'], 404);
         }
         return new WP_REST_Response(['work_log' => $detail], 200);
+    }
+
+    public static function preview_work_log(WP_REST_Request $request): WP_REST_Response
+    {
+        $tasks = WP_PQ_API::preview_work_log_tasks([
+            'client_id' => (int) $request->get_param('client_id'),
+            'range_start' => WP_PQ_API::normalize_rollup_date((string) $request->get_param('range_start')),
+            'range_end' => WP_PQ_API::normalize_rollup_date((string) $request->get_param('range_end')),
+            'job_ids' => array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('job_ids'))))),
+            'statuses' => (array) $request->get_param('statuses'),
+        ]);
+
+        return new WP_REST_Response([
+            'tasks' => $tasks,
+            'count' => count($tasks),
+        ], 200);
     }
 
     public static function create_work_log(WP_REST_Request $request): WP_REST_Response

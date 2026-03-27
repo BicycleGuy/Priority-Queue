@@ -180,6 +180,13 @@
     ].join('-');
   }
 
+  function formatDate(value) {
+    if (!value) return '';
+    const d = new Date(value.replace(' ', 'T') + (value.includes('T') || value.includes('+') ? '' : 'Z'));
+    if (Number.isNaN(d.getTime())) return String(value).slice(0, 10);
+    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  }
+
   function workflowStatusLabel(status) {
     const labels = {
       pending_approval: 'Pending Approval',
@@ -771,165 +778,166 @@
     return rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
   }
 
-  async function renderWorkStatements(selectedId) {
+  async function renderWorkStatements() {
     renderManagerFrame('work-statements');
-    managerContent.innerHTML = '<div class="wp-pq-empty-state">Loading work statements…</div>';
+    managerContent.innerHTML = '<div class="wp-pq-empty-state">Loading…</div>';
     await ensureClients();
     const params = new URLSearchParams(window.location.search);
     const month = params.get('month') || new Date().toISOString().slice(0, 7);
+    const defaultClientId = Number(params.get('client_id') || currentClients()[0]?.id || 0);
     const rangeStart = params.get('start_date') || `${month}-01`;
     const rangeEnd = params.get('end_date') || endOfMonth(month);
-    const data = await api(`manager/work-logs?start_date=${encodeURIComponent(rangeStart)}&end_date=${encodeURIComponent(rangeEnd)}`);
-    const workLogs = Array.isArray(data.work_logs) ? data.work_logs : [];
-    const mode = state.workLogMode === 'create' ? 'create' : 'review';
-    const selectedWorkLogId = mode === 'create'
-      ? 0
-      : Number(selectedId || params.get('work_log_id') || workLogs[0]?.id || 0);
-    const defaultClientId = Number(params.get('client_id') || currentClients()[0]?.id || 0);
 
-    managerToolbar.innerHTML = `
-      <form id="wp-pq-work-log-filter-form" class="wp-pq-period-form">
-        <label>Start <input type="date" name="start_date" value="${esc(data.range.start)}" required></label>
-        <label>End <input type="date" name="end_date" value="${esc(data.range.end)}" required></label>
-        <div class="wp-pq-manager-inline-actions">
-          ${mode === 'create'
-            ? '<button class="button wp-pq-secondary-action" type="button" data-action="cancel-create-work-log">Cancel</button>'
-            : '<button class="button button-primary" type="button" data-action="start-create-work-log">New Work Statement</button>'}
+    managerToolbar.innerHTML = '';
+
+    managerContent.innerHTML = `
+      <section class="wp-pq-panel wp-pq-manager-card wp-pq-work-log-composer">
+        <div class="wp-pq-section-heading">
+          <div>
+            <h3>Work Statement</h3>
+            <p class="wp-pq-panel-note">Filter by client, date range, jobs, and statuses. The preview updates live. Download as PDF when ready.</p>
+          </div>
         </div>
-      </form>
-    `;
-
-    const logsHtml = `
-      <div class="wp-pq-manager-list-head">
-        <h3>Saved Work Statements</h3>
-        <p class="wp-pq-panel-note">Frozen client-facing snapshots in this range.</p>
-      </div>
-      ${workLogs.map((log) => `
-        <button class="wp-pq-manager-list-item${Number(selectedWorkLogId) === Number(log.id) ? ' is-active' : ''}" type="button" data-open-work-log="${log.id}">
-          <strong>${esc(log.work_log_code || 'Work Statement')}</strong>
-          <span>${esc(log.client_name || '')}${log.job_summary ? ` · ${esc(log.job_summary)}` : ''}</span>
-          <small>${esc(log.range_start || '')} to ${esc(log.range_end || '')} · ${Number(log.task_count || 0)} tasks</small>
-        </button>
-      `).join('') || '<div class="wp-pq-empty-state">No work statements in this range yet.</div>'}
-    `;
-
-    let detailHtml = `
-      <section class="wp-pq-panel wp-pq-manager-card wp-pq-manager-subcard">
-        <div class="wp-pq-empty-state">Select a work statement to inspect it.</div>
+        <form id="wp-pq-work-log-filter-form" class="wp-pq-manager-card">
+          <div class="wp-pq-manager-card-grid">
+            <label>Client
+              <select name="client_id" id="wp-pq-work-log-client" required>${clientOptions(defaultClientId, false)}</select>
+            </label>
+            <label>Start <input type="date" name="range_start" value="${esc(rangeStart)}" required></label>
+            <label>End <input type="date" name="range_end" value="${esc(rangeEnd)}" required></label>
+            <label class="wp-pq-span-2">Jobs
+              <select name="job_ids" id="wp-pq-work-log-jobs" class="wp-pq-manager-multiselect" multiple size="4"></select>
+            </label>
+            <fieldset class="wp-pq-manager-statuses wp-pq-span-2">
+              <legend>Status filters</legend>
+              <div class="wp-pq-manager-status-grid">
+                ${['pending_approval', 'needs_clarification', 'approved', 'in_progress', 'needs_review', 'delivered', 'done'].map((statusKey) => `
+                  <label class="wp-pq-manager-status-option">
+                    <input type="checkbox" name="statuses" value="${statusKey}"${['delivered', 'done'].includes(statusKey) ? ' checked' : ''}>
+                    <span>${esc(workflowStatusLabel(statusKey))}</span>
+                  </label>
+                `).join('')}
+              </div>
+            </fieldset>
+          </div>
+        </form>
+        <div class="wp-pq-manager-inline-actions" style="padding: 12px 0 4px;">
+          <button class="button button-primary" type="button" id="wp-pq-work-log-download-pdf" disabled>Download Work Statement</button>
+          <span id="wp-pq-work-log-preview-count" class="wp-pq-panel-note"></span>
+        </div>
+        <div id="wp-pq-work-log-preview"></div>
       </section>
     `;
 
-    if (mode === 'create') {
-      detailHtml = `
-        <section class="wp-pq-panel wp-pq-manager-card wp-pq-manager-form-card wp-pq-work-log-composer">
-          <div class="wp-pq-section-heading">
-            <div>
-              <h3>Create Work Statement</h3>
-              <p class="wp-pq-panel-note">Capture one frozen client snapshot across a date range, chosen jobs, and selected workflow statuses.</p>
-            </div>
-          </div>
-          <form id="wp-pq-work-log-create-form" class="wp-pq-manager-card">
-            <div class="wp-pq-manager-card-grid">
-              <label>Client
-                <select name="client_id" id="wp-pq-work-log-client" required>${clientOptions(defaultClientId, false)}</select>
-              </label>
-              <label>Start <input type="date" name="range_start" value="${esc(data.range.start)}" required></label>
-              <label>End <input type="date" name="range_end" value="${esc(data.range.end)}" required></label>
-              <label class="wp-pq-span-2">Jobs
-                <select name="job_ids" id="wp-pq-work-log-jobs" class="wp-pq-manager-multiselect" multiple size="5"></select>
-              </label>
-              <fieldset class="wp-pq-manager-statuses wp-pq-span-2">
-                <legend>Status filters</legend>
-                <div class="wp-pq-manager-status-grid">
-                  ${['pending_approval', 'needs_clarification', 'approved', 'in_progress', 'needs_review', 'delivered', 'done'].map((statusKey) => `
-                    <label class="wp-pq-manager-status-option">
-                      <input type="checkbox" name="statuses" value="${statusKey}"${['delivered', 'done'].includes(statusKey) ? ' checked' : ''}>
-                      <span>${esc(workflowStatusLabel(statusKey))}</span>
-                    </label>
-                  `).join('')}
-                </div>
-              </fieldset>
-              <label class="wp-pq-span-2">Notes
-                <textarea name="notes" rows="4" placeholder="Optional context for the client-facing snapshot."></textarea>
-              </label>
-            </div>
-            <div class="wp-pq-manager-inline-actions">
-              <button class="button button-primary" type="submit">Create Work Statement</button>
-            </div>
-          </form>
-        </section>
-      `;
-      state.workLogDetail = null;
-    } else if (selectedWorkLogId) {
-      const detailResponse = await api(`manager/work-logs/${selectedWorkLogId}`);
-      state.workLogDetail = detailResponse.work_log;
-      const workLog = state.workLogDetail;
-      detailHtml = `
-        <section class="wp-pq-panel wp-pq-manager-card">
-          <div class="wp-pq-section-heading">
-            <div>
-              <h3>${esc(workLog.work_log_code || 'Work Statement')}</h3>
-              <p class="wp-pq-panel-note">${esc(workLog.client_name || '')}${workLog.job_summary ? ` · ${esc(workLog.job_summary)}` : ''}</p>
-            </div>
-            <div class="wp-pq-manager-inline-actions">
-              <button class="button wp-pq-secondary-action" type="button" id="wp-pq-work-log-export">Export CSV</button>
-              <button class="button wp-pq-secondary-action" type="button" id="wp-pq-work-log-print">Print PDF</button>
-            </div>
-          </div>
-          <div class="wp-pq-chip-row">
-            <span class="wp-pq-chip">${esc(workLog.range_start || '')} to ${esc(workLog.range_end || '')}</span>
-            <span class="wp-pq-chip">${Number((workLog.tasks || []).length)} tasks</span>
-          </div>
-          <form id="wp-pq-work-log-update-form" class="wp-pq-manager-card">
-            <label>Notes <textarea name="notes" rows="3">${esc(workLog.notes || '')}</textarea></label>
-            <div class="wp-pq-manager-inline-actions">
-              <button class="button" type="submit">Save Notes</button>
-            </div>
-          </form>
-          <table class="wp-pq-admin-table wp-pq-manager-table">
-            <thead><tr><th>Task</th><th>Status</th><th>Job</th><th>Updated</th><th>Billing</th></tr></thead>
-            <tbody>
-              ${(workLog.tasks || []).map((task) => `
-                <tr>
-                  <td><strong>${esc(task.title || '')}</strong><div class="wp-pq-panel-note">${esc(task.description || '')}</div></td>
-                  <td>${esc(workflowStatusLabel(task.status || ''))}</td>
-                  <td>${esc(task.bucket_name || '')}</td>
-                  <td>${esc(task.updated_at || task.created_at || '')}</td>
-                  <td>${esc(task.billing_status || '')}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>
-        </section>
-      `;
-    } else {
-      state.workLogDetail = null;
-    }
-
-    managerContent.innerHTML = `
-      <div class="wp-pq-manager-split">
-        <div class="wp-pq-panel wp-pq-manager-list-panel">${logsHtml}</div>
-        <div>${detailHtml}</div>
-      </div>
-    `;
-
+    const filterForm = document.getElementById('wp-pq-work-log-filter-form');
     const clientSelect = document.getElementById('wp-pq-work-log-client');
     const jobSelect = document.getElementById('wp-pq-work-log-jobs');
+    const previewEl = document.getElementById('wp-pq-work-log-preview');
+    const countEl = document.getElementById('wp-pq-work-log-preview-count');
+    const downloadBtn = document.getElementById('wp-pq-work-log-download-pdf');
+    let previewTasks = [];
+    let previewDebounce = null;
+
     function fillJobs() {
       if (!clientSelect || !jobSelect) return;
       jobSelect.innerHTML = clientJobOptions(clientSelect.value, 0, false);
     }
-    if (clientSelect) {
-      clientSelect.addEventListener('change', fillJobs);
-      fillJobs();
+    if (clientSelect) fillJobs();
+
+    function getFilters() {
+      const fd = new FormData(filterForm);
+      return {
+        client_id: Number(fd.get('client_id') || 0),
+        range_start: fd.get('range_start') || '',
+        range_end: fd.get('range_end') || '',
+        job_ids: fd.getAll('job_ids').map(Number).filter(Boolean),
+        statuses: fd.getAll('statuses').filter(Boolean),
+      };
     }
 
-    if (state.workLogDetail) {
-      const exportBtn = document.getElementById('wp-pq-work-log-export');
-      const printBtn = document.getElementById('wp-pq-work-log-print');
-      if (exportBtn) exportBtn.onclick = () => downloadCsv(`${state.workLogDetail.work_log_code || 'work-statement'}.csv`, workStatementCsv(state.workLogDetail));
-      if (printBtn) printBtn.onclick = () => printHtml(state.workLogDetail.work_log_code || 'Work Statement', managerContent.querySelector('.wp-pq-manager-card').outerHTML);
+    async function refreshPreview() {
+      const filters = getFilters();
+      if (!filters.client_id || !filters.range_start || !filters.range_end) {
+        previewEl.innerHTML = '<div class="wp-pq-empty-state">Choose a client and date range.</div>';
+        countEl.textContent = '';
+        downloadBtn.disabled = true;
+        previewTasks = [];
+        return;
+      }
+      previewEl.innerHTML = '<div class="wp-pq-empty-state">Loading preview…</div>';
+      try {
+        const result = await submitJson('manager/work-logs/preview', 'POST', filters);
+        previewTasks = result.tasks || [];
+        countEl.textContent = previewTasks.length + ' task' + (previewTasks.length !== 1 ? 's' : '');
+        downloadBtn.disabled = previewTasks.length === 0;
+        if (!previewTasks.length) {
+          previewEl.innerHTML = '<div class="wp-pq-empty-state">No tasks match these filters.</div>';
+          return;
+        }
+        previewEl.innerHTML = `
+          <table class="wp-pq-admin-table wp-pq-manager-table">
+            <thead><tr><th>Task</th><th>Status</th><th>Job</th><th>Updated</th><th>Billing</th></tr></thead>
+            <tbody>
+              ${previewTasks.map((task) => `
+                <tr>
+                  <td><strong>${esc(task.title || '')}</strong></td>
+                  <td>${esc(workflowStatusLabel(task.status || ''))}</td>
+                  <td>${esc(task.bucket_name || '')}</td>
+                  <td>${esc(formatDate(task.updated_at || ''))}</td>
+                  <td>${esc(task.invoice_status || task.billing_status || '')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      } catch (err) {
+        previewEl.innerHTML = '<div class="wp-pq-empty-state">Preview failed: ' + esc(err.message) + '</div>';
+        previewTasks = [];
+        downloadBtn.disabled = true;
+      }
     }
+
+    function schedulePreview() {
+      if (previewDebounce) clearTimeout(previewDebounce);
+      previewDebounce = setTimeout(refreshPreview, 300);
+    }
+
+    filterForm.addEventListener('change', (e) => {
+      if (e.target.name === 'client_id') fillJobs();
+      schedulePreview();
+    });
+
+    if (downloadBtn) {
+      downloadBtn.addEventListener('click', () => {
+        if (!previewTasks.length) return;
+        const filters = getFilters();
+        const clientName = clientSelect ? clientSelect.options[clientSelect.selectedIndex]?.textContent?.trim() || 'Client' : 'Client';
+        const title = `Work Statement — ${clientName} — ${filters.range_start} to ${filters.range_end}`;
+        const html = `
+          <h2>${esc(title)}</h2>
+          <p>${previewTasks.length} task${previewTasks.length !== 1 ? 's' : ''}</p>
+          <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;">
+            <thead><tr style="background:#f5f5f4;"><th>Task</th><th>Status</th><th>Job</th><th>Updated</th><th>Hours</th><th>Amount</th></tr></thead>
+            <tbody>
+              ${previewTasks.map((task) => `
+                <tr>
+                  <td>${esc(task.title || '')}</td>
+                  <td>${esc(workflowStatusLabel(task.status || ''))}</td>
+                  <td>${esc(task.bucket_name || '')}</td>
+                  <td>${esc(formatDate(task.updated_at || ''))}</td>
+                  <td>${task.hours ? Number(task.hours).toFixed(1) : ''}</td>
+                  <td>${task.amount ? '$' + Number(task.amount).toFixed(2) : ''}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+        printHtml(title, html);
+      });
+    }
+
+    // Initial preview load
+    await refreshPreview();
   }
 
   async function renderInvoiceDrafts(selectedId) {
@@ -1340,20 +1348,7 @@
         if (dialog) dialog.close();
         return;
       }
-      if (action === 'start-create-work-log') {
-        state.workLogMode = 'create';
-        await renderWorkStatements();
-        return;
-      }
-      if (action === 'cancel-create-work-log') {
-        state.workLogMode = 'review';
-        const params = new URLSearchParams(window.location.search);
-        replaceSectionUrl('work-statements', {
-          work_log_id: params.get('work_log_id') || '',
-          start_date: params.get('start_date') || '',
-          end_date: params.get('end_date') || '',
-        });
-        await renderWorkStatements();
+      // start-create-work-log and cancel-create-work-log removed — work statements are now live-preview + download
         return;
       }
       if (action === 'start-create-statement') {
@@ -1403,12 +1398,7 @@
         await renderMonthlyStatements();
         return;
       }
-      if (form.id === 'wp-pq-work-log-filter-form') {
-        const data = Object.fromEntries(new FormData(form).entries());
-        replaceSectionUrl('work-statements', data);
-        await renderWorkStatements();
-        return;
-      }
+      // wp-pq-work-log-filter-form handled inline in renderWorkStatements
       if (form.id === 'wp-pq-statement-create-form') {
         const formData = new FormData(form);
         const payload = {
@@ -1474,12 +1464,7 @@
         await renderMonthlyStatements();
         return;
       }
-      if (form.id === 'wp-pq-work-log-filter-form') {
-        const data = Object.fromEntries(new FormData(form).entries());
-        replaceSectionUrl('work-statements', data);
-        await renderWorkStatements();
-        return;
-      }
+      // wp-pq-work-log-filter-form handled inline in renderWorkStatements
       if (form.id === 'wp-pq-statement-period-form') {
         const data = Object.fromEntries(new FormData(form).entries());
         replaceSectionUrl('invoice-drafts', data);
@@ -1707,24 +1692,7 @@
           return;
         }
       }
-      if (form.id === 'wp-pq-work-log-create-form') {
-        const formData = new FormData(form);
-        const payload = {
-          client_id: Number(formData.get('client_id') || 0),
-          range_start: formData.get('range_start'),
-          range_end: formData.get('range_end'),
-          notes: formData.get('notes'),
-          job_ids: Array.from(form.querySelector('#wp-pq-work-log-jobs')?.selectedOptions || []).map((option) => Number(option.value || 0)).filter(Boolean),
-          statuses: Array.from(form.querySelectorAll('input[name="statuses"]:checked')).map((input) => input.value),
-        };
-        const response = await submitJson('manager/work-logs', 'POST', payload);
-        const workLogId = Number(response?.work_log?.id || 0);
-        state.workLogMode = 'review';
-        replaceSectionUrl('work-statements', workLogId > 0 ? { work_log_id: workLogId } : {});
-        await renderWorkStatements(workLogId);
-        toast(response.message || 'Work statement created.', false);
-        return;
-      }
+      // wp-pq-work-log-create-form removed — work statements are now live-preview + download
       if (form.id === 'wp-pq-work-log-update-form' && state.workLogDetail) {
         await submitJson(`manager/work-logs/${state.workLogDetail.id}`, 'POST', Object.fromEntries(new FormData(form).entries()));
         await renderWorkStatements(state.workLogDetail.id);

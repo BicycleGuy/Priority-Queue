@@ -2379,6 +2379,59 @@ class WP_PQ_API
         ];
     }
 
+    public static function preview_work_log_tasks(array $args): array
+    {
+        global $wpdb;
+
+        $client_id = (int) ($args['client_id'] ?? 0);
+        $range_start = self::normalize_rollup_date((string) ($args['range_start'] ?? ''));
+        $range_end = self::normalize_rollup_date((string) ($args['range_end'] ?? ''));
+        $job_ids = array_values(array_unique(array_filter(array_map('intval', (array) ($args['job_ids'] ?? [])))));
+        $statuses = array_values(array_unique(array_filter(array_map(
+            static fn($status): string => WP_PQ_Workflow::normalize_status((string) $status),
+            (array) ($args['statuses'] ?? [])
+        ))));
+
+        if ($client_id <= 0 || $range_start === '' || $range_end === '') {
+            return [];
+        }
+
+        $allowed_statuses = WP_PQ_Workflow::allowed_statuses();
+        $statuses = array_values(array_intersect($statuses, $allowed_statuses));
+        if (empty($statuses)) {
+            $statuses = $allowed_statuses;
+        }
+
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
+        $ledger_table = $wpdb->prefix . 'pq_work_ledger_entries';
+        $where = [
+            $wpdb->prepare("t.client_id = %d", $client_id),
+            $wpdb->prepare("DATE(COALESCE(t.updated_at, t.created_at)) BETWEEN %s AND %s", $range_start, $range_end),
+        ];
+
+        $status_sql = implode("','", array_map('esc_sql', $statuses));
+        $where[] = "t.status IN ('{$status_sql}')";
+
+        if (! empty($job_ids)) {
+            $where[] = 't.billing_bucket_id IN (' . implode(',', array_map('intval', $job_ids)) . ')';
+        }
+
+        return $wpdb->get_results(
+            "SELECT t.id, t.title, t.description, t.status, t.priority,
+                    t.billing_status, t.billing_mode,
+                    COALESCE(t.updated_at, t.created_at) AS updated_at,
+                    b.bucket_name,
+                    le.hours, le.rate, le.amount, le.billable, le.invoice_status
+             FROM {$tasks_table} t
+             LEFT JOIN {$buckets_table} b ON b.id = t.billing_bucket_id
+             LEFT JOIN {$ledger_table} le ON le.task_id = t.id AND le.is_closed = 1
+             WHERE " . implode(' AND ', $where) . "
+             ORDER BY t.status ASC, COALESCE(t.updated_at, t.created_at) DESC, t.id DESC",
+            ARRAY_A
+        ) ?: [];
+    }
+
     public static function create_work_log_snapshot(array $args, int $user_id = 0)
     {
         global $wpdb;
