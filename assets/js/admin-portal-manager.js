@@ -1348,9 +1348,6 @@
         if (dialog) dialog.close();
         return;
       }
-      // start-create-work-log and cancel-create-work-log removed — work statements are now live-preview + download
-        return;
-      }
       if (action === 'start-create-statement') {
         state.invoiceDraftMode = 'create';
         await renderInvoiceDrafts();
