@@ -885,7 +885,7 @@
 
   function priorityMarkerHtml(priority) {
     const normalized = String(priority || 'normal');
-    return '<span class="wp-pq-priority-marker priority-' + escapeHtml(normalized) + '" title="' + escapeHtml(humanizeToken(normalized) + ' priority') + '">▲</span>';
+    return '<span class="wp-pq-priority-marker priority-' + escapeHtml(normalized) + '" data-tooltip="' + escapeHtml(humanizeToken(normalized) + ' priority') + '">▲</span>';
   }
 
   function cardActionHtml(task) {
@@ -1057,7 +1057,7 @@
     const inlineAction = cardActionHtml(task);
     if (inlineAction) cardActions.push(inlineAction);
     if (task.note_count > 0) {
-      cardActions.push('<span class="wp-pq-note-flag" title="' + escapeHtml((task.latest_note_preview || (task.note_count + ' sticky notes on this task'))) + '"></span>');
+      cardActions.push('<span class="wp-pq-note-flag" data-tooltip="' + escapeHtml((task.latest_note_preview || (task.note_count + ' sticky notes'))) + '"></span>');
     }
     cardActions.push(priorityMarkerHtml(task.priority));
 
