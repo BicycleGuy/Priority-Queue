@@ -2763,6 +2763,72 @@ body.wp-pq-drawer-open {
   width: min(520px, 100%);
 }
 
+/* --- Floating meeting scheduler --- */
+.wp-pq-floating-meeting {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 10005;
+  width: min(360px, calc(100vw - 48px));
+  background: var(--pq-surface);
+  border: 1px solid var(--pq-border);
+  border-radius: var(--pq-radius-lg);
+  box-shadow: 0 12px 40px rgba(28, 25, 23, 0.18);
+  padding: 16px;
+  animation: pq-float-in 200ms ease;
+}
+
+@keyframes pq-float-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.wp-pq-floating-meeting-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.wp-pq-floating-meeting-header h4 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.wp-pq-floating-meeting-close {
+  background: none;
+  border: 0;
+  font-size: 1.3rem;
+  cursor: pointer;
+  color: var(--pq-muted);
+  line-height: 1;
+  padding: 2px 6px;
+}
+
+.wp-pq-floating-meeting-close:hover {
+  color: var(--pq-ink);
+}
+
+.wp-pq-floating-meeting-body {
+  display: grid;
+  gap: 10px;
+}
+
+.wp-pq-floating-meeting-body label {
+  display: grid;
+  gap: 2px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pq-muted);
+}
+
+.wp-pq-floating-meeting-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
 .wp-pq-choice {
   display: flex;
   align-items: start;

@@ -492,6 +492,21 @@ class WP_PQ_Portal
         echo '      </div>';
         echo '    </div>';
         echo '  </section>';
+        echo '  <div class="wp-pq-floating-meeting" id="wp-pq-floating-meeting" hidden>';
+        echo '    <div class="wp-pq-floating-meeting-header">';
+        echo '      <h4 id="wp-pq-floating-meeting-title">Schedule Meeting</h4>';
+        echo '      <button type="button" class="wp-pq-floating-meeting-close" id="wp-pq-floating-meeting-close" aria-label="Close">&times;</button>';
+        echo '    </div>';
+        echo '    <p class="wp-pq-panel-note" id="wp-pq-floating-meeting-summary"></p>';
+        echo '    <form id="wp-pq-floating-meeting-form" class="wp-pq-floating-meeting-body">';
+        echo '      <label>Start <input type="datetime-local" name="starts_at" step="900"></label>';
+        echo '      <label>End <input type="datetime-local" name="ends_at" step="900"></label>';
+        echo '      <div class="wp-pq-floating-meeting-actions">';
+        echo '        <button class="button" type="button" id="wp-pq-floating-meeting-skip">Skip for now</button>';
+        echo '        <button class="button button-primary" type="submit">Schedule Google Meet</button>';
+        echo '      </div>';
+        echo '    </form>';
+        echo '  </div>';
         echo '</div>';
 
         return (string) ob_get_clean();

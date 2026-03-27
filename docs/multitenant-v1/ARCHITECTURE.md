@@ -1,5 +1,7 @@
 # Multi-Tenant V1 Architecture (Read Spear)
 
+> **Plugin version:** 0.23.4 | **Last updated:** 2026-03-27
+
 ## Goal
 Turn the current single-site workflow into a client-facing product where each client runs in an isolated tenant.
 

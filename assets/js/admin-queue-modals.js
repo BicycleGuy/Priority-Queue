@@ -378,10 +378,7 @@
           await bridge.loadTasks();
         }
         if (requestMeeting && bridge.getSelectedTaskId()) {
-          await bridge.selectTask(bridge.getSelectedTaskId(), true, { preservePanelState: true, loadParticipants: false, loadWorkspace: false });
-          await bridge.activateWorkspaceTab('meetings');
-          bridge.openDrawer();
-          bridge.focusMeetingStart();
+          bridge.openMeetingScheduler(bridge.getSelectedTaskId());
         }
       } catch (err) {
         bridge.alert(err.message);

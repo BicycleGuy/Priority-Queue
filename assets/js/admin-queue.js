@@ -126,8 +126,16 @@
   const taskEmptyEl = document.getElementById('wp-pq-task-empty');
   const binderClientContext = document.getElementById('wp-pq-binder-client-context');
   const binderJobContext = document.getElementById('wp-pq-binder-job-context');
+  const floatingMeetingEl = document.getElementById('wp-pq-floating-meeting');
+  const floatingMeetingForm = document.getElementById('wp-pq-floating-meeting-form');
+  const floatingMeetingSummary = document.getElementById('wp-pq-floating-meeting-summary');
+  const floatingMeetingStartInput = floatingMeetingForm ? floatingMeetingForm.querySelector('input[name="starts_at"]') : null;
+  const floatingMeetingEndInput = floatingMeetingForm ? floatingMeetingForm.querySelector('input[name="ends_at"]') : null;
+  const floatingMeetingCloseBtn = document.getElementById('wp-pq-floating-meeting-close');
+  const floatingMeetingSkipBtn = document.getElementById('wp-pq-floating-meeting-skip');
 
   let selectedTaskId = null;
+  let floatingMeetingTaskId = null;
   let tasksCache = [];
   let calendar = null;
   let participantCache = [];
@@ -1606,11 +1614,10 @@
           selectedTaskId = result.task_id || selectedTaskId;
           await loadTasks();
         }
-        if (boardEl && selectedTaskId) {
-          await selectTask(selectedTaskId, true);
+        if (selectedTaskId) {
+          if (boardEl) await selectTask(selectedTaskId, true);
           if (body.needs_meeting) {
-            await activateWorkspaceTab('meetings');
-            seedMeetingForm(true);
+            openMeetingScheduler(selectedTaskId);
           }
         }
       } catch (err) {
@@ -1980,6 +1987,86 @@
         await loadCalendarEvents();
       } catch (err) {
         alert(err.message);
+      }
+    });
+  }
+
+  function openMeetingScheduler(taskId) {
+    if (!floatingMeetingEl || !floatingMeetingForm) return;
+    floatingMeetingTaskId = taskId;
+    const task = getTaskById(taskId);
+    const invitee = task && task.submitter_email ? task.submitter_email : 'the task requester';
+    if (floatingMeetingSummary) {
+      floatingMeetingSummary.textContent = 'Google Meet will invite ' + invitee + '.';
+    }
+    if (floatingMeetingStartInput && floatingMeetingEndInput) {
+      const start = roundUpToQuarterHour(new Date());
+      floatingMeetingStartInput.value = toLocalDatetimeValue(start);
+      const end = new Date(start.getTime() + 60 * 60 * 1000);
+      floatingMeetingEndInput.value = toLocalDatetimeValue(end);
+    }
+    floatingMeetingEl.hidden = false;
+  }
+
+  function closeMeetingScheduler() {
+    if (!floatingMeetingEl) return;
+    floatingMeetingEl.hidden = true;
+    floatingMeetingTaskId = null;
+    if (floatingMeetingForm) floatingMeetingForm.reset();
+  }
+
+  function wireFloatingMeeting() {
+    if (!floatingMeetingEl || !floatingMeetingForm) return;
+
+    if (floatingMeetingCloseBtn) floatingMeetingCloseBtn.addEventListener('click', closeMeetingScheduler);
+    if (floatingMeetingSkipBtn) floatingMeetingSkipBtn.addEventListener('click', closeMeetingScheduler);
+
+    if (floatingMeetingStartInput) {
+      floatingMeetingStartInput.addEventListener('change', () => {
+        if (!floatingMeetingEndInput) return;
+        const start = new Date(floatingMeetingStartInput.value);
+        if (Number.isNaN(start.getTime())) return;
+        const end = new Date(start.getTime() + 60 * 60 * 1000);
+        floatingMeetingEndInput.value = toLocalDatetimeValue(end);
+      });
+    }
+
+    floatingMeetingForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!floatingMeetingTaskId) return alert('No task selected.');
+
+      const formData = new FormData(floatingMeetingForm);
+      const startsAt = (formData.get('starts_at') || '').toString();
+      let endsAt = (formData.get('ends_at') || '').toString();
+      if (!startsAt) return alert('Choose a meeting start time.');
+
+      if (!endsAt) {
+        const start = new Date(startsAt);
+        if (!Number.isNaN(start.getTime())) {
+          const end = new Date(start.getTime() + 60 * 60 * 1000);
+          endsAt = end.toISOString().slice(0, 16);
+        }
+      }
+      if (!endsAt) return alert('Choose a meeting end time.');
+
+      const submitBtn = floatingMeetingForm.querySelector('button[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
+
+      try {
+        const result = await api('tasks/' + floatingMeetingTaskId + '/meetings', {
+          method: 'POST',
+          body: JSON.stringify({ starts_at: startsAt, ends_at: endsAt }),
+        });
+        closeMeetingScheduler();
+        if (result.task) {
+          upsertTask(result.task);
+          await refreshFromCache({ reloadActivePane: true, refreshCalendar: true });
+        }
+        await loadCalendarEvents();
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
       }
     });
   }
@@ -2498,6 +2585,7 @@
     closeDrawer: closeDrawer,
     openDrawer: openDrawer,
     focusMeetingStart: () => { if (meetingStartInput) meetingStartInput.focus(); },
+    openMeetingScheduler: openMeetingScheduler,
   });
 
   wireCreateForm();
@@ -2507,6 +2595,7 @@
   wireNotes();
   wireFiles();
   wireMeetings();
+  wireFloatingMeeting();
   wireAssignment();
   wirePriority();
   wireBatching();
