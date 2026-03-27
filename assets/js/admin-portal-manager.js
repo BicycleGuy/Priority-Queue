@@ -819,6 +819,13 @@
                 `).join('')}
               </div>
             </fieldset>
+            <fieldset class="wp-pq-manager-statuses wp-pq-span-2">
+              <legend>Billable</legend>
+              <div class="wp-pq-manager-status-grid">
+                <label class="wp-pq-manager-status-option"><input type="checkbox" name="billable" value="billable" checked><span>Billable</span></label>
+                <label class="wp-pq-manager-status-option"><input type="checkbox" name="billable" value="non_billable"><span>Non-billable</span></label>
+              </div>
+            </fieldset>
           </div>
         </form>
         <div class="wp-pq-manager-inline-actions" style="padding: 12px 0 4px;">
@@ -852,6 +859,7 @@
         range_end: fd.get('range_end') || '',
         job_ids: fd.getAll('job_ids').map(Number).filter(Boolean),
         statuses: fd.getAll('statuses').filter(Boolean),
+        billable: fd.getAll('billable').filter(Boolean),
       };
     }
 

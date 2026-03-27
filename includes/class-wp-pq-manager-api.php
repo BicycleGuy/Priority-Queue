@@ -614,6 +614,7 @@ class WP_PQ_Manager_API
             'range_end' => WP_PQ_API::normalize_rollup_date((string) $request->get_param('range_end')),
             'job_ids' => array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('job_ids'))))),
             'statuses' => (array) $request->get_param('statuses'),
+            'billable' => (array) $request->get_param('billable'),
         ]);
 
         return new WP_REST_Response([

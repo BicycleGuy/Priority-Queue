@@ -2417,6 +2417,15 @@ class WP_PQ_API
             $where[] = 't.billing_bucket_id IN (' . implode(',', array_map('intval', $job_ids)) . ')';
         }
 
+        $billable_filter = array_values(array_unique(array_filter((array) ($args['billable'] ?? []))));
+        if (! empty($billable_filter) && count($billable_filter) === 1) {
+            if (in_array('billable', $billable_filter, true)) {
+                $where[] = '(le.billable = 1 OR le.billable IS NULL)';
+            } elseif (in_array('non_billable', $billable_filter, true)) {
+                $where[] = 'le.billable = 0';
+            }
+        }
+
         return $wpdb->get_results(
             "SELECT t.id, t.title, t.description, t.status, t.priority,
                     t.billing_status, t.billing_mode,
