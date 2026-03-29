@@ -271,7 +271,7 @@ class WP_PQ_Manager_API
         $initial_bucket_name = sanitize_text_field((string) $request->get_param('initial_bucket_name'));
 
         if ($user_id > 0) {
-            $user = get_user_by('ID', $user_id);
+            $user = WP_PQ_API::get_cached_user($user_id);
             if (! $user) {
                 return new WP_REST_Response(['message' => 'Choose an existing WordPress user to link as a client.'], 422);
             }
@@ -313,7 +313,7 @@ class WP_PQ_Manager_API
             if (is_wp_error($user_id)) {
                 return new WP_REST_Response(['message' => $user_id->get_error_message()], 422);
             }
-            $user = get_user_by('ID', (int) $user_id);
+            $user = WP_PQ_API::get_cached_user((int) $user_id);
             $created = true;
         } else {
             $user->add_role('pq_client');
@@ -375,7 +375,7 @@ class WP_PQ_Manager_API
         if (! in_array($role, ['client_admin', 'client_contributor', 'client_viewer'], true)) {
             $role = 'client_contributor';
         }
-        $user = $user_id > 0 ? get_user_by('ID', $user_id) : null;
+        $user = $user_id > 0 ? WP_PQ_API::get_cached_user($user_id) : null;
         if (! WP_PQ_Admin::can_manage_client($client_id) || ! $user) {
             return new WP_REST_Response(['message' => 'Choose a valid user to add to this client.'], 422);
         }
@@ -612,7 +612,7 @@ class WP_PQ_Manager_API
             'client_id' => (int) $request->get_param('client_id'),
             'range_start' => WP_PQ_API::normalize_rollup_date((string) $request->get_param('range_start')),
             'range_end' => WP_PQ_API::normalize_rollup_date((string) $request->get_param('range_end')),
-            'job_ids' => array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('job_ids'))))),
+            'job_ids' => WP_PQ_API::sanitize_int_array($request->get_param('job_ids')),
             'statuses' => (array) $request->get_param('statuses'),
             'billable' => (array) $request->get_param('billable'),
         ]);
@@ -629,7 +629,7 @@ class WP_PQ_Manager_API
             'client_id' => (int) $request->get_param('client_id'),
             'range_start' => WP_PQ_API::normalize_rollup_date((string) $request->get_param('range_start')),
             'range_end' => WP_PQ_API::normalize_rollup_date((string) $request->get_param('range_end')),
-            'job_ids' => array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('job_ids'))))),
+            'job_ids' => WP_PQ_API::sanitize_int_array($request->get_param('job_ids')),
             'statuses' => (array) $request->get_param('statuses'),
             'notes' => sanitize_textarea_field((string) $request->get_param('notes')),
         ], get_current_user_id());
@@ -687,8 +687,8 @@ class WP_PQ_Manager_API
 
     public static function create_statement(WP_REST_Request $request): WP_REST_Response
     {
-        $entry_ids = array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('entry_ids')))));
-        $task_ids = array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('task_ids')))));
+        $entry_ids = WP_PQ_API::sanitize_int_array($request->get_param('entry_ids'));
+        $task_ids = WP_PQ_API::sanitize_int_array($request->get_param('task_ids'));
         if (empty($entry_ids) && empty($task_ids)) {
             return new WP_REST_Response(['message' => 'Choose at least one eligible completed work entry before creating an invoice draft.'], 422);
         }
@@ -1320,7 +1320,7 @@ class WP_PQ_Manager_API
         ];
 
         if ($request->get_param('linked_task_ids') !== null) {
-            $linked_task_ids = array_values(array_unique(array_filter(array_map('intval', (array) $request->get_param('linked_task_ids')))));
+            $linked_task_ids = WP_PQ_API::sanitize_int_array($request->get_param('linked_task_ids'));
             $payload['linked_task_ids'] = ! empty($linked_task_ids) ? wp_json_encode($linked_task_ids) : null;
         }
 
