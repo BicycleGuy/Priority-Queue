@@ -26,21 +26,8 @@
     statement_batched: 'In Invoice Draft',
   };
 
-  const boardStatuses = [
-    'pending_approval',
-    'needs_clarification',
-    'approved',
-    'in_progress',
-    'needs_review',
-    'delivered',
-  ];
-
   function normalizeStatus(s) {
     return String(s || '').toLowerCase();
-  }
-
-  function isBoardVisible(status) {
-    return boardStatuses.includes(normalizeStatus(status));
   }
 
   const binderIcons = {
@@ -72,7 +59,6 @@
   const createPanel = document.getElementById('wp-pq-create-panel');
   const openCreateBtn = document.getElementById('wp-pq-open-create');
   const closeCreateBtn = document.getElementById('wp-pq-close-create');
-  const openAiImportBtn = document.getElementById('wp-pq-open-ai-import');
   const createClientWrap = document.getElementById('wp-pq-create-client-wrap');
   const createClientEl = document.getElementById('wp-pq-create-client');
   const createBucketEl = document.getElementById('wp-pq-create-bucket');
@@ -527,21 +513,6 @@
     return filterState.clientUserId || 0;
   }
 
-  function buildAiImportUrl() {
-    const base = window.wpPqConfig.adminUrl || '/wp-admin/admin.php';
-    const url = new URL(base, window.location.origin);
-    url.searchParams.set('page', 'wp-pq-ai-import');
-    const clientId = currentCreateClientId();
-    const bucketId = parseInt((createBucketEl && createBucketEl.value) || createFormState.billingBucketId || '0', 10) || 0;
-    if (clientId > 0) {
-      url.searchParams.set('client_id', String(clientId));
-    }
-    if (bucketId > 0) {
-      url.searchParams.set('bucket_id', String(bucketId));
-    }
-    return url.toString();
-  }
-
   function syncCreateFormContext() {
     if (!createForm || !createBucketEl) return;
 
@@ -851,22 +822,6 @@
     await syncTaskWorkspace(options || {});
   }
 
-  function nextStepLabel(task) {
-    const status = normalizeStatus(task.status);
-    if (status === 'pending_approval') return 'Waiting for approval';
-    if (status === 'needs_clarification') return 'Clarification needed from client';
-    if (status === 'approved') return 'Ready to begin work';
-    if (status === 'in_progress') return 'Work is in progress';
-    if (status === 'needs_review') return 'Ready for internal review';
-    if (status === 'delivered') {
-      if (!task.is_billable) return 'Delivered · non-billable';
-      return task.billing_status === 'batched' ? 'Added to invoice draft' : 'Waiting for invoice drafting or client response';
-    }
-    if (status === 'done') return 'Completed — ready to archive';
-    if (status === 'archived') return 'Archived and removed from the active board';
-    return humanizeToken(status);
-  }
-
   function renderFactList(facts, className) {
     if (!Array.isArray(facts) || !facts.length) return '';
     return '<dl class="' + escapeHtml(className) + '">' + facts.map((fact) => (
@@ -957,9 +912,6 @@
     return '<span class="wp-pq-priority-marker priority-' + escapeHtml(normalized) + '" data-tooltip="' + escapeHtml(humanizeToken(normalized) + ' priority') + '">▲</span>';
   }
 
-  function cardActionHtml() {
-    return '';
-  }
 
   function assignmentFacts(task) {
     const requester = task.submitter_name || 'Unspecified';
@@ -1119,8 +1071,6 @@
       metaBits.push('<span>Invoice Draft ' + escapeHtml(task.statement_code) + '</span>');
     }
 
-    const inlineAction = cardActionHtml(task);
-    if (inlineAction) cardActions.push(inlineAction);
     if (task.note_count > 0) {
       cardActions.push('<span class="wp-pq-note-flag" data-tooltip="' + escapeHtml((task.latest_note_preview || (task.note_count + ' sticky notes'))) + '"></span>');
     }
@@ -1152,21 +1102,6 @@
       if (boardDragActive || Date.now() < boardDragLockUntil) return;
       selectTask(task.id, true);
     });
-    const batchPick = card.querySelector('[data-batch-task-id]');
-    if (batchPick) {
-      batchPick.addEventListener('click', (e) => e.stopPropagation());
-      batchPick.addEventListener('click', (e) => {
-        const taskId = parseInt(e.currentTarget.getAttribute('data-batch-task-id'), 10);
-        if (!taskId) return;
-        if (selectedBatchTaskIds.has(taskId)) {
-          selectedBatchTaskIds.delete(taskId);
-        } else {
-          selectedBatchTaskIds.add(taskId);
-        }
-        updateBatchButton();
-        renderTaskCollections();
-      });
-    }
     return card;
   }
 
@@ -1270,7 +1205,7 @@
       const shouldCollapse = tasksInColumn.length === 0;
       columnEl.className = 'wp-pq-board-column' + (shouldCollapse ? ' is-collapsed' : '');
       columnEl.dataset.status = column.key;
-      var archiveAllBtn = '';
+      let archiveAllBtn = '';
       if (column.key === 'delivered' && tasksInColumn.length > 0 && window.wpPqConfig.canApprove) {
         archiveAllBtn = ' <button type="button" class="button button-small wp-pq-archive-all-btn" title="Archive all delivered tasks">Archive All</button>';
       }
@@ -1602,22 +1537,6 @@
 
   function wireCreateForm() {
     if (!createForm) return;
-
-    if (openAiImportBtn) {
-      openAiImportBtn.hidden = !window.wpPqConfig.canApprove;
-      openAiImportBtn.addEventListener('click', () => {
-        const clientId = currentCreateClientId();
-        const bucketId = parseInt((createBucketEl && createBucketEl.value) || createFormState.billingBucketId || '0', 10) || 0;
-        if (window.wpPqPortalManager && typeof window.wpPqPortalManager.openSection === 'function') {
-          window.wpPqPortalManager.openSection('ai-import', {
-            clientId: clientId,
-            billingBucketId: bucketId,
-          });
-          return;
-        }
-        window.location.href = buildAiImportUrl();
-      });
-    }
 
     if (createClientEl) {
       createClientEl.addEventListener('change', () => {
@@ -2586,11 +2505,11 @@
       if (!btn) return;
       e.preventDefault();
       e.stopPropagation();
-      var deliveredCount = tasksCache.filter(function (t) { return normalizeStatus(t.status) === 'delivered'; }).length;
+      const deliveredCount = tasksCache.filter(function (t) { return normalizeStatus(t.status) === 'delivered'; }).length;
       if (!deliveredCount) return;
       if (!window.confirm('Archive all ' + deliveredCount + ' delivered task' + (deliveredCount === 1 ? '' : 's') + '? This cannot be undone.')) return;
       try {
-        var result = await api('tasks/archive-delivered', { method: 'POST', body: JSON.stringify({}) });
+        const result = await api('tasks/archive-delivered', { method: 'POST', body: JSON.stringify({}) });
         alert(result.archived_count + ' task' + (result.archived_count === 1 ? '' : 's') + ' archived.', 'success');
         await loadTasks();
       } catch (err) {
@@ -2604,10 +2523,10 @@
     if (drawerBackdrop) drawerBackdrop.addEventListener('click', closeDrawer);
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && window.wpPqModals) {
-        var deleteModalEl = document.getElementById('wp-pq-delete-modal');
-        var completionModalEl = document.getElementById('wp-pq-completion-modal');
-        var revisionModalEl = document.getElementById('wp-pq-revision-modal');
-        var moveModalEl = document.getElementById('wp-pq-move-modal');
+        const deleteModalEl = document.getElementById('wp-pq-delete-modal');
+        const completionModalEl = document.getElementById('wp-pq-completion-modal');
+        const revisionModalEl = document.getElementById('wp-pq-revision-modal');
+        const moveModalEl = document.getElementById('wp-pq-move-modal');
         if (deleteModalEl && !deleteModalEl.hidden) {
           window.wpPqModals.closeDeleteModal();
           return;
@@ -2649,7 +2568,6 @@
     activateWorkspaceTab: activateWorkspaceTab,
     currentView: () => currentView,
     normalizeStatus: normalizeStatus,
-    isBoardVisible: isBoardVisible,
     humanizeToken: humanizeToken,
     escapeHtml: escapeHtml,
     formatDateTime: formatDateTime,
@@ -2691,7 +2609,7 @@
     if (!wrap || !toggle) return;
     const key = 'wp_pq_theme';
     const saved = localStorage.getItem(key);
-    var toggleLabel = toggle.querySelector('span > span:last-child');
+    const toggleLabel = toggle.querySelector('span > span:last-child');
     function applyTheme(isDark) {
       if (isDark) {
         wrap.setAttribute('data-theme', 'dark');

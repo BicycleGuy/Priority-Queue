@@ -27,6 +27,20 @@ These were identified by review agents but deferred as higher-risk refactors:
 - [ ] **Priority value constants** — defined independently in `sanitize_priority`, `shift_priority`, `task_priority_rank`; consolidate to single source
 - [ ] **History note format** — hand-rolled `key:value` string encoding with no parser; consider structured JSON
 
+## Deferred Code Simplification (class-wp-pq-admin.php)
+
+- [ ] **Move ~700 lines of DB queries to `WP_PQ_DB`** — `get_billing_clients`, `get_buckets_by_client`, `get_rollup_groups`, `get_work_log_summaries`, `get_work_log_detail`, `get_statement_summaries`, `get_statement_detail`, `get_unbilled_ledger_entries`, `get_client_directory_rows`, `get_client_directory_members_by_client`, `get_job_members_by_bucket_ids`
+- [ ] **Merge two print templates** — `render_print_document` and `render_invoice_draft_print_document` share 60% of markup and identical CSS blocks (~40 lines duplicated)
+- [ ] **Batch `get_bucket_dependency_counts`** — currently fires 3 COUNT queries per job in a loop; replace with single grouped query
+- [ ] **Bound `get_directory_users`** — fetches ALL WordPress users with no role filter or LIMIT; add `role__in` for PQ roles
+- [ ] **Pagination on client directory** — `render_clients_page` eagerly loads all clients, members, work logs, statements with correlated subqueries
+- [ ] **Extract notice rendering helper** — same 6-line admin notice block repeated 5 times
+- [ ] **Extract filter-bar form helper** — nearly identical date-range filter forms on 3 pages
+- [ ] **Merge `get_statement_summaries` and `get_statement_summaries_for_range`** — identical SQL except WHERE clause
+- [ ] **Move `resolve_import_user_id` to `WP_PQ_AI_Importer`** — user-matching logic for AI import, not admin rendering
+- [ ] **Define client role constants on `WP_PQ_Roles`** — `'client_admin'`, `'client_contributor'`, `'client_viewer'` used as raw strings
+- [ ] **Batch bucket name lookups in CSV export** — `statement_line_bucket_name` fires per-line query
+
 ## Integration / Infrastructure
 
 - [ ] **Google OAuth** — Client ID and secret need to be saved to WordPress options (`wp_pq_google_client_id`, `wp_pq_google_client_secret`, `wp_pq_google_redirect_uri`). OAuth client exists in Google Cloud Console but credentials aren't in WP. "Client missing a project id" error persists.
