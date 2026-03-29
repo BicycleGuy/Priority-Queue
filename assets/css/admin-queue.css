@@ -1021,6 +1021,56 @@
   gap: 14px;
 }
 
+.wp-pq-board-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 12px;
+  padding: 0;
+  font-size: 13px;
+  color: var(--pq-muted);
+}
+
+.wp-pq-filter-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: var(--pq-muted);
+  transition: color 100ms ease;
+}
+
+.wp-pq-filter-check:hover {
+  color: var(--pq-ink);
+}
+
+.wp-pq-filter-check.is-active {
+  color: var(--pq-ink);
+  font-weight: 600;
+}
+
+.wp-pq-filter-check input[type="checkbox"] {
+  margin: 0;
+  accent-color: var(--pq-accent);
+}
+
+.wp-pq-filter-check-count {
+  color: var(--pq-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.wp-pq-filter-check.is-active .wp-pq-filter-check-count {
+  color: var(--pq-accent);
+}
+
+.wp-pq-filter-sep {
+  color: var(--pq-border);
+  font-size: 11px;
+}
+
 .wp-pq-filter-group {
   display: grid;
   gap: 6px;
@@ -1043,32 +1093,6 @@
   font-size: 13px !important;
 }
 
-.wp-pq-filter-row {
-  justify-content: space-between !important;
-}
-
-.wp-pq-filter-row-label {
-  color: inherit !important;
-}
-
-.wp-pq-filter-row-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 22px;
-  height: 22px;
-  padding: 0 7px;
-  border-radius: 8px;
-  background: var(--pq-accent-soft);
-  color: var(--pq-accent);
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.wp-pq-filter-row.is-warning {
-  background: rgba(185, 28, 28, 0.2) !important;
-  color: #fff !important;
-}
 
 .wp-pq-binder-section-bottom > .button {
   width: 100%;
@@ -1182,12 +1206,12 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
 
 .wp-pq-create-grid {
   display: grid;
-  gap: 12px 14px;
+  gap: 6px 14px;
   grid-template-columns: repeat(2, minmax(220px, 1fr));
 }
 
@@ -1723,7 +1747,7 @@ button.wp-pq-manager-list-item.is-active {
 .wp-pq-board-shell {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 18px;
+  gap: 6px;
   padding: 0;
   align-items: start;
   background: transparent;
@@ -1734,8 +1758,8 @@ button.wp-pq-manager-list-item.is-active {
 
 .wp-pq-board-shell > .wp-pq-section-heading {
   margin-bottom: 0;
-  padding: 2px 2px 12px;
-  border-bottom: 1px solid var(--pq-border);
+  padding: 2px 2px 0;
+  border-bottom: 0;
 }
 
 .wp-pq-board-shell > .wp-pq-section-heading .wp-pq-panel-note {
@@ -1995,7 +2019,8 @@ button.wp-pq-manager-list-item.is-active {
   padding: 6px 0 18px;
 }
 
-.wp-pq-board-column.is-collapsed .wp-pq-empty-state {
+.wp-pq-board-column.is-collapsed .wp-pq-empty-state,
+.wp-pq-board.is-dragging .wp-pq-empty-state {
   display: none;
 }
 
@@ -2021,6 +2046,8 @@ button.wp-pq-manager-list-item.is-active {
   flex-direction: column;
   gap: 7px;
   min-height: 140px;
+  padding-bottom: 40px;
+  flex: 1;
 }
 
 .wp-pq-task-card {
@@ -2268,6 +2295,26 @@ button.wp-pq-manager-list-item.is-active {
 
 .wp-pq-toast.info {
   background: var(--pq-ink);
+}
+
+.wp-pq-toast.warning {
+  background: #1c1917;
+  border-left: 4px solid #d97706;
+}
+
+.wp-pq-toast-dismiss {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11px;
+  opacity: 0.85;
+  cursor: pointer;
+}
+
+.wp-pq-toast-dismiss input[type="checkbox"] {
+  margin: 0;
+  accent-color: #fff;
 }
 
 .wp-pq-toast.is-leaving {
@@ -2749,7 +2796,7 @@ body.wp-pq-drawer-open {
 }
 
 .wp-pq-modal-card {
-  width: min(620px, 100%);
+  width: min(420px, 100%);
   max-height: calc(100vh - 24px);
   background: var(--pq-surface);
   border: 1px solid var(--pq-border);
@@ -2757,6 +2804,11 @@ body.wp-pq-drawer-open {
   box-shadow: 0 24px 50px rgba(28, 25, 23, 0.22);
   padding: 16px;
   overflow-y: auto;
+  font-size: 17px;
+}
+
+.wp-pq-modal-card .wp-pq-panel-note {
+  font-size: 15px;
 }
 
 .wp-pq-modal-card-compact {
@@ -2861,7 +2913,7 @@ body.wp-pq-drawer-open {
   display: block;
   margin-top: 2px;
   color: var(--pq-muted);
-  font-size: 11px;
+  font-size: 14px;
   line-height: 1.45;
   font-weight: 400;
 }
@@ -2888,8 +2940,8 @@ body.wp-pq-drawer-open {
 
 .wp-pq-choice small {
   color: var(--pq-muted);
-  font-size: 11px;
-  line-height: 1.35;
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .wp-pq-modal-actions {

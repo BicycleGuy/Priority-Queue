@@ -60,7 +60,7 @@
 
   const taskList = document.getElementById('wp-pq-task-list');
   const boardEl = document.getElementById('wp-pq-board');
-  const filterListEl = document.getElementById('wp-pq-filter-list');
+  const filterListEl = document.getElementById('wp-pq-board-filter-bar') || document.getElementById('wp-pq-filter-list');
   const boardFiltersEl = document.getElementById('wp-pq-board-filters');
   const clientFilterWrap = document.getElementById('wp-pq-client-filter-wrap');
   const clientFilterEl = document.getElementById('wp-pq-client-filter');
@@ -219,16 +219,63 @@
     return stack;
   }
 
-  function alert(message, type) {
+  const dragTransitions = {
+    pending_approval: ['approved', 'needs_clarification'],
+    needs_clarification: ['approved', 'in_progress'],
+    approved: ['in_progress', 'needs_clarification'],
+    in_progress: ['needs_clarification', 'needs_review', 'delivered'],
+    needs_review: ['in_progress', 'delivered'],
+    delivered: ['in_progress', 'needs_clarification', 'needs_review'],
+  };
+
+  let suppressedDragAlerts;
+  try { suppressedDragAlerts = JSON.parse(localStorage.getItem('wp_pq_suppress_drag_alerts') || '{}'); }
+  catch (_) { suppressedDragAlerts = {}; }
+
+  function alert(message, type, options) {
+    const opts = options || {};
+    const suppressKey = opts.suppressKey || null;
+    const duration = opts.duration || 3200;
+    if (suppressKey && suppressedDragAlerts[suppressKey]) return;
     const stack = toastStack();
     const toast = document.createElement('div');
     toast.className = 'wp-pq-toast ' + (type || 'error');
-    toast.textContent = String(message || 'Something went wrong.');
+    const textEl = document.createElement('div');
+    textEl.textContent = String(message || 'Something went wrong.');
+    toast.appendChild(textEl);
+    if (suppressKey) {
+      const dismissLabel = document.createElement('label');
+      dismissLabel.className = 'wp-pq-toast-dismiss';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.addEventListener('change', () => {
+        if (cb.checked) {
+          suppressedDragAlerts[suppressKey] = true;
+          localStorage.setItem('wp_pq_suppress_drag_alerts', JSON.stringify(suppressedDragAlerts));
+        }
+      });
+      dismissLabel.appendChild(cb);
+      dismissLabel.appendChild(document.createTextNode("\u2019t show this again"));
+      toast.appendChild(dismissLabel);
+    }
     stack.appendChild(toast);
     window.setTimeout(() => {
       toast.classList.add('is-leaving');
       window.setTimeout(() => toast.remove(), 220);
-    }, 3200);
+    }, duration);
+  }
+
+  function isDragAllowed(from, to) {
+    if (from === to) return true;
+    const allowed = dragTransitions[from];
+    return allowed ? allowed.indexOf(to) !== -1 : false;
+  }
+
+  function dragBlockedMessage(from, to) {
+    const fromLabel = humanizeToken(from);
+    const toLabel = humanizeToken(to);
+    const allowed = (dragTransitions[from] || []).map(humanizeToken);
+    return fromLabel + ' cannot move directly to ' + toLabel + '. Allowed: ' + allowed.join(', ') + '.';
   }
 
   function parseOwnerIds(raw) {
@@ -660,14 +707,22 @@
   function renderUnifiedFilters(tasks) {
     if (!filterListEl) return;
 
-    const urgentCount = tasks.filter((task) => task.priority === 'urgent').length;
-    const approvalCount = tasks.filter((task) => normalizeStatus(task.status) === 'pending_approval').length;
-    const reviewCount = tasks.filter((task) => normalizeStatus(task.status) === 'needs_review').length;
-    const deliveredCount = tasks.filter((task) => normalizeStatus(task.status) === 'delivered').length;
-    const unbilledCount = tasks.filter((task) => normalizeStatus(task.status) === 'delivered' && task.is_billable && task.billing_status === 'unbilled').length;
-    const awaitingMeCount = tasks.filter((task) => parseInt(task.action_owner_id || 0, 10) === parseInt(window.wpPqConfig.currentUserId || 0, 10)).length;
     const currentId = parseInt(window.wpPqConfig.currentUserId || 0, 10);
-    const awaitingClientCount = tasks.filter((task) => !!task.action_owner_is_client && parseInt(task.action_owner_id || 0, 10) !== currentId && !['delivered', 'done', 'archived'].includes(normalizeStatus(task.status))).length;
+    let urgentCount = 0, approvalCount = 0, reviewCount = 0, deliveredCount = 0, unbilledCount = 0, awaitingMeCount = 0, awaitingClientCount = 0;
+    for (let i = 0; i < tasks.length; i++) {
+      const task = tasks[i];
+      const status = normalizeStatus(task.status);
+      const ownerId = parseInt(task.action_owner_id || 0, 10);
+      if (task.priority === 'urgent') urgentCount++;
+      if (status === 'pending_approval') approvalCount++;
+      if (status === 'needs_review') reviewCount++;
+      if (status === 'delivered') {
+        deliveredCount++;
+        if (task.is_billable && task.billing_status === 'unbilled') unbilledCount++;
+      }
+      if (ownerId === currentId) awaitingMeCount++;
+      if (task.action_owner_is_client && ownerId !== currentId && status !== 'delivered' && status !== 'done' && status !== 'archived') awaitingClientCount++;
+    }
 
     const groups = [
       {
@@ -695,30 +750,27 @@
       },
     ];
 
-    filterListEl.innerHTML = groups.map((group) => (
-      '<div class="wp-pq-filter-group">' +
-        (group.label ? '<div class="wp-pq-filter-group-heading">' + escapeHtml(group.label) + '</div>' : '') +
-        group.items.map((item) => {
-          const isActive = taskFilter.mode === item.mode && taskFilter.value === item.value;
-          return '<button type="button" class="button wp-pq-filter-row ' +
-            (isActive ? 'is-active ' : '') +
-            ((item.tone || 'default') === 'warning' ? 'is-warning ' : '') +
-            '" data-filter-mode="' + escapeHtml(item.mode) + '" data-filter-value="' + escapeHtml(item.value) + '">' +
-              '<span class="wp-pq-filter-row-main">' +
-                '<span class="wp-pq-row-icon" aria-hidden="true">' + escapeHtml(filterIcon(item)) + '</span>' +
-                '<span class="wp-pq-filter-row-label">' + escapeHtml(item.label) + '</span>' +
-              '</span>' +
-              '<span class="wp-pq-filter-row-count">' + escapeHtml(item.count) + '</span>' +
-            '</button>';
-        }).join('') +
-      '</div>'
-    )).join('');
-  }
-
-  function filterIcon(item) {
-    if (!item) return binderIcons.all_tasks;
-    if (item.mode === 'all') return binderIcons.all_tasks;
-    return binderIcons[item.value] || binderIcons.all_tasks;
+    let html = '';
+    let prevGroupLabel = '';
+    for (let g = 0; g < groups.length; g++) {
+      const group = groups[g];
+      if (group.label && prevGroupLabel) {
+        html += '<span class="wp-pq-filter-sep">|</span>';
+      }
+      for (let i = 0; i < group.items.length; i++) {
+        const item = group.items[i];
+        const isActive = taskFilter.mode === item.mode && taskFilter.value === item.value;
+        html += '<label class="wp-pq-filter-check' +
+          (isActive ? ' is-active' : '') +
+          '" data-filter-mode="' + escapeHtml(item.mode) + '" data-filter-value="' + escapeHtml(item.value) + '">' +
+          '<input type="checkbox"' + (isActive ? ' checked' : '') + '> ' +
+          escapeHtml(item.label) +
+          ' <span class="wp-pq-filter-check-count">' + escapeHtml(item.count) + '</span>' +
+          '</label>';
+      }
+      prevGroupLabel = group.label;
+    }
+    filterListEl.innerHTML = html;
   }
 
   function renderJobNav() {
@@ -785,7 +837,16 @@
 
   async function refreshFromCache(options) {
     if (!options || options.renderCollections !== false) {
-      renderTaskCollections();
+      if (options && options.skipBoardRender && boardEl) {
+        pruneBatchSelection();
+        syncOrderFromBoardDom();
+        const scopedTasks = tasksCache.slice();
+        const visibleTasks = applyTaskFilter(scopedTasks);
+        updateBinderUi(scopedTasks, visibleTasks);
+        highlightSelected();
+      } else {
+        renderTaskCollections();
+      }
     }
     await syncTaskWorkspace(options || {});
   }
@@ -1257,15 +1318,15 @@
     boardEl.querySelectorAll('.wp-pq-board-column-list').forEach((columnEl) => {
       const sortable = Sortable.create(columnEl, {
         group: 'wp-pq-board',
-        animation: 160,
+        animation: 80,
         draggable: '.wp-pq-task-card',
         forceFallback: true,
         fallbackOnBody: true,
-        fallbackTolerance: 4,
+        fallbackTolerance: 3,
         fallbackClass: 'wp-pq-sortable-fallback',
         delayOnTouchOnly: true,
-        touchStartThreshold: 4,
-        emptyInsertThreshold: 20,
+        touchStartThreshold: 3,
+        emptyInsertThreshold: 60,
         scroll: true,
         scrollSensitivity: 120,
         scrollSpeed: 18,
@@ -1285,7 +1346,7 @@
         },
         onEnd: async (evt) => {
           boardDragActive = false;
-          boardDragLockUntil = Date.now() + 220;
+          boardDragLockUntil = Date.now() + 100;
           boardEl.classList.remove('is-dragging');
           if (appShellEl) appShellEl.classList.remove('is-board-dragging');
           setBoardDragTarget(null);
@@ -1308,6 +1369,15 @@
           }
 
           if (!movedTaskId) {
+            await loadTasks();
+            return;
+          }
+
+          if (sourceStatus !== targetStatus && !isDragAllowed(sourceStatus, targetStatus)) {
+            alert(dragBlockedMessage(sourceStatus, targetStatus), 'warning', {
+              suppressKey: sourceStatus + '_to_' + targetStatus,
+              duration: 6000,
+            });
             await loadTasks();
             return;
           }
@@ -1338,8 +1408,7 @@
                 if (result.target_task) {
                   upsertTask(result.target_task);
                 }
-                syncOrderFromBoardDom();
-                await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar' });
+                await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar', skipBoardRender: true });
               } else {
                 await loadTasks();
               }
@@ -1606,6 +1675,10 @@
         createFormState.billingBucketId = 0;
         syncCreateFormContext();
         if (createPanel) createPanel.hidden = true;
+        const newTaskId = result.task ? result.task.id : (result.task_id || null);
+        if (body.needs_meeting && newTaskId) {
+          openMeetingScheduler(newTaskId);
+        }
         if (result.task) {
           upsertTask(result.task);
           selectedTaskId = result.task.id;
@@ -1614,11 +1687,8 @@
           selectedTaskId = result.task_id || selectedTaskId;
           await loadTasks();
         }
-        if (selectedTaskId) {
-          if (boardEl) await selectTask(selectedTaskId, true);
-          if (body.needs_meeting) {
-            openMeetingScheduler(selectedTaskId);
-          }
+        if (selectedTaskId && boardEl) {
+          await selectTask(selectedTaskId, true);
         }
       } catch (err) {
         alert(err.message);
@@ -2420,14 +2490,16 @@
 
   function wireUnifiedFilters() {
     if (!filterListEl) return;
-    filterListEl.addEventListener('click', async (e) => {
-      const button = e.target.closest('[data-filter-mode][data-filter-value]');
-      if (!button) return;
-      e.preventDefault();
-      taskFilter = {
-        mode: button.dataset.filterMode || 'all',
-        value: button.dataset.filterValue || 'all',
-      };
+    filterListEl.addEventListener('change', async (e) => {
+      const label = e.target.closest('[data-filter-mode][data-filter-value]');
+      if (!label) return;
+      const clickedMode = label.dataset.filterMode || 'all';
+      const clickedValue = label.dataset.filterValue || 'all';
+      if (taskFilter.mode === clickedMode && taskFilter.value === clickedValue) {
+        taskFilter = { mode: 'all', value: 'all' };
+      } else {
+        taskFilter = { mode: clickedMode, value: clickedValue };
+      }
       await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar' });
     });
   }
@@ -2619,13 +2691,16 @@
     if (!wrap || !toggle) return;
     const key = 'wp_pq_theme';
     const saved = localStorage.getItem(key);
+    var toggleLabel = toggle.querySelector('span > span:last-child');
     function applyTheme(isDark) {
       if (isDark) {
         wrap.setAttribute('data-theme', 'dark');
         toggle.classList.add('is-active');
+        if (toggleLabel) toggleLabel.textContent = 'Light Mode';
       } else {
         wrap.removeAttribute('data-theme');
         toggle.classList.remove('is-active');
+        if (toggleLabel) toggleLabel.textContent = 'Dark Mode';
       }
     }
     applyTheme(saved === 'dark');

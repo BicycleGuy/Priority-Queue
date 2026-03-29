@@ -121,21 +121,6 @@ class WP_PQ_Portal
         echo '      <div class="wp-pq-binder-section wp-pq-binder-section-action">';
         echo '        <button class="button button-primary wp-pq-primary-action" type="button" id="wp-pq-open-create">New Request</button>';
         echo '      </div>';
-        if ($is_manager) {
-            echo '      <div class="wp-pq-binder-section">';
-            echo '        <p class="wp-pq-binder-label">Workspace</p>';
-            echo '        <div id="wp-pq-manager-nav" class="wp-pq-filter-nav wp-pq-manager-nav">';
-            echo '          <button class="button is-active" type="button" data-pq-section="queue"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">☰</span><span>Queue</span></span></button>';
-            echo '          <button class="button" type="button" data-pq-section="clients"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">◌</span><span>Clients</span></span></button>';
-            echo '          <button class="button" type="button" data-pq-section="billing-rollup"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">◔</span><span>Billing Rollup</span></span></button>';
-            echo '          <button class="button" type="button" data-pq-section="monthly-statements"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">◫</span><span>Monthly Statements</span></span></button>';
-            echo '          <button class="button" type="button" data-pq-section="work-statements"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">✎</span><span>Work Statements</span></span></button>';
-
-            echo '          <button class="button" type="button" data-pq-section="ai-import"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">✦</span><span>AI Import</span></span></button>';
-            echo '          <button class="button" type="button" data-pq-section="preferences"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">○</span><span>Preferences</span></span></button>';
-            echo '        </div>';
-            echo '      </div>';
-        }
         echo '      <div id="wp-pq-queue-binder-sections">';
         echo '      <div class="wp-pq-binder-section">';
         echo '        <p class="wp-pq-binder-label">Mode</p>';
@@ -158,7 +143,22 @@ class WP_PQ_Portal
         echo '        <p class="wp-pq-binder-label">Jobs</p>';
         echo '        <div id="wp-pq-job-nav" class="wp-pq-job-nav wp-pq-filter-nav"></div>';
         echo '      </div>';
-        echo '      <div class="wp-pq-binder-section">';
+        echo '      </div>'; // close wp-pq-queue-binder-sections
+        if ($is_manager) {
+            echo '      <div class="wp-pq-binder-section">';
+            echo '        <p class="wp-pq-binder-label">Workspace</p>';
+            echo '        <div id="wp-pq-manager-nav" class="wp-pq-filter-nav wp-pq-manager-nav">';
+            echo '          <button class="button is-active" type="button" data-pq-section="queue"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">☰</span><span>Queue</span></span></button>';
+            echo '          <button class="button" type="button" data-pq-section="clients"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">◌</span><span>Clients</span></span></button>';
+            echo '          <button class="button" type="button" data-pq-section="billing-rollup"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">◔</span><span>Billing Rollup</span></span></button>';
+            echo '          <button class="button" type="button" data-pq-section="monthly-statements"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">◫</span><span>Monthly Statements</span></span></button>';
+            echo '          <button class="button" type="button" data-pq-section="work-statements"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">✎</span><span>Work Statements</span></span></button>';
+            echo '          <button class="button" type="button" data-pq-section="ai-import"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">✦</span><span>AI Import</span></span></button>';
+            echo '          <button class="button" type="button" data-pq-section="preferences"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">○</span><span>Preferences</span></span></button>';
+            echo '        </div>';
+            echo '      </div>';
+        }
+        echo '      <div class="wp-pq-binder-section" hidden>';
         echo '        <p class="wp-pq-binder-label">Filter</p>';
         echo '        <div id="wp-pq-filter-list" class="wp-pq-filter-nav wp-pq-filter-list"></div>';
         echo '        <div class="wp-pq-binder-secondary-actions">';
@@ -169,7 +169,6 @@ class WP_PQ_Portal
         echo '      <div class="wp-pq-binder-section wp-pq-binder-section-bottom">';
         echo '        <button class="button wp-pq-dark-mode-btn" type="button" id="wp-pq-dark-toggle"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">◐</span><span>Dark Mode</span></span></button>';
         echo '        <button class="button" type="button" id="wp-pq-open-prefs"' . ($is_manager ? ' hidden' : '') . '><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">○</span><span>Preferences</span></span></button>';
-        echo '      </div>';
         echo '      </div>';
         echo '    </aside>';
         echo '    <main class="wp-pq-workspace">';
@@ -190,7 +189,7 @@ class WP_PQ_Portal
         echo '        <select name="billing_bucket_id" id="wp-pq-create-bucket"></select>';
         echo '      </label>';
         echo '      <label class="wp-pq-manager-only" id="wp-pq-create-new-bucket-wrap" hidden>Create new job';
-        echo '        <input type="text" name="new_bucket_name" id="wp-pq-create-new-bucket" placeholder="Only if this client needs a new job">';
+        echo '        <input type="text" name="new_bucket_name" id="wp-pq-create-new-bucket" placeholder="Job name">';
         echo '      </label>';
         echo '      <label class="wp-pq-span-2">Description <textarea name="description" rows="3"></textarea></label>';
         echo '      <label>Priority';
@@ -205,7 +204,6 @@ class WP_PQ_Portal
         echo '      <label class="inline wp-pq-span-2"><input type="checkbox" name="needs_meeting"> Meeting Requested</label>';
         echo '      <label class="inline wp-pq-manager-only wp-pq-span-2"><input type="checkbox" name="is_billable" checked> Billable task</label>';
         echo '      <div class="wp-pq-create-actions wp-pq-span-2">';
-        echo '        <button class="button wp-pq-secondary-action wp-pq-manager-only" type="button" id="wp-pq-open-ai-import" hidden>Import with AI</button>';
         echo '        <button class="button button-primary" type="submit">Submit Request</button>';
         echo '      </div>';
         echo '    </form>';
@@ -262,6 +260,7 @@ class WP_PQ_Portal
         echo '        <p class="wp-pq-panel-note">Open any card to review details, files, approvals, and messages in the task workspace.</p>';
         echo '      </div>';
         echo '    </div>';
+        echo '    <div id="wp-pq-board-filter-bar" class="wp-pq-board-filter-bar"></div>';
         echo '    <div id="wp-pq-board-panel">';
         echo '      <div id="wp-pq-board" class="wp-pq-board"></div>';
         echo '    </div>';
@@ -400,7 +399,6 @@ class WP_PQ_Portal
         echo '          <h3 id="wp-pq-move-title">How should this move apply?</h3>';
         echo '          <p class="wp-pq-panel-note" id="wp-pq-move-summary">Choose whether this move should also change priority or dates.</p>';
         echo '        </div>';
-        echo '        <button class="button" type="button" id="wp-pq-close-move-modal">Cancel</button>';
         echo '      </div>';
         echo '      <form id="wp-pq-move-form">';
         echo '        <div class="wp-pq-choice wp-pq-choice-static">';
@@ -421,10 +419,6 @@ class WP_PQ_Portal
         echo '            <span><strong>Lower priority</strong><small>Downgrade the task one level.</small></span>';
         echo '          </label>';
         echo '        </fieldset>';
-        echo '        <label class="wp-pq-choice">';
-          echo '          <input type="checkbox" name="swap_due_dates" value="1">';
-          echo '          <span><strong>Swap dates too</strong><small>Exchange the two tasks&#039; requested and due dates.</small></span>';
-        echo '        </label>';
         echo '        <label class="wp-pq-choice" id="wp-pq-move-meeting-option" hidden>';
           echo '          <input type="checkbox" name="request_meeting" value="1">';
           echo '          <span><strong>Open meeting scheduling next</strong><small>Mark the task as meeting requested and open the Google Meet scheduler after this move.</small></span>';
