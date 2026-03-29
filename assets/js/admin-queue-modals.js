@@ -13,7 +13,6 @@
   const moveModalBackdrop = document.getElementById('wp-pq-move-modal-backdrop');
   const moveModal = document.getElementById('wp-pq-move-modal');
   const moveForm = document.getElementById('wp-pq-move-form');
-  const closeMoveModalBtn = document.getElementById('wp-pq-close-move-modal');
   const cancelMoveBtn = document.getElementById('wp-pq-cancel-move');
   const moveTitleEl = document.getElementById('wp-pq-move-title');
   const moveSummaryEl = document.getElementById('wp-pq-move-summary');
@@ -60,7 +59,7 @@
     const textarea = revisionForm.querySelector('textarea[name="revision_note"]');
     const checkbox = revisionForm.querySelector('input[name="post_message"]');
     if (revisionSummaryEl) {
-      var summaryPrefix = revisionTarget === 'in_progress'
+      const summaryPrefix = revisionTarget === 'in_progress'
         ? 'Explain what needs to change on "' + (task ? task.title : 'this task') + '". This returns it to the worker for revisions.'
         : 'Explain what needs clarification on "' + (task ? task.title : 'this task') + '". This sends it back to the requester.';
       revisionSummaryEl.textContent = summaryPrefix;
@@ -124,7 +123,7 @@
         bridge.setSelectedTaskId(pendingRevisionAction.taskId);
         const preserveBoardOrder = pendingRevisionAction.type === 'move';
         let result;
-        var targetStatus = pendingRevisionAction.revisionTarget || 'needs_clarification';
+        const targetStatus = pendingRevisionAction.revisionTarget || 'needs_clarification';
         if (pendingRevisionAction.type === 'move') {
           result = await bridge.api('tasks/move', {
             method: 'POST',
@@ -134,7 +133,6 @@
               position: pendingRevisionAction.position || 'after',
               target_status: targetStatus,
               priority_direction: 'keep',
-              swap_due_dates: false,
               note: note,
               message_body: postMessage ? note : '',
             }),
@@ -268,12 +266,9 @@
     }
 
     const keepPriority = moveForm ? moveForm.querySelector('input[name="priority_direction"][value="keep"]') : null;
-    const swapDueDates = moveForm ? moveForm.querySelector('input[name="swap_due_dates"]') : null;
     const requestMeeting = moveForm ? moveForm.querySelector('input[name="request_meeting"]') : null;
     const sendUpdateEmail = moveForm ? moveForm.querySelector('input[name="send_update_email"]') : null;
     if (keepPriority) keepPriority.checked = true;
-    if (swapDueDates) swapDueDates.checked = false;
-    if (swapDueDates) swapDueDates.disabled = !pendingMove || !pendingMove.targetTaskId;
     if (requestMeeting) requestMeeting.checked = false;
     if (sendUpdateEmail) sendUpdateEmail.checked = !!window.wpPqConfig.canViewAll;
     if (moveMeetingOption) {
@@ -305,12 +300,6 @@
   }
 
   function wireMoveModal() {
-    if (closeMoveModalBtn) {
-      closeMoveModalBtn.addEventListener('click', () => {
-        closeMoveModal(true).catch(console.error);
-      });
-    }
-
     if (cancelMoveBtn) {
       cancelMoveBtn.addEventListener('click', () => {
         closeMoveModal(true).catch(console.error);
@@ -331,7 +320,6 @@
 
       const formData = new FormData(moveForm);
       const priorityDirection = (formData.get('priority_direction') || 'keep').toString();
-      const swapDueDates = formData.get('swap_due_dates') === '1';
       const requestMeeting = formData.get('request_meeting') === '1';
       const sendUpdateEmail = formData.get('send_update_email') === '1';
 
@@ -349,7 +337,6 @@
               position: pendingMove.position,
               target_status: pendingMove.targetStatus,
               priority_direction: priorityDirection,
-              swap_due_dates: swapDueDates,
               needs_meeting: requestMeeting,
               send_update_email: sendUpdateEmail,
             }),
