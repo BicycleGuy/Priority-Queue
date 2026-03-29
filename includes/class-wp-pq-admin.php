@@ -107,6 +107,72 @@ class WP_PQ_Admin
         exit;
     }
 
+    public static function render_settings_page(): void
+    {
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            wp_die('Forbidden');
+        }
+
+        $redirect_uri = (string) get_option('wp_pq_google_redirect_uri', home_url('/wp-json/pq/v1/google/oauth/callback'));
+        $tokens = (array) get_option('wp_pq_google_tokens', []);
+        $is_connected = ! empty($tokens['refresh_token']);
+        $oauth_url = wp_nonce_url(admin_url('admin-post.php?action=wp_pq_google_oauth_start'), 'wp_pq_google_oauth_start');
+
+        echo '<div class="wrap wp-pq-wrap wp-pq-settings-page">';
+        echo '<h1>Priority Queue Settings</h1>';
+        echo '<p>Manage workflow email preferences, Google Calendar / Meet integration, and AI document import settings here.</p>';
+        echo self::admin_section_nav('settings');
+
+        echo '<div class="wp-pq-grid wp-pq-settings-grid">';
+        echo '  <section class="wp-pq-panel wp-pq-settings-panel">';
+        echo '    <h2>Notifications</h2>';
+        echo '    <p class="wp-pq-panel-note">Choose which workflow emails you want. In-app alerts stay on.</p>';
+        echo '    <div id="wp-pq-pref-list" class="wp-pq-pref-list"></div>';
+        echo '    <button class="button button-primary" id="wp-pq-save-prefs" type="button">Save Preferences</button>';
+        echo '  </section>';
+
+        echo '  <section class="wp-pq-panel wp-pq-settings-panel">';
+        echo '    <h2>Google Calendar &amp; Meet</h2>';
+        echo '    <p class="wp-pq-panel-note">Enter your Google OAuth app details, then connect Google Calendar to enable meeting scheduling and calendar sync.</p>';
+        echo '    <form method="post" action="options.php">';
+        settings_fields('wp_pq_settings_group');
+        echo '      <label>Google Client ID <input type="text" name="wp_pq_google_client_id" value="' . esc_attr((string) get_option('wp_pq_google_client_id', '')) . '"></label>';
+        echo '      <label>Google Client Secret <input type="text" name="wp_pq_google_client_secret" value="' . esc_attr((string) get_option('wp_pq_google_client_secret', '')) . '"></label>';
+        echo '      <label>Authorized Redirect URI <input type="text" name="wp_pq_google_redirect_uri" value="' . esc_attr($redirect_uri) . '"></label>';
+        echo '      <label>Scopes <input type="text" name="wp_pq_google_scopes" value="' . esc_attr((string) get_option('wp_pq_google_scopes', 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly')) . '"></label>';
+        echo '      <div class="wp-pq-create-actions">';
+        echo '        <button class="button button-primary" type="submit">Save Google Settings</button>';
+        echo '      </div>';
+        echo '    </form>';
+        echo '    <div class="wp-pq-admin-callout">';
+        echo '      <p><strong>Status:</strong> ' . ($is_connected ? 'Connected' : 'Not connected') . '</p>';
+        echo '      <p><strong>Set this redirect URI in Google Cloud:</strong> ' . esc_html($redirect_uri) . '</p>';
+        echo '      <p><a href="' . esc_url($oauth_url) . '" class="button">Connect Google Calendar</a></p>';
+        echo '      <p><a href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com" target="_blank" rel="noopener">Open Google Cloud Console</a></p>';
+        echo '    </div>';
+        echo '  </section>';
+
+        echo '  <section class="wp-pq-panel wp-pq-settings-panel">';
+        echo '    <h2>OpenAI Document Ingester</h2>';
+        echo '    <p class="wp-pq-panel-note">Add your OpenAI API key and model so Priority Queue can turn pasted lists, CSVs, and PDFs into draft tasks for review before import.</p>';
+        echo '    <form method="post" action="options.php">';
+        settings_fields('wp_pq_settings_group');
+        echo '      <label>OpenAI API key <input type="password" name="wp_pq_openai_api_key" value="' . esc_attr((string) get_option('wp_pq_openai_api_key', '')) . '" autocomplete="off"></label>';
+        echo '      <label>Model <input type="text" name="wp_pq_openai_model" value="' . esc_attr((string) get_option('wp_pq_openai_model', 'gpt-4o-mini')) . '" placeholder="gpt-4o-mini"></label>';
+        echo '      <div class="wp-pq-create-actions">';
+        echo '        <button class="button button-primary" type="submit">Save OpenAI Settings</button>';
+        echo '        <a class="button" href="' . esc_url(admin_url('admin.php?page=wp-pq-ai-import')) . '">Open AI Import</a>';
+        echo '      </div>';
+        echo '    </form>';
+        echo '    <div class="wp-pq-admin-callout">';
+        echo '      <p><strong>Importer flow:</strong> Upload or paste a list, review the parsed tasks, then import them into the live queue.</p>';
+        echo '      <p><strong>Recommended default:</strong> <code>gpt-4o-mini</code> for file-friendly parsing. You can override it if you prefer another supported OpenAI model.</p>';
+        echo '    </div>';
+        echo '  </section>';
+        echo '</div>';
+        echo '</div>';
+    }
+
     public static function handle_google_oauth_start(): void
     {
         if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {

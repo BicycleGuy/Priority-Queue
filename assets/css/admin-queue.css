@@ -181,6 +181,31 @@
   margin-bottom: 10px;
 }
 
+.wp-pq-settings-page > p {
+  max-width: 900px;
+}
+
+.wp-pq-settings-grid {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.wp-pq-settings-panel {
+  padding: 28px 32px;
+}
+
+.wp-pq-settings-panel h2 {
+  font-size: clamp(1.7rem, 2.4vw, 2.7rem);
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  margin-bottom: 12px;
+}
+
+.wp-pq-settings-panel .wp-pq-panel-note {
+  max-width: 32rem;
+  font-size: 1rem;
+  margin-bottom: 18px;
+}
+
 .wp-pq-admin-nav {
   display: flex;
   flex-wrap: wrap;
