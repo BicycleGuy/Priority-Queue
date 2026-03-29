@@ -13,6 +13,11 @@ class WP_PQ_DB
 
     public static function create_tables(): void
     {
+        $installed = get_option('wp_pq_db_version', '');
+        if ($installed === WP_PQ_VERSION) {
+            return;
+        }
+
         global $wpdb;
 
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -374,6 +379,8 @@ class WP_PQ_DB
             KEY statement_month (statement_month),
             KEY invoice_draft_id (invoice_draft_id)
         ) {$charset_collate};");
+
+        update_option('wp_pq_db_version', WP_PQ_VERSION, true);
     }
 
     public static function migrate_legacy_statuses(): void
@@ -399,7 +406,7 @@ class WP_PQ_DB
         $wpdb->update($history, ['old_status' => 'delivered'], ['old_status' => 'completed']);
         $wpdb->update($history, ['new_status' => 'delivered'], ['new_status' => 'completed']);
 
-        update_option('wp_pq_status_migration_066_applied', 1, false);
+        update_option('wp_pq_status_migration_066_applied', 1, true);
     }
 
     public static function migrate_workflow_status_model(): void
@@ -435,7 +442,7 @@ class WP_PQ_DB
                AND new_status = 'in_progress'"
         );
 
-        update_option('wp_pq_workflow_status_migration_130_applied', 1, false);
+        update_option('wp_pq_workflow_status_migration_130_applied', 1, true);
     }
 
     public static function migrate_task_context_fields(): void
@@ -451,7 +458,7 @@ class WP_PQ_DB
 
         $tasks = $wpdb->get_results("SELECT id, submitter_id, client_user_id, action_owner_id, owner_ids, billing_bucket_id FROM {$tasks_table}", ARRAY_A);
         if (! is_array($tasks)) {
-            update_option('wp_pq_task_context_migration_087_applied', 1, false);
+            update_option('wp_pq_task_context_migration_087_applied', 1, true);
             return;
         }
 
@@ -496,7 +503,7 @@ class WP_PQ_DB
             }
         }
 
-        update_option('wp_pq_task_context_migration_087_applied', 1, false);
+        update_option('wp_pq_task_context_migration_087_applied', 1, true);
     }
 
     public static function migrate_workflow_ledger_model(): void
@@ -577,7 +584,7 @@ class WP_PQ_DB
               AND t.status = 'done'"
         );
 
-        update_option('wp_pq_workflow_ledger_migration_131_applied', 1, false);
+        update_option('wp_pq_workflow_ledger_migration_131_applied', 1, true);
     }
 
     public static function migrate_client_accounts(): void
@@ -678,7 +685,7 @@ class WP_PQ_DB
             }
         }
 
-        update_option('wp_pq_client_account_migration_098_applied', 1, false);
+        update_option('wp_pq_client_account_migration_098_applied', 1, true);
     }
 
     public static function ensure_default_billing_buckets(): void
@@ -694,7 +701,7 @@ class WP_PQ_DB
 
         $client_user_ids = $wpdb->get_col("SELECT DISTINCT submitter_id FROM {$tasks_table} WHERE submitter_id > 0");
         if (empty($client_user_ids)) {
-            update_option('wp_pq_default_billing_buckets_applied', 1, false);
+            update_option('wp_pq_default_billing_buckets_applied', 1, true);
             return;
         }
 
@@ -720,7 +727,7 @@ class WP_PQ_DB
             }
         }
 
-        update_option('wp_pq_default_billing_buckets_applied', 1, false);
+        update_option('wp_pq_default_billing_buckets_applied', 1, true);
     }
 
     public static function migrate_named_default_buckets(): void
@@ -807,7 +814,7 @@ class WP_PQ_DB
             }
         }
 
-        update_option('wp_pq_named_bucket_migration_090_applied', 1, false);
+        update_option('wp_pq_named_bucket_migration_090_applied', 1, true);
     }
 
     public static function migrate_invoice_draft_models(): void
@@ -881,7 +888,7 @@ class WP_PQ_DB
             ]);
         }
 
-        update_option('wp_pq_invoice_draft_migration_120_applied', 1, false);
+        update_option('wp_pq_invoice_draft_migration_120_applied', 1, true);
     }
 
     public static function migrate_work_statement_snapshots(): void
@@ -932,7 +939,7 @@ class WP_PQ_DB
             ], ['id' => $item_id]);
         }
 
-        update_option('wp_pq_work_statement_snapshot_migration_120_applied', 1, false);
+        update_option('wp_pq_work_statement_snapshot_migration_120_applied', 1, true);
     }
 
     public static function migrate_portal_manager_model(): void
@@ -967,7 +974,7 @@ class WP_PQ_DB
                AND source_task_id <= 0"
         );
 
-        update_option('wp_pq_portal_manager_migration_160_applied', 1, false);
+        update_option('wp_pq_portal_manager_migration_160_applied', 1, true);
     }
 
     public static function migrate_ledger_closure_model(): void
@@ -998,7 +1005,7 @@ class WP_PQ_DB
                  l.updated_at = COALESCE(l.updated_at, NOW())"
         );
 
-        update_option('wp_pq_ledger_closure_migration_161_applied', 1, false);
+        update_option('wp_pq_ledger_closure_migration_161_applied', 1, true);
     }
 
     public static function migrate_notification_event_keys(): void
@@ -1015,7 +1022,7 @@ class WP_PQ_DB
         $wpdb->update($prefs, ['event_key' => 'task_returned_to_work'], ['event_key' => 'task_revision_requested']);
         $wpdb->update($notifications, ['event_key' => 'task_returned_to_work'], ['event_key' => 'task_revision_requested']);
 
-        update_option('wp_pq_notification_event_rename_180_applied', 1, false);
+        update_option('wp_pq_notification_event_rename_180_applied', 1, true);
     }
 
     public static function migrate_rejected_event_key(): void
@@ -1032,7 +1039,7 @@ class WP_PQ_DB
         $wpdb->update($prefs, ['event_key' => 'task_clarification_requested'], ['event_key' => 'task_rejected']);
         $wpdb->update($notifications, ['event_key' => 'task_clarification_requested'], ['event_key' => 'task_rejected']);
 
-        update_option('wp_pq_notification_event_rename_rejected_applied', 1, false);
+        update_option('wp_pq_notification_event_rename_rejected_applied', 1, true);
     }
 
     public static function migrate_clear_false_archived_at(): void
@@ -1050,7 +1057,7 @@ class WP_PQ_DB
                AND archived_at IS NOT NULL"
         );
 
-        update_option('wp_pq_clear_false_archived_at_applied', 1, false);
+        update_option('wp_pq_clear_false_archived_at_applied', 1, true);
     }
 
     public static function get_or_create_default_billing_bucket_id(int $client_id): int
@@ -1138,7 +1145,7 @@ class WP_PQ_DB
             return $existing_id;
         }
 
-        $user = get_user_by('ID', $primary_contact_user_id);
+        $user = WP_PQ_API::get_cached_user($primary_contact_user_id);
         $name = trim($fallback_name);
         if ($name === '' && $user) {
             $name = trim((string) $user->display_name);
