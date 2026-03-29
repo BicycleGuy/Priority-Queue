@@ -1,10 +1,10 @@
 (function () {
-  var bridge = window.wpPqPortalUI;
+  const bridge = window.wpPqPortalUI;
   if (!bridge || !bridge.api) return;
 
-  var alertDismissPrefKey = 'alert_auto_dismiss';
+  const alertDismissPrefKey = 'alert_auto_dismiss';
 
-  var prefGroups = [
+  const prefGroups = [
     {
       key: 'review',
       label: 'Reviews and approvals',
@@ -44,18 +44,17 @@
   ];
 
   // DOM elements — own lookups
-  var alertStackEl = document.getElementById('wp-pq-alert-stack');
-  var openPrefsBtn = document.getElementById('wp-pq-open-prefs');
-  var closePrefsBtn = document.getElementById('wp-pq-close-prefs');
-  var prefPanel = document.getElementById('wp-pq-pref-panel');
-  var prefList = document.getElementById('wp-pq-pref-list');
-  var prefSaveBtn = document.getElementById('wp-pq-save-prefs');
+  const alertStackEl = document.getElementById('wp-pq-alert-stack');
+  const openPrefsBtn = document.getElementById('wp-pq-open-prefs');
+  const closePrefsBtn = document.getElementById('wp-pq-close-prefs');
+  const prefPanel = document.getElementById('wp-pq-pref-panel');
+  const prefList = document.getElementById('wp-pq-pref-list');
+  const prefSaveBtn = document.getElementById('wp-pq-save-prefs');
 
   // State
-  var prefsLoaded = false;
-  var prefState = {};
-  var notificationsCache = [];
-  var notificationDismissTimers = new Map();
+  let prefState = {};
+  let notificationsCache = [];
+  const notificationDismissTimers = new Map();
 
   function activePrefGroups() {
     if (!window.wpPqConfig.canViewAll && prefPanel) {
@@ -66,15 +65,14 @@
 
   async function loadPrefs() {
     if (!prefList) return;
-    var data = await bridge.api('notification-prefs', { method: 'GET' });
-    var prefs = data.prefs || {};
+    const data = await bridge.api('notification-prefs', { method: 'GET' });
+    const prefs = data.prefs || {};
     prefState = prefs;
-    prefsLoaded = true;
     prefList.innerHTML = '';
 
     activePrefGroups().forEach(function (group) {
-      var enabled = group.events.some(function (eventKey) { return !!prefs[eventKey]; });
-      var row = document.createElement('label');
+      const enabled = group.events.some(function (eventKey) { return !!prefs[eventKey]; });
+      const row = document.createElement('label');
       row.className = 'wp-pq-pref-card';
       row.innerHTML =
         '<input type="checkbox" data-pref-group="' + group.key + '" ' + (enabled ? 'checked' : '') + '>' +
@@ -82,7 +80,7 @@
       prefList.appendChild(row);
     });
 
-    var alertRow = document.createElement('label');
+    const alertRow = document.createElement('label');
     alertRow.className = 'wp-pq-pref-card';
     alertRow.innerHTML =
       '<input type="checkbox" data-pref-key="' + alertDismissPrefKey + '" ' + (prefs[alertDismissPrefKey] ? 'checked' : '') + '>' +
@@ -96,7 +94,7 @@
 
   function portalAlertStack() {
     if (alertStackEl) return alertStackEl;
-    var stack = document.getElementById('wp-pq-alert-stack');
+    const stack = document.getElementById('wp-pq-alert-stack');
     if (stack) return stack;
     stack = document.createElement('div');
     stack.id = 'wp-pq-alert-stack';
@@ -107,7 +105,7 @@
   }
 
   function clearDismissTimer(notificationId) {
-    var timer = notificationDismissTimers.get(notificationId);
+    const timer = notificationDismissTimers.get(notificationId);
     if (timer) {
       window.clearTimeout(timer);
       notificationDismissTimers.delete(notificationId);
@@ -121,15 +119,16 @@
   }
 
   function scheduleAlertDismiss(item) {
-    var notificationId = parseInt(item && item.id, 10);
+    if (!shouldAutoDismissAlerts()) return;
+    const notificationId = parseInt(item && item.id, 10);
     if (!notificationId) return;
     if (notificationDismissTimers.has(notificationId)) return;
-    var timer = window.setTimeout(function () {
+    const timer = window.setTimeout(function () {
       // Remove the card from the DOM immediately so the user sees it vanish.
-      var card = document.querySelector('.wp-pq-alert-card[data-notification-id="' + notificationId + '"]');
+      const card = document.querySelector('.wp-pq-alert-card[data-notification-id="' + notificationId + '"]');
       if (card) card.remove();
-      var stack = portalAlertStack();
-      var remaining = stack.querySelectorAll('.wp-pq-alert-card');
+      const stack = portalAlertStack();
+      const remaining = stack.querySelectorAll('.wp-pq-alert-card');
       if (!remaining.length) stack.hidden = true;
       notificationDismissTimers.delete(notificationId);
       // Fire the API dismiss in the background — no need to await.
@@ -139,8 +138,8 @@
   }
 
   function renderPersistentAlerts(notifications) {
-    var stack = portalAlertStack();
-    var activeIds = new Set((notifications || []).map(function (item) { return parseInt(item.id, 10); }).filter(Boolean));
+    const stack = portalAlertStack();
+    const activeIds = new Set((notifications || []).map(function (item) { return parseInt(item.id, 10); }).filter(Boolean));
     Array.from(notificationDismissTimers.keys()).forEach(function (notificationId) {
       if (!activeIds.has(notificationId)) {
         clearDismissTimer(notificationId);
@@ -155,7 +154,7 @@
 
     stack.hidden = false;
     notifications.forEach(function (item) {
-      var card = document.createElement('article');
+      const card = document.createElement('article');
       card.className = 'wp-pq-alert-card';
       card.dataset.notificationId = String(item.id || '');
       card.innerHTML =
@@ -190,13 +189,13 @@
     }
   }
 
-  var inboxLoading = false;
+  let inboxLoading = false;
   async function loadInbox() {
     if (inboxLoading) return;
     inboxLoading = true;
     try {
-      var data = await bridge.api('notifications', { method: 'GET' });
-      var notifications = data.notifications || [];
+      const data = await bridge.api('notifications', { method: 'GET' });
+      const notifications = data.notifications || [];
       notificationsCache = notifications;
       renderPersistentAlerts(notifications);
       return data;
@@ -206,8 +205,8 @@
   }
 
   async function openTaskFromAlert(notification) {
-    var taskId = parseInt(notification && notification.task_id, 10);
-    var notificationId = parseInt(notification && notification.id, 10);
+    const taskId = parseInt(notification && notification.task_id, 10);
+    const notificationId = parseInt(notification && notification.id, 10);
     if (!taskId) return;
 
     // 1. Switch to the queue section so the board & drawer are visible.
@@ -227,9 +226,9 @@
     //    task list and upsert so selectTask can find it.
     if (!bridge.getTaskById(taskId)) {
       try {
-        var data = await bridge.api('tasks', { method: 'GET' });
-        var tasks = data && data.tasks ? data.tasks : [];
-        var match = tasks.find(function (t) { return t.id === taskId; });
+        const data = await bridge.api('tasks', { method: 'GET' });
+        const tasks = data && data.tasks ? data.tasks : [];
+        const match = tasks.find(function (t) { return t.id === taskId; });
         if (match) bridge.upsertTask(match);
       } catch (ignore) { /* best-effort */ }
     }
@@ -255,14 +254,14 @@
   function wirePrefs() {
     if (!prefSaveBtn || !prefList) return;
     prefSaveBtn.addEventListener('click', async function () {
-      var prefs = {};
+      const prefs = {};
       activePrefGroups().forEach(function (group) {
-        var checkbox = prefList ? prefList.querySelector('[data-pref-group="' + group.key + '"]') : null;
+        const checkbox = prefList ? prefList.querySelector('[data-pref-group="' + group.key + '"]') : null;
         group.events.forEach(function (eventKey) {
           prefs[eventKey] = !!(checkbox && checkbox.checked);
         });
       });
-      var alertAutoDismiss = prefList ? prefList.querySelector('[data-pref-key="' + alertDismissPrefKey + '"]') : null;
+      const alertAutoDismiss = prefList ? prefList.querySelector('[data-pref-key="' + alertDismissPrefKey + '"]') : null;
       prefs[alertDismissPrefKey] = !!(alertAutoDismiss && alertAutoDismiss.checked);
 
       try {
@@ -278,14 +277,14 @@
 
   // Wire inbox click handlers
   function wireInbox() {
-    var stack = portalAlertStack();
+    const stack = portalAlertStack();
     stack.addEventListener('click', async function (e) {
-      var dismissBtn = e.target.closest('[data-dismiss-alert]');
+      const dismissBtn = e.target.closest('[data-dismiss-alert]');
       if (dismissBtn) {
         e.preventDefault();
-        var alertCard = dismissBtn.closest('.wp-pq-alert-card');
+        const alertCard = dismissBtn.closest('.wp-pq-alert-card');
         if (alertCard) alertCard.remove();
-        var remainingCards = stack.querySelectorAll('.wp-pq-alert-card');
+        const remainingCards = stack.querySelectorAll('.wp-pq-alert-card');
         if (!remainingCards.length) stack.hidden = true;
         try {
           await dismissNotifications([parseInt(dismissBtn.dataset.dismissAlert || '0', 10)]);
@@ -295,10 +294,10 @@
         return;
       }
 
-      var openBtn = e.target.closest('[data-open-alert-task]');
+      const openBtn = e.target.closest('[data-open-alert-task]');
       if (openBtn) {
         e.preventDefault();
-        var alertCard = openBtn.closest('.wp-pq-alert-card');
+        const alertCard = openBtn.closest('.wp-pq-alert-card');
         if (alertCard) alertCard.remove();
         try {
           await openTaskFromAlert({

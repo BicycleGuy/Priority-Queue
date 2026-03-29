@@ -69,7 +69,7 @@ class WP_PQ_Housekeeping
                 continue;
             }
 
-            $user = get_user_by('ID', $user_id);
+            $user = WP_PQ_API::get_cached_user($user_id);
             if ($user && self::is_event_enabled($user_id, 'retention_day_300')) {
                 wp_mail(
                     $user->user_email,
@@ -130,7 +130,7 @@ class WP_PQ_Housekeeping
 
     public static function build_client_status_digest_body_for_api(int $user_id, array $groups): string
     {
-        $user = get_user_by('ID', $user_id);
+        $user = WP_PQ_API::get_cached_user($user_id);
         if (! $user) {
             return '';
         }
@@ -172,7 +172,7 @@ class WP_PQ_Housekeeping
                 continue;
             }
 
-            $user = get_user_by('ID', $user_id);
+            $user = WP_PQ_API::get_cached_user($user_id);
             if (! $user || ! is_email($user->user_email)) {
                 continue;
             }

@@ -105,6 +105,10 @@ class WP_PQ_AI_Importer
         }
 
         if ($file_path !== '' && is_readable($file_path)) {
+            $max_bytes = 20 * 1024 * 1024;
+            if (filesize($file_path) > $max_bytes) {
+                return new \WP_Error('pq_file_too_large', 'File exceeds the 20 MB limit for AI import.', ['status' => 413]);
+            }
             $encoded = base64_encode((string) file_get_contents($file_path));
             $safe_name = $file_name !== '' ? $file_name : basename($file_path);
 
