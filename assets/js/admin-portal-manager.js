@@ -26,8 +26,6 @@
     clients: null,
     selectedClientId: 0,
     clientsSearch: '',
-    workLogMode: 'review',
-    workLogDetail: null,
     statementDetail: null,
     invoiceDraftMode: 'review',
     invoiceDraftClientId: 0,
@@ -77,6 +75,10 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
+  }
+
+  function rowsToCsv(rows) {
+    return rowsToCsv(rows);
   }
 
   function invoiceStatusLabel(status) {
@@ -200,12 +202,6 @@
     return labels[status] || String(status || '').replace(/_/g, ' ');
   }
 
-  function reopenTargetOptions(selected) {
-    return ['in_progress', 'needs_review', 'needs_clarification']
-      .map((status) => `<option value="${status}"${selected === status ? ' selected' : ''}>${esc(workflowStatusLabel(status))}</option>`)
-      .join('');
-  }
-
   function setActiveNav(section) {
     if (!managerNav) return;
     managerNav.querySelectorAll('[data-pq-section]').forEach((button) => {
@@ -279,11 +275,6 @@
       state.clients = await api('manager/clients');
     }
     return state.clients;
-  }
-
-  function renderEmpty(message) {
-    managerToolbar.innerHTML = '';
-    managerContent.innerHTML = `<div class="wp-pq-empty-state">${esc(message)}</div>`;
   }
 
   function renderManagerFrame(section) {
@@ -599,7 +590,7 @@
         ]);
       });
     });
-    return rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+    return rowsToCsv(rows);
   }
 
   function downloadCsv(filename, contents) {
@@ -741,41 +732,7 @@
         task.billing_status || '',
       ]);
     });
-    return rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
-  }
-
-  function statementCsv(statement) {
-    const rows = [[
-      'Draft Code',
-      'Client',
-      'Period',
-      'Line Type',
-      'Description',
-      'Quantity',
-      'Unit',
-      'Unit Rate',
-      'Amount',
-      'Job',
-      'Linked Task IDs',
-      'Notes',
-    ]];
-    (statement.lines || []).forEach((line) => {
-      rows.push([
-        statement.statement_code || '',
-        statement.client_name || '',
-        statement.statement_month || '',
-        line.line_type || '',
-        line.description || '',
-        line.quantity || '',
-        line.unit || '',
-        line.unit_rate || '',
-        line.line_amount || '',
-        line.bucket_name || statement.job_summary || '',
-        Array.isArray(line.linked_task_ids) ? line.linked_task_ids.join('|') : (line.linked_task_ids || ''),
-        line.notes || '',
-      ]);
-    });
-    return rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
+    return rowsToCsv(rows);
   }
 
   async function renderWorkStatements() {
@@ -1318,9 +1275,6 @@
     const button = event.target.closest('[data-pq-section]');
     if (!button) return;
     event.preventDefault();
-    if (button.dataset.pqSection === 'work-statements') {
-      state.workLogMode = 'review';
-    }
     if (button.dataset.pqSection === 'invoice-drafts') {
       state.invoiceDraftMode = 'review';
     }
@@ -1513,11 +1467,6 @@
         document.querySelectorAll('.wp-pq-client-alpha-btn').forEach((btn) => btn.classList.toggle('is-active', String(btn.dataset.clientAlpha || '').toUpperCase() === alpha));
         return;
       }
-      if (button.dataset.openWorkLog) {
-        state.workLogMode = 'review';
-        await openSection('work-statements', { query: { work_log_id: Number(button.dataset.openWorkLog || 0) } });
-        return;
-      }
       if (button.dataset.openStatement) {
         state.invoiceDraftMode = 'review';
         await openSection('invoice-drafts', { query: { statement_id: Number(button.dataset.openStatement || 0) } });
@@ -1698,13 +1647,6 @@
           }
           return;
         }
-      }
-      // wp-pq-work-log-create-form removed — work statements are now live-preview + download
-      if (form.id === 'wp-pq-work-log-update-form' && state.workLogDetail) {
-        await submitJson(`manager/work-logs/${state.workLogDetail.id}`, 'POST', Object.fromEntries(new FormData(form).entries()));
-        await renderWorkStatements(state.workLogDetail.id);
-        toast('Work statement updated.', false);
-        return;
       }
       if (form.id === 'wp-pq-statement-update-form' && state.statementDetail) {
         await submitJson(`manager/statements/${state.statementDetail.id}`, 'POST', Object.fromEntries(new FormData(form).entries()));
