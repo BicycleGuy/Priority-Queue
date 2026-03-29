@@ -51,8 +51,6 @@
   const boardFiltersEl = document.getElementById('wp-pq-board-filters');
   const clientFilterWrap = document.getElementById('wp-pq-client-filter-wrap');
   const clientFilterEl = document.getElementById('wp-pq-client-filter');
-  const batchApproveBtn = document.getElementById('wp-pq-batch-approve');
-  const batchStatementBtn = document.getElementById('wp-pq-batch-statement');
   const jobNavWrap = document.getElementById('wp-pq-job-nav-wrap');
   const jobNavEl = document.getElementById('wp-pq-job-nav');
   const createForm = document.getElementById('wp-pq-create-form');
@@ -618,8 +616,6 @@
 
     if (boardEl) {
       renderBoard(visibleTasks);
-      updateBatchApproveButton();
-      updateBatchButton();
       initBoardSort();
     } else {
       renderTaskList(visibleTasks);
@@ -1369,24 +1365,6 @@
     if (columnEl) columnEl.classList.add('is-drag-target');
   }
 
-  function updateBatchButton() {
-    if (!batchStatementBtn || !window.wpPqConfig.canBatch) return;
-    const count = selectedBatchTaskIds.size;
-    batchStatementBtn.hidden = count === 0;
-    batchStatementBtn.textContent = count > 0
-      ? 'Create Invoice Draft from Selected (' + count + ')'
-      : 'Create Invoice Draft from Selected';
-  }
-
-  function updateBatchApproveButton() {
-    if (!batchApproveBtn || !window.wpPqConfig.canApprove) return;
-    const count = selectedApprovalTaskIds.size;
-    batchApproveBtn.hidden = count === 0;
-    batchApproveBtn.textContent = count > 0
-      ? 'Approve Selected (' + count + ')'
-      : 'Approve Selected';
-  }
-
   function getTaskById(taskId) {
     return tasksCache.find((task) => task.id === taskId) || null;
   }
@@ -2129,53 +2107,6 @@
     });
   }
 
-  function wireBatching() {
-    if (batchApproveBtn) {
-      batchApproveBtn.addEventListener('click', async () => {
-        const taskIds = Array.from(selectedApprovalTaskIds);
-        if (!taskIds.length) return;
-
-        try {
-          const data = await api('tasks/approve-batch', {
-            method: 'POST',
-            body: JSON.stringify({ task_ids: taskIds }),
-          });
-          selectedApprovalTaskIds.clear();
-          updateBatchApproveButton();
-          if (Array.isArray(data.tasks)) {
-            data.tasks.forEach((task) => upsertTask(task));
-            await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar' });
-          } else {
-            await loadTasks();
-          }
-          alert('Approved ' + (data.task_count || taskIds.length) + ' task' + ((data.task_count || taskIds.length) === 1 ? '' : 's') + '.', 'success');
-        } catch (err) {
-          alert(err.message);
-        }
-      });
-    }
-
-    if (!batchStatementBtn) return;
-
-    batchStatementBtn.addEventListener('click', async () => {
-      const taskIds = Array.from(selectedBatchTaskIds);
-      if (!taskIds.length) return;
-
-      try {
-        const data = await api('statements/batch', {
-          method: 'POST',
-          body: JSON.stringify({ task_ids: taskIds }),
-        });
-        selectedBatchTaskIds.clear();
-        updateBatchButton();
-        alert('Invoice Draft ' + data.statement.code + ' created with ' + data.statement.task_count + ' delivered task' + (data.statement.task_count === 1 ? '' : 's') + '.', 'success');
-        await loadTasks();
-      } catch (err) {
-        alert(err.message);
-      }
-    });
-  }
-
   function setActiveView(showBoard) {
     currentView = showBoard ? 'board' : 'calendar';
     if (boardPanel) boardPanel.hidden = !showBoard;
@@ -2588,7 +2519,6 @@
   wireFloatingMeeting();
   wireAssignment();
   wirePriority();
-  wireBatching();
   wireUnifiedFilters();
   wireJobNav();
   wireStatusActions();
