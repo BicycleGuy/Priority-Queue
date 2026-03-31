@@ -43,6 +43,10 @@ final class WP_PQ_Plugin
         add_filter('upload_size_limit', [self::class, 'upload_size_limit']);
         add_filter('upload_mimes', [self::class, 'allow_creative_mimes']);
 
+        // Non-managers see only their own uploads in the media library.
+        add_filter('ajax_query_attachments_args', [self::class, 'restrict_media_library']);
+        add_action('pre_get_posts', [self::class, 'restrict_media_list_view']);
+
         // Branded login page.
         add_action('login_enqueue_scripts', [self::class, 'login_styles']);
         add_filter('login_headerurl', [self::class, 'login_header_url']);
@@ -59,6 +63,26 @@ final class WP_PQ_Plugin
         $bytes = $mb * 1024 * 1024;
 
         return max((int) $size, $bytes);
+    }
+
+    public static function restrict_media_library(array $query): array
+    {
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            $query['author'] = get_current_user_id();
+        }
+
+        return $query;
+    }
+
+    public static function restrict_media_list_view(\WP_Query $query): void
+    {
+        global $pagenow;
+        if ($pagenow !== 'upload.php' || ! $query->is_main_query()) {
+            return;
+        }
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            $query->set('author', get_current_user_id());
+        }
     }
 
     public static function allow_creative_mimes(array $mimes): array
