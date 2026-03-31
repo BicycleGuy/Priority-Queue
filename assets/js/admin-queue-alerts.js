@@ -195,10 +195,10 @@
         var disconnectBtn = document.getElementById('wp-pq-gcal-disconnect');
         if (disconnectBtn) {
           disconnectBtn.addEventListener('click', async function () {
-            if (!confirm('Disconnect Google Calendar? Meetings will stop creating events.')) return;
+            if (!confirm('Disconnect Google? Calendar events and Drive file storage will stop working.')) return;
             try {
               await bridge.api('google/oauth/disconnect', { method: 'POST' });
-              bridge.alert('Google Calendar disconnected.');
+              bridge.alert('Google disconnected.');
               await refreshGcalStatus();
             } catch (err) {
               bridge.alert(err.message || 'Failed to disconnect.', true);
@@ -206,7 +206,7 @@
           });
         }
       } else {
-        var connectLabel = usingRelay ? 'Connect Google Calendar' : 'Connect Google Calendar (requires setup)';
+        var connectLabel = usingRelay ? 'Connect Google' : 'Connect Google (requires setup)';
         var endpoint = usingRelay ? 'google/oauth/relay-initiate' : 'google/oauth/url';
         container.innerHTML =
           '<span class="wp-pq-gcal-badge wp-pq-gcal-disconnected">Not connected</span>' +
@@ -410,7 +410,7 @@
       window.history.replaceState(null, '', clean);
       // Show success and open preferences
       setTimeout(function () {
-        bridge.alert('Google Calendar connected successfully!', 'success');
+        bridge.alert('Google connected — Calendar and Drive are active.', 'success');
         if (typeof openPreferencesPanel === 'function') openPreferencesPanel().catch(console.error);
       }, 300);
     }

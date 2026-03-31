@@ -249,8 +249,8 @@ class WP_PQ_Portal
             echo '    <section class="wp-pq-pref-section" id="wp-pq-gcal-section">';
             echo '      <div class="wp-pq-pref-section-head">';
             echo '        <div>';
-            echo '          <h4>Google Calendar</h4>';
-            echo '          <p class="wp-pq-panel-note">Connect once so meetings auto-create Google Calendar events with Meet links.</p>';
+            echo '          <h4>Google</h4>';
+            echo '          <p class="wp-pq-panel-note">Connect once to enable Calendar events with Meet links and Google Drive file storage for each client.</p>';
             echo '        </div>';
             echo '      </div>';
             echo '      <div id="wp-pq-gcal-status" class="wp-pq-gcal-status">';
