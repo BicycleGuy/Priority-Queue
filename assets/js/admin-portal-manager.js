@@ -1327,6 +1327,16 @@
         formData: true,
       });
 
+      docsUppyInstance.on('upload-success', async (file, response) => {
+        var mediaId = response && response.body && response.body.id;
+        if (mediaId) {
+          await api('documents', {
+            method: 'POST',
+            body: JSON.stringify({ media_id: mediaId }),
+          }).catch(function () {});
+        }
+      });
+
       docsUppyInstance.on('complete', async (result) => {
         if (result.successful && result.successful.length > 0) {
           toast(result.successful.length + ' file' + (result.successful.length === 1 ? '' : 's') + ' uploaded.');
@@ -1360,7 +1370,7 @@
         const date = doc.created_at ? new Date(doc.created_at + 'Z').toLocaleDateString() : '';
         return '<tr data-doc-id="' + doc.id + '">'
           + '<td><a href="' + esc(doc.media_url || '#') + '" target="_blank" rel="noopener">' + esc(doc.filename || 'Untitled') + '</a></td>'
-          + '<td>' + esc(doc.task_title || '—') + '</td>'
+          + '<td>' + esc(doc.task_title || '(standalone)') + '</td>'
           + '<td>' + esc(doc.file_role || '') + '</td>'
           + '<td>' + esc(doc.uploader_name || '') + '</td>'
           + '<td>' + formatBytes(doc.filesize) + '</td>'

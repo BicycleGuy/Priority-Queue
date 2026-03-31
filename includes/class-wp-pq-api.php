@@ -204,6 +204,12 @@ class WP_PQ_API
             'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
         ]);
 
+        register_rest_route('pq/v1', '/documents', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'register_document'],
+            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
+        ]);
+
         register_rest_route('pq/v1', '/documents/(?P<id>\d+)', [
             'methods' => WP_REST_Server::DELETABLE,
             'callback' => [self::class, 'delete_document'],
@@ -1431,6 +1437,31 @@ class WP_PQ_API
         }
 
         return new WP_REST_Response(['documents' => $rows], 200);
+    }
+
+    public static function register_document(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $media_id = (int) $request->get_param('media_id');
+
+        if ($media_id <= 0 || get_post_type($media_id) !== 'attachment') {
+            return new WP_REST_Response(['message' => 'Valid media_id is required.'], 422);
+        }
+
+        $table = $wpdb->prefix . 'pq_task_files';
+        $retention_days = (int) get_option('wp_pq_retention_days', 365);
+
+        $wpdb->insert($table, [
+            'task_id' => 0,
+            'uploader_id' => get_current_user_id(),
+            'media_id' => $media_id,
+            'file_role' => 'input',
+            'version_num' => 1,
+            'storage_expires_at' => gmdate('Y-m-d H:i:s', strtotime('+' . $retention_days . ' days')),
+            'created_at' => current_time('mysql', true),
+        ]);
+
+        return new WP_REST_Response(['ok' => true, 'id' => $wpdb->insert_id], 201);
     }
 
     public static function delete_document(WP_REST_Request $request): WP_REST_Response
