@@ -9,6 +9,47 @@ class WP_PQ_API
     /** @var array<int, \WP_User|false> */
     private static array $user_cache = [];
 
+    /** @var callable[] Closures to run after the HTTP response is sent. */
+    private static array $deferred_jobs = [];
+
+    /**
+     * Queue a job to run after the response is sent (via shutdown hook).
+     * On PHP-FPM servers (Cloudways), fastcgi_finish_request() sends the
+     * response immediately so the user sees zero delay from calendar sync,
+     * email delivery, etc.
+     */
+    private static function defer(callable $fn): void
+    {
+        if (empty(self::$deferred_jobs)) {
+            add_action('shutdown', [self::class, 'run_deferred_jobs'], 999);
+        }
+        self::$deferred_jobs[] = $fn;
+    }
+
+    /**
+     * @internal Called by shutdown hook.
+     */
+    public static function run_deferred_jobs(): void
+    {
+        // Flush the response to the client before running slow jobs.
+        if (function_exists('fastcgi_finish_request')) {
+            fastcgi_finish_request();
+        } elseif (function_exists('litespeed_finish_request')) {
+            litespeed_finish_request();
+        }
+
+        foreach (self::$deferred_jobs as $job) {
+            try {
+                $job();
+            } catch (\Throwable $e) {
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('PQ deferred job failed: ' . $e->getMessage());
+                }
+            }
+        }
+        self::$deferred_jobs = [];
+    }
+
     public static function get_cached_user(int $user_id): ?\WP_User
     {
         if ($user_id <= 0) {
@@ -197,47 +238,10 @@ class WP_PQ_API
             ],
         ]);
 
-        // ── Documents browser (all files across tasks) ──────────────────
-        register_rest_route('pq/v1', '/documents', [
-            'methods' => WP_REST_Server::READABLE,
-            'callback' => [self::class, 'get_all_documents'],
-            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
-        ]);
-
-        register_rest_route('pq/v1', '/documents', [
-            'methods' => WP_REST_Server::CREATABLE,
-            'callback' => [self::class, 'register_document'],
-            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
-        ]);
-
-        register_rest_route('pq/v1', '/documents/(?P<id>\d+)', [
-            'methods' => WP_REST_Server::DELETABLE,
-            'callback' => [self::class, 'delete_document'],
-            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
-        ]);
-
-        // ── Google Drive integration ────────────────────────────────────
-        register_rest_route('pq/v1', '/drive/status', [
-            'methods' => WP_REST_Server::READABLE,
-            'callback' => [self::class, 'drive_status'],
-            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
-        ]);
-
-        register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/files/drive', [
-            'methods' => WP_REST_Server::CREATABLE,
-            'callback' => [self::class, 'upload_file_to_drive'],
-            'permission_callback' => static fn() => is_user_logged_in(),
-        ]);
-
-        register_rest_route('pq/v1', '/documents/drive', [
-            'methods' => WP_REST_Server::CREATABLE,
-            'callback' => [self::class, 'upload_document_to_drive'],
-            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
-        ]);
-
-        register_rest_route('pq/v1', '/drive/files/(?P<file_id>[a-zA-Z0-9_-]+)/download', [
-            'methods' => WP_REST_Server::READABLE,
-            'callback' => [self::class, 'drive_download_proxy'],
+        // ── Files link (external URL per task) ──────────────────────────
+        register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/files-link', [
+            'methods' => WP_REST_Server::EDITABLE,
+            'callback' => [self::class, 'update_files_link'],
             'permission_callback' => static fn() => is_user_logged_in(),
         ]);
 
@@ -1432,6 +1436,34 @@ class WP_PQ_API
         ], 201);
     }
 
+    /**
+     * Update the files_link URL on a task.
+     */
+    public static function update_files_link(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $task_id = (int) $request->get_param('id');
+        $task = self::get_task_row($task_id);
+
+        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
+            return new WP_REST_Response(['message' => 'Task not found or access denied.'], 404);
+        }
+
+        $files_link = esc_url_raw(trim((string) $request->get_param('files_link')));
+
+        $wpdb->update(
+            $wpdb->prefix . 'pq_tasks',
+            ['files_link' => $files_link ?: null],
+            ['id' => $task_id]
+        );
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'files_link' => $files_link,
+            'task' => self::get_enriched_task($task_id),
+        ], 200);
+    }
+
     public static function get_all_documents(WP_REST_Request $request): WP_REST_Response
     {
         global $wpdb;
@@ -1451,12 +1483,18 @@ class WP_PQ_API
             $row = self::hydrate_file_row($row);
             $uploader = get_userdata((int) ($row['uploader_id'] ?? 0));
             $row['uploader_name'] = $uploader ? $uploader->display_name : 'Unknown';
-            $row['filesize'] = 0;
-            $media_id = (int) ($row['media_id'] ?? 0);
-            if ($media_id > 0) {
-                $path = get_attached_file($media_id);
-                if ($path && file_exists($path)) {
-                    $row['filesize'] = filesize($path);
+
+            // hydrate_file_row already sets filesize for Drive files.
+            // Only compute from disk for media-library files.
+            $storage_type = $row['storage_type'] ?? 'media';
+            if ($storage_type !== 'drive') {
+                $row['filesize'] = 0;
+                $media_id = (int) ($row['media_id'] ?? 0);
+                if ($media_id > 0) {
+                    $path = get_attached_file($media_id);
+                    if ($path && file_exists($path)) {
+                        $row['filesize'] = filesize($path);
+                    }
                 }
             }
         }
@@ -3081,6 +3119,9 @@ class WP_PQ_API
 
         self::preload_users($recipient_ids);
 
+        // Collect emails to send, but create notifications immediately (fast DB writes).
+        $deferred_emails = [];
+
         foreach ($recipient_ids as $user_id) {
             $user = self::get_cached_user($user_id);
             if (! $user) {
@@ -3099,12 +3140,25 @@ class WP_PQ_API
                 && WP_PQ_Housekeeping::is_event_enabled($user_id, $event_key)
                 && ! self::should_suppress_generic_client_email($task, $user_id, $event_key)
             ) {
-                try {
-                    wp_mail($user->user_email, $message['title'], $message['body'] . "\n\nTask ID: {$task_id}");
-                } catch (\Throwable $e) {
-                    // Mail failure must not block status transitions
-                }
+                $deferred_emails[] = [
+                    'to' => $user->user_email,
+                    'subject' => $message['title'],
+                    'body' => $message['body'] . "\n\nTask ID: {$task_id}",
+                ];
             }
+        }
+
+        // Defer email delivery to after the response is sent.
+        if (! empty($deferred_emails)) {
+            self::defer(static function () use ($deferred_emails): void {
+                foreach ($deferred_emails as $mail) {
+                    try {
+                        wp_mail($mail['to'], $mail['subject'], $mail['body']);
+                    } catch (\Throwable $e) {
+                        // Mail failure must not block operations
+                    }
+                }
+            });
         }
     }
 
@@ -3324,39 +3378,44 @@ class WP_PQ_API
         return false;
     }
 
+    /**
+     * Defer client status email to after the HTTP response is sent.
+     */
     private static function send_client_status_update(int $task_id, string $new_status): void
     {
-        $task = self::get_enriched_task($task_id);
-        if (! $task) {
-            return;
-        }
-
-        $recipient_ids = self::client_notification_recipient_ids($task);
-        if (empty($recipient_ids)) {
-            return;
-        }
-
-        foreach ($recipient_ids as $recipient_id) {
-            if (! WP_PQ_Housekeeping::is_event_enabled($recipient_id, 'client_status_updates')) {
-                continue;
+        self::defer(static function () use ($task_id, $new_status): void {
+            $task = self::get_enriched_task($task_id);
+            if (! $task) {
+                return;
             }
 
-            $user = self::get_cached_user($recipient_id);
-            if (! $user || ! is_email($user->user_email)) {
-                continue;
+            $recipient_ids = self::client_notification_recipient_ids($task);
+            if (empty($recipient_ids)) {
+                return;
             }
 
-            $body = self::build_client_status_update_body($task, $recipient_id, $new_status);
-            if ($body === '') {
-                continue;
-            }
+            foreach ($recipient_ids as $recipient_id) {
+                if (! WP_PQ_Housekeeping::is_event_enabled($recipient_id, 'client_status_updates')) {
+                    continue;
+                }
 
-            wp_mail(
-                $user->user_email,
-                'Switchboard update:' . self::task_title($task),
-                $body
-            );
-        }
+                $user = self::get_cached_user($recipient_id);
+                if (! $user || ! is_email($user->user_email)) {
+                    continue;
+                }
+
+                $body = self::build_client_status_update_body($task, $recipient_id, $new_status);
+                if ($body === '') {
+                    continue;
+                }
+
+                wp_mail(
+                    $user->user_email,
+                    'Switchboard update:' . self::task_title($task),
+                    $body
+                );
+            }
+        });
     }
 
     private static function build_client_status_update_body(array $task, int $recipient_id, string $new_status): string
@@ -4982,6 +5041,7 @@ class WP_PQ_API
         $row['expense_reference'] = (string) ($row['expense_reference'] ?? '');
         $row['done_at'] = (string) ($row['done_at'] ?? '');
         $row['archived_at'] = (string) ($row['archived_at'] ?? '');
+        $row['files_link'] = (string) ($row['files_link'] ?? '');
         $row['statement_id'] = isset($row['statement_id']) ? (int) $row['statement_id'] : 0;
         $row['statement_code'] = (string) ($row['statement_code'] ?? '');
         $row['statement_batched_at'] = (string) ($row['statement_batched_at'] ?? '');
@@ -5332,13 +5392,21 @@ class WP_PQ_API
         return array_map(static fn($email) => ['email' => $email], $emails);
     }
 
+    /**
+     * Defer calendar sync to after the HTTP response is sent.
+     * This eliminates the 3-20 second Google API delay from user-facing actions.
+     */
     private static function sync_task_calendar_event(array $task): void
     {
-        try {
-            self::sync_task_calendar_event_inner($task);
-        } catch (\Throwable $e) {
-            // Calendar sync must never block core operations
-        }
+        self::defer(static function () use ($task): void {
+            try {
+                self::sync_task_calendar_event_inner($task);
+            } catch (\Throwable $e) {
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('PQ calendar sync failed: ' . $e->getMessage());
+                }
+            }
+        });
     }
 
     private static function sync_task_calendar_event_inner(array $task): void

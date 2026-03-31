@@ -3,12 +3,12 @@
 ## Active UI/UX Issues
 
 - [ ] Status transition performance — 10-15 second delay between click and toast on some moves (profile server-side `sync_task_calendar_event` and `emit_event`)
-- [x] File uploads — replaced Uppy with lightweight custom dropzone (drag-and-drop + browse)
+- [x] File uploads — replaced with external link field per task (v0.27.0); removed Uppy, Drive integration, Documents panel, file dropzone
 - [ ] Messages/Notes UI — user wants unified conversation view instead of separate cards
 - [ ] Tooltip clipping — sticky note and priority marker tooltips can get clipped by card `overflow: hidden` on cards near container edges
 - [ ] Date validation bug — `datetime-local` input sends browser-local format; `strtotime()` handles it but display may show wrong timezone
 - [ ] Contextual date-swap prompt — when a drag demotes a task, prompt "Would you like to swap due dates with [displaced task]?"
-- [ ] Create form — no file upload capability in the New Request modal (files only via task drawer after creation)
+- [x] Create form — file upload removed; tasks use external link field instead
 
 ## Deferred Code Simplification (class-wp-pq-api.php)
 
@@ -43,9 +43,12 @@ These were identified by review agents but deferred as higher-risk refactors:
 
 ## Integration / Infrastructure
 
-- [ ] **Google OAuth** — Client ID and secret need to be saved to WordPress options (`wp_pq_google_client_id`, `wp_pq_google_client_secret`, `wp_pq_google_redirect_uri`). OAuth client exists in Google Cloud Console but credentials aren't in WP. "Client missing a project id" error persists.
-- [ ] **SMTP / Email** — depends on Google OAuth or alternative SMTP plugin. `wp_mail()` calls exist but no mail delivery confirmed.
-- [ ] **Google Meet scheduling** — depends on OAuth fix. Floating scheduler UI is wired but API calls will fail without valid tokens.
+- [x] **Google OAuth** — OAuth relay deployed, consent screen working, Calendar + Drive scopes granted, token refresh working via relay
+- [x] **SMTP / Email** — configured and delivering
+- [x] **Google Meet scheduling** — OAuth connected, Calendar API functional
+- [ ] **Per-user Google OAuth** — every user connects their own Google account during onboarding. Calendar events, Meet invites, and emails use the acting user's token. Spec: `docs/PER_USER_OAUTH_SPEC.md`
+- [ ] **Onboarding / magic-link invite system** — manager invites user by email, magic link creates account, onboarding interstitial requires Google connection before workspace access
+- [ ] **Gmail send** — emails sent via Gmail API using the acting user's token instead of system SMTP. Falls back to `wp_mail()` if user hasn't connected Google.
 - [ ] **Front-end portal route** — user wants `/portal` route with custom login (not wp-admin). Discussed but not started. Will become the basis for multi-tenant migration.
 
 ## Swimlanes (Future Feature)

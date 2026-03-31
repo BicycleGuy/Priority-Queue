@@ -1100,6 +1100,22 @@ class WP_PQ_DB
         update_option('wp_pq_drive_storage_migration_applied', 1, true);
     }
 
+    public static function migrate_files_link(): void
+    {
+        global $wpdb;
+        if (get_option('wp_pq_files_link_migration_applied')) {
+            return;
+        }
+
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $col = $wpdb->get_results("SHOW COLUMNS FROM {$tasks_table} LIKE 'files_link'");
+        if (empty($col)) {
+            $wpdb->query("ALTER TABLE {$tasks_table} ADD COLUMN files_link VARCHAR(2000) NULL AFTER google_folder_id");
+        }
+
+        update_option('wp_pq_files_link_migration_applied', 1, true);
+    }
+
     public static function get_or_create_default_billing_bucket_id(int $client_id): int
     {
         global $wpdb;

@@ -19,8 +19,7 @@
   const drawerBackdrop = document.getElementById('wp-pq-drawer-backdrop');
   const appShell = document.querySelector('.wp-pq-app-shell');
   const closePrefsBtn = document.getElementById('wp-pq-close-prefs');
-  const docsPanel = document.getElementById('wp-pq-docs-panel');
-  const closeDocsBtn = document.getElementById('wp-pq-close-docs');
+  // Documents panel removed.
 
   const state = {
     section: 'queue',
@@ -244,11 +243,6 @@
   function showPreferences(show) {
     if (!prefPanel) return;
     prefPanel.hidden = !show;
-  }
-
-  function showDocuments(show) {
-    if (!docsPanel) return;
-    docsPanel.hidden = !show;
   }
 
   function showManagerPanel(show) {
@@ -1209,7 +1203,7 @@
       ? options
       : { pushHistory: options !== false };
     state.section = section || 'queue';
-    if (state.section !== 'preferences' && state.section !== 'documents') {
+    if (state.section !== 'preferences') {
       state.lastNonPreferenceSection = state.section;
     }
     setActiveNav(state.section);
@@ -1235,14 +1229,12 @@
       showQueue(true);
       showManagerPanel(false);
       showPreferences(false);
-      showDocuments(false);
       return;
     }
 
     if (state.section === 'preferences') {
       showQueue(false);
       showManagerPanel(false);
-      showDocuments(false);
       showPreferences(true);
       if (window.wpPqAlerts && typeof window.wpPqAlerts.openPreferences === 'function') {
         await window.wpPqAlerts.openPreferences();
@@ -1250,18 +1242,8 @@
       return;
     }
 
-    if (state.section === 'documents') {
-      showQueue(false);
-      showManagerPanel(false);
-      showPreferences(false);
-      showDocuments(true);
-      await renderDocuments();
-      return;
-    }
-
     showQueue(false);
     showPreferences(false);
-    showDocuments(false);
     showManagerPanel(true);
 
     try {
@@ -1293,118 +1275,7 @@
     return (bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
   }
 
-  let docsUppyInstance = null;
-
-  function initDocsUppy() {
-    const target = document.getElementById('wp-pq-docs-uppy');
-    if (!target) return;
-    if (docsUppyInstance) return;
-    if (!window.Uppy || !window.Uppy.Uppy) {
-      target.innerHTML = '<div class="wp-pq-empty-state">Uppy library not loaded. Try a hard refresh.</div>';
-      console.error('[Documents] window.Uppy:', window.Uppy);
-      return;
-    }
-
-    try {
-      docsUppyInstance = new Uppy.Uppy({
-        restrictions: {},
-        autoProceed: false,
-      });
-
-      docsUppyInstance.use(Uppy.Dashboard, {
-        target: target,
-        inline: true,
-        height: 300,
-        width: '100%',
-        proudlyDisplayPoweredByUppy: false,
-        note: 'Drag and drop files or browse',
-      });
-
-      docsUppyInstance.use(Uppy.XHRUpload, {
-        endpoint: managerConfig.coreRoot + 'media',
-        headers: { 'X-WP-Nonce': managerConfig.nonce },
-        fieldName: 'file',
-        formData: true,
-      });
-
-      docsUppyInstance.on('upload-success', async (file, response) => {
-        var mediaId = response && response.body && response.body.id;
-        if (mediaId) {
-          await api('documents', {
-            method: 'POST',
-            body: JSON.stringify({ media_id: mediaId }),
-          }).catch(function () {});
-        }
-      });
-
-      docsUppyInstance.on('complete', async (result) => {
-        if (result.successful && result.successful.length > 0) {
-          toast(result.successful.length + ' file' + (result.successful.length === 1 ? '' : 's') + ' uploaded.');
-          docsUppyInstance.cancelAll();
-          await renderDocuments();
-        }
-      });
-    } catch (err) {
-      console.error('[Documents] Uppy init failed:', err);
-      target.innerHTML = '<div class="wp-pq-empty-state">Upload widget failed to load: ' + esc(err.message) + '</div>';
-    }
-  }
-
-  async function renderDocuments() {
-    const listEl = document.getElementById('wp-pq-docs-list');
-    if (!listEl) return;
-    listEl.innerHTML = '<div class="wp-pq-empty-state">Loading documents…</div>';
-
-    initDocsUppy();
-
-    try {
-      const data = await api('documents');
-      const docs = data.documents || [];
-
-      if (docs.length === 0) {
-        listEl.innerHTML = '<div class="wp-pq-empty-state">No documents yet. Upload files above or attach them to tasks.</div>';
-        return;
-      }
-
-      const rows = docs.map((doc) => {
-        const date = doc.created_at ? new Date(doc.created_at + 'Z').toLocaleDateString() : '';
-        const isDrive = doc.storage_type === 'drive';
-        const linkUrl = doc.download_url || doc.media_url || '#';
-        const storageLabel = isDrive ? ' <span class="wp-pq-drive-badge">Drive</span>' : '';
-        return '<tr data-doc-id="' + doc.id + '">'
-          + '<td><a href="' + esc(linkUrl) + '" target="_blank" rel="noopener">' + esc(doc.filename || 'Untitled') + '</a>' + storageLabel + '</td>'
-          + '<td>' + esc(doc.task_title || '(standalone)') + '</td>'
-          + '<td>' + esc(doc.file_role || '') + '</td>'
-          + '<td>' + esc(doc.uploader_name || '') + '</td>'
-          + '<td>' + formatBytes(doc.filesize || doc.drive_file_size || 0) + '</td>'
-          + '<td>' + esc(date) + '</td>'
-          + '<td><button class="button wp-pq-docs-delete" data-doc-id="' + doc.id + '" data-filename="' + esc(doc.filename || '') + '">Delete</button></td>'
-          + '</tr>';
-      }).join('');
-
-      listEl.innerHTML = '<table class="wp-pq-docs-table">'
-        + '<thead><tr><th>File</th><th>Task</th><th>Role</th><th>Uploaded by</th><th>Size</th><th>Date</th><th></th></tr></thead>'
-        + '<tbody>' + rows + '</tbody>'
-        + '</table>';
-    } catch (error) {
-      listEl.innerHTML = '<div class="wp-pq-empty-state">' + esc(error.message || 'Failed to load documents.') + '</div>';
-    }
-  }
-
-  docsPanel?.addEventListener('click', async (event) => {
-    const btn = event.target.closest('.wp-pq-docs-delete');
-    if (!btn) return;
-    const docId = btn.dataset.docId;
-    const filename = btn.dataset.filename || 'this file';
-    if (!confirm('Delete "' + filename + '"? This also removes it from the media library.')) return;
-    try {
-      await api('documents/' + docId, { method: 'DELETE' });
-      toast('Deleted ' + filename);
-      await renderDocuments();
-    } catch (error) {
-      toast(error.message || 'Delete failed.', true);
-    }
-  });
+  // Documents panel + Uppy removed — file exchange replaced by link field.
 
   async function submitJson(path, method, body) {
     return api(path, {

@@ -15,6 +15,27 @@ class WP_PQ_Drive
     private const API_BASE = 'https://www.googleapis.com/drive/v3';
     private const UPLOAD_BASE = 'https://www.googleapis.com/upload/drive/v3';
 
+    /** @var string|null Cached access token for the current request. */
+    private static ?string $cached_token = null;
+
+    /**
+     * Get a valid access token, cached for the lifetime of this request.
+     */
+    private static function token(): string
+    {
+        if (self::$cached_token !== null) {
+            return self::$cached_token;
+        }
+
+        $token = WP_PQ_API::get_google_access_token();
+        if (! $token) {
+            throw new RuntimeException('No Google access token available.');
+        }
+
+        self::$cached_token = $token;
+        return $token;
+    }
+
     /**
      * Get or create a Shared Drive for a client.
      */
@@ -37,21 +58,8 @@ class WP_PQ_Drive
             return $drive_id;
         }
 
-        $token = WP_PQ_API::get_google_access_token();
-        if (! $token) {
-            throw new RuntimeException('No Google access token available.');
-        }
-
+        $token = self::token();
         $drive_name = trim($client['name']) . ' — Switchboard';
-
-        $response = wp_remote_post(self::API_BASE . '/drives', [
-            'headers' => [
-                'Authorization' => 'Bearer ' . $token,
-                'Content-Type' => 'application/json',
-            ],
-            'body' => wp_json_encode(['name' => $drive_name]),
-            'timeout' => 15,
-        ]);
 
         // Shared Drive creation requires a requestId query param.
         $request_id = wp_generate_uuid4();
@@ -63,6 +71,10 @@ class WP_PQ_Drive
             'body' => wp_json_encode(['name' => $drive_name]),
             'timeout' => 15,
         ]);
+
+        if (is_wp_error($response)) {
+            throw new RuntimeException('Drive API request failed: ' . $response->get_error_message());
+        }
 
         $body = json_decode(wp_remote_retrieve_body($response), true);
         $code = (int) wp_remote_retrieve_response_code($response);
@@ -96,7 +108,7 @@ class WP_PQ_Drive
         }
 
         $drive_id = self::ensure_client_drive($client_id);
-        $token = WP_PQ_API::get_google_access_token();
+        $token = self::token();
 
         $folder_name = $task_id . ' — ' . sanitize_file_name($task_title);
 
@@ -117,7 +129,7 @@ class WP_PQ_Drive
     public static function ensure_unattached_folder(int $client_id): string
     {
         $drive_id = self::ensure_client_drive($client_id);
-        $token = WP_PQ_API::get_google_access_token();
+        $token = self::token();
 
         // Search for existing _unattached folder.
         $query = "name = '_unattached' and mimeType = 'application/vnd.google-apps.folder' and '" . $drive_id . "' in parents and trashed = false";
@@ -134,6 +146,10 @@ class WP_PQ_Drive
             'headers' => ['Authorization' => 'Bearer ' . $token],
             'timeout' => 10,
         ]);
+
+        if (is_wp_error($response)) {
+            throw new RuntimeException('Drive folder search failed: ' . $response->get_error_message());
+        }
 
         $body = json_decode(wp_remote_retrieve_body($response), true);
         $files = $body['files'] ?? [];
@@ -152,10 +168,7 @@ class WP_PQ_Drive
      */
     public static function upload_file(string $folder_id, string $drive_id, string $filename, string $mime_type, string $file_contents): array
     {
-        $token = WP_PQ_API::get_google_access_token();
-        if (! $token) {
-            throw new RuntimeException('No Google access token available.');
-        }
+        $token = self::token();
 
         $metadata = wp_json_encode([
             'name' => $filename,
@@ -182,6 +195,10 @@ class WP_PQ_Drive
             'timeout' => 60,
         ]);
 
+        if (is_wp_error($response)) {
+            throw new RuntimeException('Drive upload request failed: ' . $response->get_error_message());
+        }
+
         $result = json_decode(wp_remote_retrieve_body($response), true);
         $code = (int) wp_remote_retrieve_response_code($response);
 
@@ -198,8 +215,9 @@ class WP_PQ_Drive
      */
     public static function delete_file(string $drive_file_id): bool
     {
-        $token = WP_PQ_API::get_google_access_token();
-        if (! $token) {
+        try {
+            $token = self::token();
+        } catch (RuntimeException $e) {
             return false;
         }
 
@@ -208,6 +226,10 @@ class WP_PQ_Drive
             'headers' => ['Authorization' => 'Bearer ' . $token],
             'timeout' => 10,
         ]);
+
+        if (is_wp_error($response)) {
+            return false;
+        }
 
         $code = (int) wp_remote_retrieve_response_code($response);
 
@@ -221,8 +243,9 @@ class WP_PQ_Drive
      */
     public static function list_files(string $folder_id, string $drive_id): array
     {
-        $token = WP_PQ_API::get_google_access_token();
-        if (! $token) {
+        try {
+            $token = self::token();
+        } catch (RuntimeException $e) {
             return [];
         }
 
@@ -243,6 +266,10 @@ class WP_PQ_Drive
             'timeout' => 15,
         ]);
 
+        if (is_wp_error($response)) {
+            return [];
+        }
+
         $body = json_decode(wp_remote_retrieve_body($response), true);
 
         return $body['files'] ?? [];
@@ -255,16 +282,18 @@ class WP_PQ_Drive
      */
     public static function download_file(string $drive_file_id): array
     {
-        $token = WP_PQ_API::get_google_access_token();
-        if (! $token) {
-            throw new RuntimeException('No Google access token available.');
-        }
+        $token = self::token();
 
         // Get file metadata first.
         $meta_response = wp_remote_get(
             self::API_BASE . '/files/' . $drive_file_id . '?supportsAllDrives=true&fields=name,mimeType',
             ['headers' => ['Authorization' => 'Bearer ' . $token], 'timeout' => 10]
         );
+
+        if (is_wp_error($meta_response)) {
+            throw new RuntimeException('Drive metadata request failed: ' . $meta_response->get_error_message());
+        }
+
         $meta = json_decode(wp_remote_retrieve_body($meta_response), true);
 
         // Download content.
@@ -272,6 +301,10 @@ class WP_PQ_Drive
             self::API_BASE . '/files/' . $drive_file_id . '?alt=media&supportsAllDrives=true',
             ['headers' => ['Authorization' => 'Bearer ' . $token], 'timeout' => 60]
         );
+
+        if (is_wp_error($dl_response)) {
+            throw new RuntimeException('Drive download failed: ' . $dl_response->get_error_message());
+        }
 
         return [
             'content' => wp_remote_retrieve_body($dl_response),
@@ -285,8 +318,9 @@ class WP_PQ_Drive
      */
     public static function share_drive(string $drive_id, string $email, string $role = 'writer'): bool
     {
-        $token = WP_PQ_API::get_google_access_token();
-        if (! $token) {
+        try {
+            $token = self::token();
+        } catch (RuntimeException $e) {
             return false;
         }
 
@@ -304,6 +338,10 @@ class WP_PQ_Drive
             ]),
             'timeout' => 10,
         ]);
+
+        if (is_wp_error($response)) {
+            return false;
+        }
 
         $code = (int) wp_remote_retrieve_response_code($response);
 
@@ -346,6 +384,10 @@ class WP_PQ_Drive
             ]),
             'timeout' => 10,
         ]);
+
+        if (is_wp_error($response)) {
+            throw new RuntimeException('Failed to create folder: ' . $response->get_error_message());
+        }
 
         $body = json_decode(wp_remote_retrieve_body($response), true);
         $code = (int) wp_remote_retrieve_response_code($response);

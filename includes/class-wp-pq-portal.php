@@ -35,14 +35,13 @@ class WP_PQ_Portal
     {
         wp_register_style('wp-pq-admin', WP_PQ_PLUGIN_URL . 'assets/css/admin-queue.css', [], WP_PQ_VERSION);
         wp_register_style('wp-pq-fullcalendar', 'https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.css', [], '6.1.19');
-        wp_register_style('wp-pq-uppy', 'https://releases.transloadit.com/uppy/v3.27.1/uppy.min.css', [], '3.27.1');
-        wp_register_script('wp-pq-uppy', 'https://releases.transloadit.com/uppy/v3.27.1/uppy.min.js', [], '3.27.1', true);
+        // Uppy removed — file exchange handled externally via link field.
         wp_register_script('sortable-js', 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js', [], '1.15.6', true);
         wp_register_script('wp-pq-fullcalendar', 'https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js', [], '6.1.19', true);
         wp_register_script('wp-pq-admin', WP_PQ_PLUGIN_URL . 'assets/js/admin-queue.js', ['sortable-js', 'wp-pq-fullcalendar'], WP_PQ_VERSION, true);
         wp_register_script('wp-pq-modals', WP_PQ_PLUGIN_URL . 'assets/js/admin-queue-modals.js', ['wp-pq-admin'], WP_PQ_VERSION, true);
         wp_register_script('wp-pq-alerts', WP_PQ_PLUGIN_URL . 'assets/js/admin-queue-alerts.js', ['wp-pq-admin'], WP_PQ_VERSION, true);
-        wp_register_script('wp-pq-portal-manager', WP_PQ_PLUGIN_URL . 'assets/js/admin-portal-manager.js', ['wp-pq-admin', 'wp-pq-modals', 'wp-pq-alerts', 'wp-pq-uppy'], WP_PQ_VERSION, true);
+        wp_register_script('wp-pq-portal-manager', WP_PQ_PLUGIN_URL . 'assets/js/admin-portal-manager.js', ['wp-pq-admin', 'wp-pq-modals', 'wp-pq-alerts'], WP_PQ_VERSION, true);
     }
 
     public static function portal_url(string $section = 'queue'): string
@@ -105,8 +104,7 @@ class WP_PQ_Portal
         $is_manager = current_user_can(WP_PQ_Roles::CAP_APPROVE);
         if ($is_manager) {
             wp_enqueue_script('wp-pq-portal-manager');
-            wp_enqueue_style('wp-pq-uppy');
-            wp_enqueue_script('wp-pq-uppy');
+            // Uppy removed.
         }
 
         $portal_config = [
@@ -121,7 +119,7 @@ class WP_PQ_Portal
             'canViewAll' => current_user_can(WP_PQ_Roles::CAP_VIEW_ALL),
             'currentUserId' => get_current_user_id(),
             'isManager' => $is_manager,
-            'driveEnabled' => WP_PQ_Drive::is_enabled(),
+            // Drive integration removed — file exchange handled externally.
         ];
         wp_localize_script('wp-pq-admin', 'wpPqConfig', $portal_config);
         if ($is_manager) {
@@ -174,7 +172,7 @@ class WP_PQ_Portal
             echo '          <button class="button" type="button" data-pq-section="work-statements"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">✎</span><span>Work Statements</span></span></button>';
             echo '          <button class="button" type="button" data-pq-section="ai-import"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">✦</span><span>AI Import</span></span></button>';
             echo '          <button class="button" type="button" data-pq-section="preferences"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">○</span><span>Preferences</span></span></button>';
-            echo '          <button class="button" type="button" data-pq-section="documents"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">▤</span><span>Documents</span></span></button>';
+            // Documents section removed — file exchange handled externally.
             echo '        </div>';
             echo '      </div>';
         }
@@ -270,17 +268,7 @@ class WP_PQ_Portal
         echo '    </section>';
         echo '  </section>';
 
-        echo '  <section class="wp-pq-panel wp-pq-docs-panel" id="wp-pq-docs-panel" hidden>';
-        echo '    <div class="wp-pq-section-heading">';
-        echo '      <div>';
-        echo '        <h3>Documents</h3>';
-        echo '        <p class="wp-pq-panel-note">Upload, browse, and manage files across all tasks.</p>';
-        echo '      </div>';
-        echo '      <button class="button" type="button" id="wp-pq-close-docs">Close</button>';
-        echo '    </div>';
-        echo '    <div id="wp-pq-docs-uppy"></div>';
-        echo '    <div id="wp-pq-docs-list" class="wp-pq-docs-list"></div>';
-        echo '  </section>';
+        // Documents panel removed.
 
         echo '  <div id="wp-pq-alert-stack" class="wp-pq-alert-stack" aria-live="polite" aria-label="Current alerts"></div>';
 
@@ -393,12 +381,12 @@ class WP_PQ_Portal
         echo '          </div>';
         echo '          <div class="wp-pq-subpanel wp-pq-workspace-panel" id="wp-pq-panel-files" hidden>';
         echo '            <h4>Files</h4>';
-        echo '            <ul id="wp-pq-file-list" class="wp-pq-stream"></ul>';
-        echo '            <div id="wp-pq-uppy" class="wp-pq-file-dropzone">';
-        echo '              <span class="wp-pq-dropzone-label">Drop files here or <button type="button" class="wp-pq-dropzone-browse">browse</button></span>';
-        echo '              <input type="file" id="wp-pq-file-input" multiple hidden>';
-        echo '              <div id="wp-pq-upload-progress" class="wp-pq-upload-progress" hidden></div>';
-        echo '            </div>';
+        echo '            <p class="wp-pq-panel-note">Paste a link to a shared Drive folder, Dropbox, or any file-sharing URL for this task.</p>';
+        echo '            <div id="wp-pq-files-link-display" class="wp-pq-files-link-display"></div>';
+        echo '            <form id="wp-pq-files-link-form" class="wp-pq-files-link-form">';
+        echo '              <label>Files link <input type="url" name="files_link" placeholder="https://drive.google.com/..." class="regular-text"></label>';
+        echo '              <button class="button" type="submit">Save Link</button>';
+        echo '            </form>';
         echo '          </div>';
         echo '        </div>';
         echo '      </div>';

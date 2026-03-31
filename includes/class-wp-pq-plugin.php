@@ -35,18 +35,14 @@ final class WP_PQ_Plugin
         WP_PQ_DB::migrate_rejected_event_key();
         WP_PQ_DB::migrate_clear_false_archived_at();
         WP_PQ_DB::migrate_drive_storage_model();
+        WP_PQ_DB::migrate_files_link();
         WP_PQ_Housekeeping::init();
         WP_PQ_Admin::init();
         WP_PQ_API::init();
         WP_PQ_Manager_API::init();
         WP_PQ_Portal::init();
 
-        add_filter('upload_size_limit', [self::class, 'upload_size_limit']);
-        add_filter('upload_mimes', [self::class, 'allow_creative_mimes']);
-
-        // Non-managers see only their own uploads in the media library.
-        add_filter('ajax_query_attachments_args', [self::class, 'restrict_media_library']);
-        add_action('pre_get_posts', [self::class, 'restrict_media_list_view']);
+        // File exchange removed — upload limits and media scoping no longer needed.
 
         // Branded login page.
         add_action('login_enqueue_scripts', [self::class, 'login_styles']);

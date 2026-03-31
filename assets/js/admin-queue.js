@@ -438,19 +438,7 @@
       '<div class="msg-author">Invitee: ' + escapeHtml(invitee) + '</div>';
   }
 
-  function fileItemHtml(file) {
-    const fileName = file.filename || ('media #' + file.media_id);
-    const fileUrl = file.download_url || file.media_url || '';
-    const viewUrl = file.media_url || '';
-    const isDrive = file.storage_type === 'drive';
-    const createdAt = formatDateTime(file.created_at);
-    const driveTag = isDrive ? ' <span class="wp-pq-drive-badge">Drive</span>' : '';
-    return '<div><strong>' + escapeHtml(file.file_role) + '</strong> v' + escapeHtml(file.version_num) + driveTag + '</div>' +
-      (fileUrl
-        ? '<div><a href="' + encodeURI(fileUrl) + '" target="_blank" rel="noopener">' + escapeHtml(fileName) + '</a></div>'
-        : '<div>' + escapeHtml(fileName) + '</div>') +
-      (createdAt ? '<div class="msg-author">Uploaded: ' + escapeHtml(createdAt) + '</div>' : '');
-  }
+  // fileItemHtml removed — file exchange replaced by link field.
 
   function currentTaskQuery() {
     const params = new URLSearchParams();
@@ -838,7 +826,7 @@
     return '<dl class="' + escapeHtml(className) + '">' + facts.map((fact) => (
       '<div class="wp-pq-fact-row">' +
         '<dt>' + escapeHtml(fact.label) + '</dt>' +
-        '<dd>' + escapeHtml(fact.value) + '</dd>' +
+        '<dd>' + (fact.html ? fact.value : escapeHtml(fact.value)) + '</dd>' +
       '</div>'
     )).join('') + '</dl>';
   }
@@ -869,6 +857,9 @@
     }
     if (task.needs_meeting) {
       facts.push({ label: 'Meeting', value: 'Requested' });
+    }
+    if (task.files_link) {
+      facts.push({ label: 'Files', value: '<a href="' + encodeURI(task.files_link) + '" target="_blank" rel="noopener">Open folder</a>', html: true });
     }
 
     return renderFactList(facts, 'wp-pq-drawer-facts');
@@ -1866,55 +1857,53 @@
     });
   }
 
-  async function uploadToMedia(file) {
-    const resp = await fetch(coreRoot + 'media', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: {
-        'X-WP-Nonce': window.wpPqConfig.nonce,
-        'Content-Disposition': 'attachment; filename="' + file.name.replaceAll('"', '') + '"',
-        'Content-Type': file.type || 'application/octet-stream',
-      },
-      body: file,
-    });
-
-    if (!resp.ok) {
-      const body = await resp.json().catch(() => ({}));
-      throw new Error(body.message || 'Media upload failed');
-    }
-
-    return resp.json();
-  }
+  // uploadToMedia removed — file exchange replaced by link field.
 
   async function loadFiles(options) {
-    if (!fileList) return;
-    if (!selectedTaskId) {
-      renderEmptyStream(fileList, 'Open a task to see its files.');
-      return;
-    }
+    const linkDisplay = document.getElementById('wp-pq-files-link-display');
+    const linkForm = document.getElementById('wp-pq-files-link-form');
+    if (!linkDisplay || !linkForm) return;
+    if (!selectedTaskId) return;
 
     ensureTaskPanelState(selectedTaskId);
-    if (taskPanelState.files && !(options && options.force)) {
-      return;
-    }
-    const data = await api('tasks/' + selectedTaskId + '/files', { method: 'GET' });
-    fileList.innerHTML = '';
+    if (taskPanelState.files && !(options && options.force)) return;
     taskPanelState.files = true;
 
-    if (!(data.files || []).length) {
-      renderEmptyStream(fileList, 'No files uploaded yet for this task.');
-      return;
+    const task = getTaskById(selectedTaskId);
+    const link = (task && task.files_link) || '';
+    const linkInput = linkForm.querySelector('input[name="files_link"]');
+
+    if (link) {
+      linkDisplay.innerHTML = '<a href="' + encodeURI(link) + '" target="_blank" rel="noopener">' + escapeHtml(link) + '</a>';
+    } else {
+      linkDisplay.innerHTML = '<span class="wp-pq-muted">No files link set.</span>';
     }
 
-    (data.files || []).forEach((file) => {
-      const li = document.createElement('li');
-      li.innerHTML = fileItemHtml(file);
-      fileList.appendChild(li);
-    });
+    if (linkInput) linkInput.value = link;
   }
 
   function wireFiles() {
-    // Legacy file form removed — uploads handled by initUppy() dropzone.
+    const linkForm = document.getElementById('wp-pq-files-link-form');
+    if (!linkForm) return;
+
+    linkForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!selectedTaskId) return;
+      const linkInput = linkForm.querySelector('input[name="files_link"]');
+      const filesLink = (linkInput ? linkInput.value : '').trim();
+
+      try {
+        const result = await api('tasks/' + selectedTaskId + '/files-link', {
+          method: 'PUT',
+          body: JSON.stringify({ files_link: filesLink }),
+        });
+        if (result.task) upsertTask(result.task);
+        toast('Files link saved.');
+        await loadFiles({ force: true });
+      } catch (err) {
+        toast(err.message || 'Failed to save link.', true);
+      }
+    });
   }
 
   function wireMeetings() {
@@ -2316,70 +2305,7 @@
     }
   }
 
-  function initUppy() {
-    if (!uppyTarget) return;
-
-    const fileInput = document.getElementById('wp-pq-file-input');
-    const browseBtn = uppyTarget.querySelector('.wp-pq-dropzone-browse');
-    const progressEl = document.getElementById('wp-pq-upload-progress');
-    if (!fileInput) return;
-
-    // Browse button opens file picker
-    if (browseBtn) {
-      browseBtn.addEventListener('click', () => fileInput.click());
-    }
-
-    // Drag-and-drop
-    uppyTarget.addEventListener('dragover', (e) => { e.preventDefault(); uppyTarget.classList.add('wp-pq-dragover'); });
-    uppyTarget.addEventListener('dragleave', () => uppyTarget.classList.remove('wp-pq-dragover'));
-    uppyTarget.addEventListener('drop', (e) => {
-      e.preventDefault();
-      uppyTarget.classList.remove('wp-pq-dragover');
-      if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
-    });
-
-    // File input change
-    fileInput.addEventListener('change', () => {
-      if (fileInput.files.length) handleFiles(fileInput.files);
-      fileInput.value = '';
-    });
-
-    async function handleFiles(files) {
-      if (!selectedTaskId) return alert('Select a task first.');
-
-      const count = files.length;
-      if (progressEl) {
-        progressEl.textContent = 'Uploading ' + count + ' file' + (count === 1 ? '' : 's') + '…';
-        progressEl.hidden = false;
-      }
-
-      try {
-        for (const file of files) {
-          if (config.driveEnabled) {
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('file_role', 'input');
-            await api('tasks/' + selectedTaskId + '/files/drive', {
-              method: 'POST',
-              body: formData,
-            });
-          } else {
-            const media = await uploadToMedia(file);
-            await api('tasks/' + selectedTaskId + '/files', {
-              method: 'POST',
-              body: JSON.stringify({ media_id: media.id, file_role: 'input' }),
-            });
-          }
-        }
-        await loadFiles({ force: true });
-        toast(count + ' file' + (count === 1 ? '' : 's') + ' uploaded.');
-      } catch (err) {
-        toast(err.message || 'Upload failed.', true);
-      } finally {
-        if (progressEl) progressEl.hidden = true;
-      }
-    }
-  }
+  // initUppy removed — file exchange replaced by link field.
 
   function wireUnifiedFilters() {
     if (!filterListEl) return;
@@ -2571,7 +2497,6 @@
   initViewToggle();
   initWorkspaceTabs();
   initCalendar();
-  initUppy();
   setActiveView(true);
   resetTaskSummary();
 

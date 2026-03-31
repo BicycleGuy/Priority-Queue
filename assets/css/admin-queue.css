@@ -90,7 +90,7 @@
 .wp-pq-wrap .button,
 .wp-pq-wrap .button.button-primary {
   border: 0 !important;
-  border-radius: 999px;
+  border-radius: 6px;
   background: var(--pq-accent);
   color: #fff;
   min-height: 34px;
@@ -517,7 +517,7 @@
 
 .wp-pq-mention-chip {
   border: 1px solid var(--pq-border);
-  border-radius: 999px;
+  border-radius: 6px;
   background: var(--pq-surface);
   color: var(--pq-ink);
   padding: 6px 10px;
@@ -641,7 +641,7 @@
   justify-content: center;
   min-width: 56px;
   padding: 4px 8px;
-  border-radius: 999px;
+  border-radius: 6px;
   background: var(--pq-soft-2);
   color: var(--pq-ink);
   font-size: 11px;
@@ -1272,7 +1272,7 @@
   top: 8px;
   padding: 6px 0;
   background: var(--pq-soft);
-  border-radius: 999px;
+  border-radius: 6px;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -1284,7 +1284,7 @@
   height: 20px !important;
   padding: 0 !important;
   border: 0 !important;
-  border-radius: 999px !important;
+  border-radius: 4px !important;
   background: transparent !important;
   color: var(--pq-muted) !important;
   font-size: 10px !important;
@@ -2183,7 +2183,7 @@ button.wp-pq-manager-list-item.is-active {
 .wp-pq-task-tag {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
+  border-radius: 4px;
   background: var(--pq-soft);
   color: var(--pq-muted);
   padding: 3px 8px;
@@ -3138,94 +3138,34 @@ body.wp-pq-drawer-open {
 
 /* ── File dropzone ─────────────────────────────────────────────────── */
 
-.wp-pq-file-dropzone {
-  border: 2px dashed var(--pq-border, #d1d5db);
-  border-radius: 10px;
-  padding: 20px;
-  text-align: center;
-  color: var(--pq-muted-text, #6b7280);
-  font-size: 0.875rem;
-  transition: border-color 0.15s, background 0.15s;
-  cursor: pointer;
+/* ── Files link (replaces file upload/exchange) ─── */
+.wp-pq-files-link-display {
+  margin-bottom: 12px;
+  word-break: break-all;
 }
 
-.wp-pq-file-dropzone.wp-pq-dragover {
-  border-color: var(--pq-accent, #be123c);
-  background: var(--pq-accent-bg, #fef2f2);
-}
-
-.wp-pq-dropzone-browse {
-  background: none;
-  border: none;
+.wp-pq-files-link-display a {
   color: var(--pq-accent, #be123c);
-  font-weight: 600;
-  cursor: pointer;
-  font-size: inherit;
-  padding: 0;
-  text-decoration: underline;
-}
-
-.wp-pq-upload-progress {
-  margin-top: 8px;
-  font-size: 0.8rem;
-  color: var(--pq-muted-text, #6b7280);
-}
-
-/* ── Documents panel ─────────────────────────────── */
-.wp-pq-docs-panel {
-  padding: 20px;
-}
-
-.wp-pq-docs-panel #wp-pq-docs-uppy {
-  margin-bottom: 20px;
-}
-
-.wp-pq-docs-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.875rem;
-}
-
-.wp-pq-docs-table th {
-  text-align: left;
-  padding: 8px 10px;
-  border-bottom: 2px solid var(--pq-border, #d1d5db);
-  font-weight: 600;
-  color: var(--pq-muted-text, #6b7280);
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.wp-pq-docs-table td {
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--pq-border, #e5e7eb);
-  vertical-align: middle;
-}
-
-.wp-pq-docs-table a {
-  color: var(--pq-accent, #be123c);
-  text-decoration: none;
   font-weight: 500;
+  text-decoration: none;
 }
 
-.wp-pq-docs-table a:hover {
+.wp-pq-files-link-display a:hover {
   text-decoration: underline;
 }
 
-.wp-pq-docs-delete {
-  font-size: 0.8rem;
-  padding: 3px 10px;
+.wp-pq-files-link-form {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
 }
 
-.wp-pq-drive-badge {
-  display: inline-block;
-  font-size: 0.7rem;
-  font-weight: 600;
-  background: #e8f0fe;
-  color: #1a73e8;
-  padding: 1px 6px;
-  border-radius: 4px;
-  margin-left: 4px;
-  vertical-align: middle;
+.wp-pq-files-link-form label {
+  flex: 1;
+  font-size: 0.875rem;
+}
+
+.wp-pq-files-link-form input[type="url"] {
+  width: 100%;
+  margin-top: 4px;
 }
