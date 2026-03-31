@@ -320,12 +320,14 @@ class WP_PQ_Drive
             return false;
         }
 
-        $scopes = get_option('wp_pq_google_scopes', '');
-        if ($scopes === '') {
-            $scopes = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/drive';
+        // Check the actual scope Google granted, not just what we requested.
+        $granted = $tokens['granted_scope'] ?? '';
+        if ($granted !== '') {
+            return str_contains($granted, 'drive');
         }
 
-        return str_contains($scopes, 'drive');
+        // Fallback for tokens stored before we tracked granted_scope.
+        return false;
     }
 
     // ── Private helpers ───────────────────────────────────────────

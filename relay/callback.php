@@ -74,6 +74,7 @@ if (!empty($tokens['error'])) {
 $access_token  = $tokens['access_token']  ?? '';
 $refresh_token = $tokens['refresh_token'] ?? '';
 $expires_in    = (int) ($tokens['expires_in'] ?? 3600);
+$granted_scope = $tokens['scope'] ?? '';
 
 if ($access_token === '' || $refresh_token === '') {
     relay_json(['error' => 'Google did not return required tokens.'], 502);
@@ -98,6 +99,7 @@ $payload = json_encode([
     'expires_in'               => $expires_in,
     'encrypted_refresh_token'  => $encrypted_refresh,
     'connected_email'          => $connected_email,
+    'granted_scope'            => $granted_scope,
 ], JSON_UNESCAPED_SLASHES);
 
 $ch = curl_init($receive_url);

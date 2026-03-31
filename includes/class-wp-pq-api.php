@@ -2366,6 +2366,7 @@ class WP_PQ_API
         $expires_in              = (int) ($body['expires_in'] ?? 3600);
         $encrypted_refresh_token = (string) ($body['encrypted_refresh_token'] ?? '');
         $connected_email         = sanitize_email((string) ($body['connected_email'] ?? ''));
+        $granted_scope           = sanitize_text_field((string) ($body['granted_scope'] ?? ''));
 
         if ($nonce === '' || $access_token === '' || $encrypted_refresh_token === '') {
             return new WP_REST_Response(['error' => 'Missing required fields.'], 400);
@@ -2387,6 +2388,7 @@ class WP_PQ_API
             'token_type'              => 'Bearer',
             'expires_at'              => time() + max(60, $expires_in - 30),
             'connected_email'         => $connected_email,
+            'granted_scope'           => $granted_scope,
         ];
 
         update_option('wp_pq_google_tokens', $tokens, false);
