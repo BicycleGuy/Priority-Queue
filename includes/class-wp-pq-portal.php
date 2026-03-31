@@ -42,7 +42,7 @@ class WP_PQ_Portal
         wp_register_script('wp-pq-admin', WP_PQ_PLUGIN_URL . 'assets/js/admin-queue.js', ['sortable-js', 'wp-pq-fullcalendar'], WP_PQ_VERSION, true);
         wp_register_script('wp-pq-modals', WP_PQ_PLUGIN_URL . 'assets/js/admin-queue-modals.js', ['wp-pq-admin'], WP_PQ_VERSION, true);
         wp_register_script('wp-pq-alerts', WP_PQ_PLUGIN_URL . 'assets/js/admin-queue-alerts.js', ['wp-pq-admin'], WP_PQ_VERSION, true);
-        wp_register_script('wp-pq-portal-manager', WP_PQ_PLUGIN_URL . 'assets/js/admin-portal-manager.js', ['wp-pq-admin', 'wp-pq-modals', 'wp-pq-alerts'], WP_PQ_VERSION, true);
+        wp_register_script('wp-pq-portal-manager', WP_PQ_PLUGIN_URL . 'assets/js/admin-portal-manager.js', ['wp-pq-admin', 'wp-pq-modals', 'wp-pq-alerts', 'wp-pq-uppy'], WP_PQ_VERSION, true);
     }
 
     public static function portal_url(string $section = 'queue'): string
