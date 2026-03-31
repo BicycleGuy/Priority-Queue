@@ -1307,7 +1307,7 @@
 
     try {
       docsUppyInstance = new Uppy.Uppy({
-        restrictions: { maxFileSize: 20 * 1024 * 1024 },
+        restrictions: {},
         autoProceed: false,
       });
 
@@ -1317,7 +1317,7 @@
         height: 300,
         width: '100%',
         proudlyDisplayPoweredByUppy: false,
-        note: 'Upload files up to 20 MB',
+        note: 'Drag and drop files or browse',
       });
 
       docsUppyInstance.use(Uppy.XHRUpload, {
