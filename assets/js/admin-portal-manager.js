@@ -1297,41 +1297,47 @@
 
   function initDocsUppy() {
     const target = document.getElementById('wp-pq-docs-uppy');
-    if (!target || !window.Uppy) return;
+    if (!target) return;
     if (docsUppyInstance) return;
+    if (!window.Uppy || !window.Uppy.Uppy) {
+      target.innerHTML = '<div class="wp-pq-empty-state">Uppy library not loaded. Try a hard refresh.</div>';
+      console.error('[Documents] window.Uppy:', window.Uppy);
+      return;
+    }
 
-    docsUppyInstance = new Uppy.Uppy({
-      restrictions: { maxFileSize: 20 * 1024 * 1024 },
-      autoProceed: false,
-    });
+    try {
+      docsUppyInstance = new Uppy.Uppy({
+        restrictions: { maxFileSize: 20 * 1024 * 1024 },
+        autoProceed: false,
+      });
 
-    docsUppyInstance.use(Uppy.Dashboard, {
-      target: target,
-      inline: true,
-      height: 250,
-      width: '100%',
-      proudlyDisplayPoweredByUppy: false,
-      note: 'Upload files up to 20 MB',
-    });
+      docsUppyInstance.use(Uppy.Dashboard, {
+        target: target,
+        inline: true,
+        height: 300,
+        width: '100%',
+        proudlyDisplayPoweredByUppy: false,
+        note: 'Upload files up to 20 MB',
+      });
 
-    docsUppyInstance.use(Uppy.XHRUpload, {
-      endpoint: managerConfig.coreRoot + 'media',
-      headers: { 'X-WP-Nonce': managerConfig.nonce },
-      fieldName: 'file',
-      formData: true,
-    });
+      docsUppyInstance.use(Uppy.XHRUpload, {
+        endpoint: managerConfig.coreRoot + 'media',
+        headers: { 'X-WP-Nonce': managerConfig.nonce },
+        fieldName: 'file',
+        formData: true,
+      });
 
-    docsUppyInstance.on('upload-success', () => {
-      // Refresh document list when each file completes
-    });
-
-    docsUppyInstance.on('complete', async (result) => {
-      if (result.successful && result.successful.length > 0) {
-        toast(result.successful.length + ' file' + (result.successful.length === 1 ? '' : 's') + ' uploaded.');
-        docsUppyInstance.cancelAll();
-        await renderDocuments();
-      }
-    });
+      docsUppyInstance.on('complete', async (result) => {
+        if (result.successful && result.successful.length > 0) {
+          toast(result.successful.length + ' file' + (result.successful.length === 1 ? '' : 's') + ' uploaded.');
+          docsUppyInstance.cancelAll();
+          await renderDocuments();
+        }
+      });
+    } catch (err) {
+      console.error('[Documents] Uppy init failed:', err);
+      target.innerHTML = '<div class="wp-pq-empty-state">Upload widget failed to load: ' + esc(err.message) + '</div>';
+    }
   }
 
   async function renderDocuments() {
