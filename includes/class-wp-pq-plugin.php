@@ -41,6 +41,7 @@ final class WP_PQ_Plugin
         WP_PQ_Portal::init();
 
         add_filter('upload_size_limit', [self::class, 'upload_size_limit']);
+        add_filter('upload_mimes', [self::class, 'allow_creative_mimes']);
 
         // Branded login page.
         add_action('login_enqueue_scripts', [self::class, 'login_styles']);
@@ -58,6 +59,21 @@ final class WP_PQ_Plugin
         $bytes = $mb * 1024 * 1024;
 
         return max((int) $size, $bytes);
+    }
+
+    public static function allow_creative_mimes(array $mimes): array
+    {
+        $mimes['indd'] = 'application/x-indesign';
+        $mimes['ai'] = 'application/postscript';
+        $mimes['psd'] = 'image/vnd.adobe.photoshop';
+        $mimes['eps'] = 'application/postscript';
+        $mimes['sketch'] = 'application/zip';
+        $mimes['fig'] = 'application/octet-stream';
+        $mimes['md'] = 'text/markdown';
+        $mimes['csv'] = 'text/csv';
+        $mimes['webp'] = 'image/webp';
+
+        return $mimes;
     }
 
     // ── Branded Login Page ──────────────────────────────────────
