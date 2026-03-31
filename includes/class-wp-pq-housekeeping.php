@@ -259,7 +259,7 @@ class WP_PQ_Housekeeping
 
             wp_mail(
                 $user->user_email,
-                'Priority Portal daily digest',
+                'Switchboard daily digest',
                 $body
             );
 
@@ -277,7 +277,7 @@ class WP_PQ_Housekeeping
     private static function build_digest_body(WP_User $user, array $groups): string
     {
         $lines = [];
-        $lines[] = 'Here is your Priority Portal daily digest.';
+        $lines[] = 'Here is your Switchboard daily digest.';
         $lines[] = '';
 
         foreach ($groups as $label => $tasks) {

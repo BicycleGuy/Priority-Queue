@@ -19,6 +19,8 @@
   const drawerBackdrop = document.getElementById('wp-pq-drawer-backdrop');
   const appShell = document.querySelector('.wp-pq-app-shell');
   const closePrefsBtn = document.getElementById('wp-pq-close-prefs');
+  const docsPanel = document.getElementById('wp-pq-docs-panel');
+  const closeDocsBtn = document.getElementById('wp-pq-close-docs');
 
   const state = {
     section: 'queue',
@@ -65,6 +67,10 @@
     preferences: {
       title: 'Preferences',
       note: 'Preferences stays lightweight for now, with notifications first and more layout controls later.',
+    },
+    documents: {
+      title: 'Documents',
+      note: 'Upload, browse, and manage files across all tasks.',
     },
   };
 
@@ -238,6 +244,11 @@
   function showPreferences(show) {
     if (!prefPanel) return;
     prefPanel.hidden = !show;
+  }
+
+  function showDocuments(show) {
+    if (!docsPanel) return;
+    docsPanel.hidden = !show;
   }
 
   function showManagerPanel(show) {
@@ -1198,7 +1209,7 @@
       ? options
       : { pushHistory: options !== false };
     state.section = section || 'queue';
-    if (state.section !== 'preferences') {
+    if (state.section !== 'preferences' && state.section !== 'documents') {
       state.lastNonPreferenceSection = state.section;
     }
     setActiveNav(state.section);
@@ -1224,12 +1235,14 @@
       showQueue(true);
       showManagerPanel(false);
       showPreferences(false);
+      showDocuments(false);
       return;
     }
 
     if (state.section === 'preferences') {
       showQueue(false);
       showManagerPanel(false);
+      showDocuments(false);
       showPreferences(true);
       if (window.wpPqAlerts && typeof window.wpPqAlerts.openPreferences === 'function') {
         await window.wpPqAlerts.openPreferences();
@@ -1237,8 +1250,18 @@
       return;
     }
 
+    if (state.section === 'documents') {
+      showQueue(false);
+      showManagerPanel(false);
+      showPreferences(false);
+      showDocuments(true);
+      await renderDocuments();
+      return;
+    }
+
     showQueue(false);
     showPreferences(false);
+    showDocuments(false);
     showManagerPanel(true);
 
     try {
@@ -1263,6 +1286,107 @@
     }
   }
 
+  function formatBytes(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return (bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1) + ' ' + units[i];
+  }
+
+  let docsUppyInstance = null;
+
+  function initDocsUppy() {
+    const target = document.getElementById('wp-pq-docs-uppy');
+    if (!target || !window.Uppy) return;
+    if (docsUppyInstance) return;
+
+    docsUppyInstance = new Uppy.Uppy({
+      restrictions: { maxFileSize: 20 * 1024 * 1024 },
+      autoProceed: false,
+    });
+
+    docsUppyInstance.use(Uppy.Dashboard, {
+      target: target,
+      inline: true,
+      height: 250,
+      width: '100%',
+      proudlyDisplayPoweredByUppy: false,
+      note: 'Upload files up to 20 MB',
+    });
+
+    docsUppyInstance.use(Uppy.XHRUpload, {
+      endpoint: managerConfig.coreRoot + 'media',
+      headers: { 'X-WP-Nonce': managerConfig.nonce },
+      fieldName: 'file',
+      formData: true,
+    });
+
+    docsUppyInstance.on('upload-success', () => {
+      // Refresh document list when each file completes
+    });
+
+    docsUppyInstance.on('complete', async (result) => {
+      if (result.successful && result.successful.length > 0) {
+        toast(result.successful.length + ' file' + (result.successful.length === 1 ? '' : 's') + ' uploaded.');
+        docsUppyInstance.cancelAll();
+        await renderDocuments();
+      }
+    });
+  }
+
+  async function renderDocuments() {
+    const listEl = document.getElementById('wp-pq-docs-list');
+    if (!listEl) return;
+    listEl.innerHTML = '<div class="wp-pq-empty-state">Loading documents…</div>';
+
+    initDocsUppy();
+
+    try {
+      const data = await api('documents');
+      const docs = data.documents || [];
+
+      if (docs.length === 0) {
+        listEl.innerHTML = '<div class="wp-pq-empty-state">No documents yet. Upload files above or attach them to tasks.</div>';
+        return;
+      }
+
+      const rows = docs.map((doc) => {
+        const date = doc.created_at ? new Date(doc.created_at + 'Z').toLocaleDateString() : '';
+        return '<tr data-doc-id="' + doc.id + '">'
+          + '<td><a href="' + esc(doc.media_url || '#') + '" target="_blank" rel="noopener">' + esc(doc.filename || 'Untitled') + '</a></td>'
+          + '<td>' + esc(doc.task_title || '—') + '</td>'
+          + '<td>' + esc(doc.file_role || '') + '</td>'
+          + '<td>' + esc(doc.uploader_name || '') + '</td>'
+          + '<td>' + formatBytes(doc.filesize) + '</td>'
+          + '<td>' + esc(date) + '</td>'
+          + '<td><button class="button wp-pq-docs-delete" data-doc-id="' + doc.id + '" data-filename="' + esc(doc.filename || '') + '">Delete</button></td>'
+          + '</tr>';
+      }).join('');
+
+      listEl.innerHTML = '<table class="wp-pq-docs-table">'
+        + '<thead><tr><th>File</th><th>Task</th><th>Role</th><th>Uploaded by</th><th>Size</th><th>Date</th><th></th></tr></thead>'
+        + '<tbody>' + rows + '</tbody>'
+        + '</table>';
+    } catch (error) {
+      listEl.innerHTML = '<div class="wp-pq-empty-state">' + esc(error.message || 'Failed to load documents.') + '</div>';
+    }
+  }
+
+  docsPanel?.addEventListener('click', async (event) => {
+    const btn = event.target.closest('.wp-pq-docs-delete');
+    if (!btn) return;
+    const docId = btn.dataset.docId;
+    const filename = btn.dataset.filename || 'this file';
+    if (!confirm('Delete "' + filename + '"? This also removes it from the media library.')) return;
+    try {
+      await api('documents/' + docId, { method: 'DELETE' });
+      toast('Deleted ' + filename);
+      await renderDocuments();
+    } catch (error) {
+      toast(error.message || 'Delete failed.', true);
+    }
+  });
+
   async function submitJson(path, method, body) {
     return api(path, {
       method: method || 'POST',
@@ -1286,6 +1410,14 @@
     event.preventDefault();
     openSection(state.lastNonPreferenceSection || 'queue').catch((error) => {
       toast(error.message || 'Preferences failed to close cleanly.', true);
+    });
+  });
+
+  closeDocsBtn?.addEventListener('click', (event) => {
+    if (state.section !== 'documents') return;
+    event.preventDefault();
+    openSection(state.lastNonPreferenceSection || 'queue').catch((error) => {
+      toast(error.message || 'Documents failed to close cleanly.', true);
     });
   });
 

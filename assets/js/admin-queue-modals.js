@@ -156,7 +156,7 @@
           if (preserveBoardOrder) {
             bridge.syncOrderFromBoardDom();
           }
-          await bridge.refreshFromCache({ reloadActivePane: false, refreshCalendar: bridge.currentView() === 'calendar' });
+          await bridge.refreshFromCache({ reloadActivePane: true, refreshCalendar: bridge.currentView() === 'calendar' });
         } else {
           await bridge.loadTasks();
         }
@@ -360,7 +360,7 @@
           if (preserveBoardOrder) {
             bridge.syncOrderFromBoardDom();
           }
-          await bridge.refreshFromCache({ reloadActivePane: false, refreshCalendar: bridge.currentView() === 'calendar' });
+          await bridge.refreshFromCache({ reloadActivePane: true, refreshCalendar: bridge.currentView() === 'calendar' });
         } else {
           await bridge.loadTasks();
         }

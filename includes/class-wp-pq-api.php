@@ -197,6 +197,19 @@ class WP_PQ_API
             ],
         ]);
 
+        // ── Documents browser (all files across tasks) ──────────────────
+        register_rest_route('pq/v1', '/documents', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [self::class, 'get_all_documents'],
+            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
+        ]);
+
+        register_rest_route('pq/v1', '/documents/(?P<id>\d+)', [
+            'methods' => WP_REST_Server::DELETABLE,
+            'callback' => [self::class, 'delete_document'],
+            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
+        ]);
+
         register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/meetings', [
             [
                 'methods' => WP_REST_Server::READABLE,
@@ -244,6 +257,25 @@ class WP_PQ_API
         register_rest_route('pq/v1', '/google/oauth/status', [
             'methods' => WP_REST_Server::READABLE,
             'callback' => [self::class, 'google_oauth_status'],
+            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
+        ]);
+
+        // ── Relay OAuth endpoints ─────────────────────────────────────────
+        register_rest_route('pq/v1', '/google/oauth/relay-receive', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'google_oauth_relay_receive'],
+            'permission_callback' => '__return_true', // Authenticated via HMAC signature
+        ]);
+
+        register_rest_route('pq/v1', '/google/oauth/relay-initiate', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [self::class, 'google_oauth_relay_initiate'],
+            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
+        ]);
+
+        register_rest_route('pq/v1', '/google/oauth/disconnect', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'google_oauth_disconnect'],
             'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
         ]);
 
@@ -1369,6 +1401,63 @@ class WP_PQ_API
         ], 201);
     }
 
+    public static function get_all_documents(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $files_table = $wpdb->prefix . 'pq_task_files';
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+
+        $rows = $wpdb->get_results(
+            "SELECT f.*, t.title AS task_title
+             FROM {$files_table} f
+             LEFT JOIN {$tasks_table} t ON t.id = f.task_id
+             ORDER BY f.created_at DESC
+             LIMIT 500",
+            ARRAY_A
+        );
+
+        foreach ($rows as &$row) {
+            $row = self::hydrate_file_row($row);
+            $uploader = get_userdata((int) ($row['uploader_id'] ?? 0));
+            $row['uploader_name'] = $uploader ? $uploader->display_name : 'Unknown';
+            $row['filesize'] = 0;
+            $media_id = (int) ($row['media_id'] ?? 0);
+            if ($media_id > 0) {
+                $path = get_attached_file($media_id);
+                if ($path && file_exists($path)) {
+                    $row['filesize'] = filesize($path);
+                }
+            }
+        }
+
+        return new WP_REST_Response(['documents' => $rows], 200);
+    }
+
+    public static function delete_document(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $file_id = (int) $request->get_param('id');
+        $table = $wpdb->prefix . 'pq_task_files';
+
+        $row = $wpdb->get_row(
+            $wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $file_id),
+            ARRAY_A
+        );
+
+        if (! $row) {
+            return new WP_REST_Response(['message' => 'File not found.'], 404);
+        }
+
+        $media_id = (int) ($row['media_id'] ?? 0);
+        if ($media_id > 0) {
+            wp_delete_attachment($media_id, true);
+        }
+
+        $wpdb->delete($table, ['id' => $file_id]);
+
+        return new WP_REST_Response(['ok' => true, 'deleted_id' => $file_id], 200);
+    }
+
     public static function get_meetings(WP_REST_Request $request): WP_REST_Response
     {
         global $wpdb;
@@ -1401,8 +1490,14 @@ class WP_PQ_API
         $meeting_url = esc_url_raw((string) $request->get_param('meeting_url'));
 
         if ($event_id === '' && $starts_at && $ends_at) {
-            $google_event = self::create_google_calendar_event($task, $starts_at, $ends_at);
+            try {
+                $google_event = self::create_google_calendar_event($task, $starts_at, $ends_at);
+            } catch (\Throwable $e) {
+                error_log('PQ Meeting Error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+                return new WP_REST_Response(['message' => 'Google Calendar error: ' . $e->getMessage()], 500);
+            }
             if (is_wp_error($google_event)) {
+                error_log('PQ Meeting WP_Error: ' . $google_event->get_error_message());
                 return new WP_REST_Response(['message' => $google_event->get_error_message()], 500);
             }
             $event_id = sanitize_text_field((string) ($google_event['id'] ?? ''));
@@ -1901,6 +1996,7 @@ class WP_PQ_API
             }
 
             self::render_oauth_result_page(false, 'OAuth token exchange failed: ' . $resp->get_error_message());
+            return null;
         }
 
         $status = (int) wp_remote_retrieve_response_code($resp);
@@ -1915,6 +2011,13 @@ class WP_PQ_API
             }
 
             self::render_oauth_result_page(false, 'OAuth token exchange failed. Please retry connection.');
+            return null;
+        }
+
+        // Debug: log whether Google returned a refresh_token.
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('PQ OAuth token exchange keys: ' . implode(', ', array_keys($body)));
+            error_log('PQ OAuth has refresh_token: ' . (isset($body['refresh_token']) ? 'YES' : 'NO'));
         }
 
         self::store_google_tokens($body);
@@ -1959,14 +2062,127 @@ class WP_PQ_API
     public static function google_oauth_status(): WP_REST_Response
     {
         $tokens = (array) get_option('wp_pq_google_tokens', []);
-        $connected = ! empty($tokens['access_token']) || ! empty($tokens['refresh_token']);
+        $relay_url = trim((string) get_option('wp_pq_relay_url', ''));
+        $using_relay = $relay_url !== '';
+
+        // Either token format indicates a connection.
+        $connected = ! empty($tokens['encrypted_refresh_token']) || ! empty($tokens['refresh_token']);
 
         return new WP_REST_Response([
-            'connected' => $connected,
-            'has_refresh_token' => ! empty($tokens['refresh_token']),
-            'expires_at' => isset($tokens['expires_at']) ? (int) $tokens['expires_at'] : null,
-            'redirect_uri' => self::google_redirect_uri(),
+            'connected'         => $connected,
+            'has_refresh_token'  => $connected,
+            'expires_at'        => isset($tokens['expires_at']) ? (int) $tokens['expires_at'] : null,
+            'redirect_uri'      => self::google_redirect_uri(),
+            'using_relay'       => $using_relay,
+            'connected_email'   => (string) ($tokens['connected_email'] ?? ''),
         ], 200);
+    }
+
+    /**
+     * Relay-receive — called by the OAuth relay after Google consent.
+     *
+     * POST /wp-json/pq/v1/google/oauth/relay-receive
+     * Body: { nonce, access_token, expires_in, encrypted_refresh_token, connected_email }
+     * Header: X-Relay-Signature (HMAC-SHA256 of body)
+     */
+    public static function google_oauth_relay_receive(WP_REST_Request $request): WP_REST_Response
+    {
+        // ── Verify HMAC signature ──────────────────────────────────────────
+        $relay_key = trim((string) get_option('wp_pq_relay_encryption_key', ''));
+        if ($relay_key === '') {
+            return new WP_REST_Response(['error' => 'Relay encryption key is not configured.'], 500);
+        }
+
+        $raw_body  = (string) $request->get_body();
+        $signature = (string) $request->get_header('X-Relay-Signature');
+
+        if ($signature === '' || ! hash_equals(hash_hmac('sha256', $raw_body, hex2bin($relay_key)), $signature)) {
+            return new WP_REST_Response(['error' => 'Invalid signature.'], 403);
+        }
+
+        // ── Parse body ─────────────────────────────────────────────────────
+        $body = json_decode($raw_body, true);
+        if (! is_array($body)) {
+            return new WP_REST_Response(['error' => 'Invalid JSON body.'], 400);
+        }
+
+        $nonce                   = sanitize_text_field((string) ($body['nonce'] ?? ''));
+        $access_token            = sanitize_text_field((string) ($body['access_token'] ?? ''));
+        $expires_in              = (int) ($body['expires_in'] ?? 3600);
+        $encrypted_refresh_token = (string) ($body['encrypted_refresh_token'] ?? '');
+        $connected_email         = sanitize_email((string) ($body['connected_email'] ?? ''));
+
+        if ($nonce === '' || $access_token === '' || $encrypted_refresh_token === '') {
+            return new WP_REST_Response(['error' => 'Missing required fields.'], 400);
+        }
+
+        // ── Verify nonce ───────────────────────────────────────────────────
+        $stored_nonce = (string) get_option('wp_pq_relay_oauth_nonce', '');
+        if (! hash_equals($stored_nonce, $nonce)) {
+            return new WP_REST_Response(['error' => 'Nonce mismatch.'], 403);
+        }
+
+        // Clear the nonce (single-use).
+        delete_option('wp_pq_relay_oauth_nonce');
+
+        // ── Store tokens ───────────────────────────────────────────────────
+        $tokens = [
+            'access_token'            => $access_token,
+            'encrypted_refresh_token' => $encrypted_refresh_token,
+            'token_type'              => 'Bearer',
+            'expires_at'              => time() + max(60, $expires_in - 30),
+            'connected_email'         => $connected_email,
+        ];
+
+        update_option('wp_pq_google_tokens', $tokens, false);
+
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('PQ Relay: tokens received and stored for ' . $connected_email);
+        }
+
+        return new WP_REST_Response(['ok' => true], 200);
+    }
+
+    /**
+     * Relay-initiate — redirects the manager to the relay to start OAuth.
+     *
+     * GET /wp-json/pq/v1/google/oauth/relay-initiate
+     * Returns { url: "..." } that the portal JS navigates to.
+     */
+    public static function google_oauth_relay_initiate(): WP_REST_Response
+    {
+        $relay_url = trim((string) get_option('wp_pq_relay_url', ''));
+        if ($relay_url === '') {
+            return new WP_REST_Response(['error' => 'OAuth relay URL is not configured.'], 422);
+        }
+
+        // Generate a one-time nonce and store it so relay-receive can verify.
+        $nonce = wp_generate_password(32, false, false);
+        update_option('wp_pq_relay_oauth_nonce', $nonce, false);
+
+        $params = http_build_query([
+            'site_url'   => home_url(),
+            'nonce'      => $nonce,
+            'return_url' => home_url('/switchboard/?section=preferences'),
+        ], '', '&', PHP_QUERY_RFC3986);
+
+        $url = rtrim($relay_url, '/') . '/initiate.php?' . $params;
+
+        return new WP_REST_Response(['url' => $url], 200);
+    }
+
+    /**
+     * Disconnect Google Calendar — wipe stored tokens.
+     */
+    public static function google_oauth_disconnect(): WP_REST_Response
+    {
+        delete_option('wp_pq_google_tokens');
+
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('PQ: Google Calendar disconnected by user ' . get_current_user_id());
+        }
+
+        return new WP_REST_Response(['ok' => true, 'message' => 'Google Calendar disconnected.'], 200);
     }
 
     public static function get_notification_prefs(): WP_REST_Response
@@ -2602,6 +2818,10 @@ class WP_PQ_API
         $recipient_ids = array_merge($recipient_ids, self::client_notification_recipient_ids($task));
         $recipient_ids = array_values(array_unique(array_filter($recipient_ids)));
 
+        // Never notify the person who performed the action.
+        $actor_id = get_current_user_id();
+        $recipient_ids = array_values(array_filter($recipient_ids, static fn(int $id) => $id !== $actor_id));
+
         self::preload_users($recipient_ids);
 
         foreach ($recipient_ids as $user_id) {
@@ -2634,6 +2854,11 @@ class WP_PQ_API
     private static function emit_assignment_event(int $task_id, int $previous_action_owner_id, int $action_owner_id): void
     {
         if ($task_id <= 0 || $action_owner_id <= 0 || $action_owner_id === $previous_action_owner_id) {
+            return;
+        }
+
+        // Don't notify someone who assigned a task to themselves.
+        if ($action_owner_id === get_current_user_id()) {
             return;
         }
 
@@ -2871,7 +3096,7 @@ class WP_PQ_API
 
             wp_mail(
                 $user->user_email,
-                'Priority Portal update: ' . self::task_title($task),
+                'Switchboard update:' . self::task_title($task),
                 $body
             );
         }
@@ -4607,7 +4832,12 @@ class WP_PQ_API
 
     private static function google_redirect_uri(): string
     {
-        return (string) get_option('wp_pq_google_redirect_uri', home_url('/wp-json/pq/v1/google/oauth/callback'));
+        $uri = trim((string) get_option('wp_pq_google_redirect_uri', ''));
+        if ($uri === '') {
+            $uri = home_url('/wp-json/pq/v1/google/oauth/callback');
+        }
+
+        return $uri;
     }
 
     private static function google_scopes(): string
@@ -4624,11 +4854,18 @@ class WP_PQ_API
     {
         $existing = (array) get_option('wp_pq_google_tokens', []);
         $expires_in = isset($token_payload['expires_in']) ? (int) $token_payload['expires_in'] : 3600;
+
+        // Always stash client credentials alongside tokens so refresh survives settings wipe.
+        $client_id = (string) get_option('wp_pq_google_client_id', '');
+        $client_secret = (string) get_option('wp_pq_google_client_secret', '');
+
         $tokens = [
             'access_token' => (string) ($token_payload['access_token'] ?? ($existing['access_token'] ?? '')),
             'refresh_token' => (string) ($token_payload['refresh_token'] ?? ($existing['refresh_token'] ?? '')),
             'token_type' => (string) ($token_payload['token_type'] ?? ($existing['token_type'] ?? 'Bearer')),
             'expires_at' => time() + max(60, $expires_in - 30),
+            'client_id' => $client_id !== '' ? $client_id : ($existing['client_id'] ?? ''),
+            'client_secret' => $client_secret !== '' ? $client_secret : ($existing['client_secret'] ?? ''),
         ];
 
         update_option('wp_pq_google_tokens', $tokens, false);
@@ -4643,14 +4880,36 @@ class WP_PQ_API
             return $access_token;
         }
 
+        // ── Relay mode: call the relay's /refresh.php endpoint ────────────
+        $relay_url = trim((string) get_option('wp_pq_relay_url', ''));
+        if ($relay_url !== '') {
+            return self::refresh_via_relay($tokens, $relay_url);
+        }
+
+        // ── Direct mode: refresh directly with Google ─────────────────────
         $refresh_token = (string) ($tokens['refresh_token'] ?? '');
         if ($refresh_token === '') {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('PQ Google: no refresh_token stored');
+            }
             return '';
         }
 
         $client_id = (string) get_option('wp_pq_google_client_id', '');
         $client_secret = (string) get_option('wp_pq_google_client_secret', '');
+
+        // Fall back to credentials stashed inside the tokens array (survives settings wipe).
+        if ($client_id === '') {
+            $client_id = (string) ($tokens['client_id'] ?? '');
+        }
+        if ($client_secret === '') {
+            $client_secret = (string) ($tokens['client_secret'] ?? '');
+        }
+
         if ($client_id === '' || $client_secret === '') {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('PQ Google: client_id or client_secret missing (checked options + tokens)');
+            }
             return '';
         }
 
@@ -4664,18 +4923,74 @@ class WP_PQ_API
             ],
         ]);
         if (is_wp_error($resp)) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('PQ Google refresh WP_Error: ' . $resp->get_error_message());
+            }
             return '';
         }
 
         $status = (int) wp_remote_retrieve_response_code($resp);
         $body = json_decode((string) wp_remote_retrieve_body($resp), true);
         if ($status >= 300 || ! is_array($body) || empty($body['access_token'])) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('PQ Google refresh failed: HTTP ' . $status . ' — ' . wp_remote_retrieve_body($resp));
+            }
             return '';
         }
 
         self::store_google_tokens($body);
         $updated = (array) get_option('wp_pq_google_tokens', []);
         return (string) ($updated['access_token'] ?? '');
+    }
+
+    /**
+     * Refresh access token via the OAuth relay server.
+     * Sends the encrypted_refresh_token to the relay, which decrypts it,
+     * calls Google, and returns a fresh access_token.
+     */
+    private static function refresh_via_relay(array $tokens, string $relay_url): string
+    {
+        $encrypted_refresh = (string) ($tokens['encrypted_refresh_token'] ?? '');
+        if ($encrypted_refresh === '') {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('PQ Relay: no encrypted_refresh_token stored');
+            }
+            return '';
+        }
+
+        $payload = wp_json_encode(['encrypted_refresh_token' => $encrypted_refresh]);
+        $url = rtrim($relay_url, '/') . '/refresh.php';
+
+        $resp = wp_remote_post($url, [
+            'timeout' => 20,
+            'headers' => ['Content-Type' => 'application/json'],
+            'body'    => $payload,
+        ]);
+
+        if (is_wp_error($resp)) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('PQ Relay refresh WP_Error: ' . $resp->get_error_message());
+            }
+            return '';
+        }
+
+        $status = (int) wp_remote_retrieve_response_code($resp);
+        $body = json_decode((string) wp_remote_retrieve_body($resp), true);
+
+        if ($status >= 300 || ! is_array($body) || empty($body['access_token'])) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('PQ Relay refresh failed: HTTP ' . $status . ' — ' . wp_remote_retrieve_body($resp));
+            }
+            return '';
+        }
+
+        // Update stored access token and expiry, keep encrypted_refresh_token intact.
+        $tokens['access_token'] = (string) $body['access_token'];
+        $tokens['expires_at']   = time() + max(60, ((int) ($body['expires_in'] ?? 3600)) - 30);
+
+        update_option('wp_pq_google_tokens', $tokens, false);
+
+        return (string) $body['access_token'];
     }
 
     private static function create_google_calendar_event(array $task, string $starts_at, string $ends_at)
@@ -4986,7 +5301,7 @@ class WP_PQ_API
         $title = $ok ? 'Google Connected' : 'Google Connection Failed';
         $color = $ok ? '#166534' : '#991b1b';
         $bg = $ok ? '#ecfdf5' : '#fef2f2';
-        $portal_url = home_url('/priority-portal/');
+        $portal_url = home_url('/switchboard/');
 
         echo '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
         echo '<title>' . esc_html($title) . '</title>';
@@ -4998,7 +5313,7 @@ class WP_PQ_API
         echo '<span class="state" style="background:' . esc_attr($bg) . ';color:' . esc_attr($color) . ';">' . esc_html($title) . '</span>';
         echo '<h1 style="margin:8px 0 10px">' . esc_html($title) . '</h1>';
         echo '<p style="font-size:16px;line-height:1.5;color:#374151">' . esc_html($message) . '</p>';
-        echo '<a class="btn" href="' . esc_url($portal_url) . '">Return to Priority Portal</a>';
+        echo '<a class="btn" href="' . esc_url($portal_url) . '">Return to Switchboard</a>';
         echo '</div></body></html>';
         exit;
     }

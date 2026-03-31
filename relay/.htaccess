@@ -1,0 +1,14 @@
+# Switchboard OAuth Relay
+# Deny access to config file and any dotfiles
+
+<FilesMatch "^(config\.php|\.env|\.htaccess)$">
+    Require all denied
+</FilesMatch>
+
+# Force HTTPS (skip if behind a reverse proxy that sets X-Forwarded-Proto)
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTPS} off
+    RewriteCond %{HTTP:X-Forwarded-Proto} !https
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+</IfModule>

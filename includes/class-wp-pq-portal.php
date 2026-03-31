@@ -12,6 +12,23 @@ class WP_PQ_Portal
     {
         add_shortcode('pq_client_portal', [self::class, 'render_shortcode']);
         add_action('wp_enqueue_scripts', [self::class, 'register_assets']);
+        add_action('template_redirect', [self::class, 'redirect_old_portal_slug']);
+    }
+
+    /**
+     * Redirect the retired /priority-portal/ slug to /switchboard/.
+     */
+    public static function redirect_old_portal_slug(): void
+    {
+        if (is_404()) {
+            $path = trim(parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?: '', '/');
+            if ($path === 'priority-portal' || strpos($path, 'priority-portal') === 0) {
+                $new_url = home_url('/switchboard/');
+                $qs = isset($_SERVER['QUERY_STRING']) && $_SERVER['QUERY_STRING'] !== '' ? '?' . $_SERVER['QUERY_STRING'] : '';
+                wp_redirect($new_url . $qs, 301);
+                exit;
+            }
+        }
     }
 
     public static function register_assets(): void
@@ -19,10 +36,10 @@ class WP_PQ_Portal
         wp_register_style('wp-pq-admin', WP_PQ_PLUGIN_URL . 'assets/css/admin-queue.css', [], WP_PQ_VERSION);
         wp_register_style('wp-pq-fullcalendar', 'https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.css', [], '6.1.19');
         wp_register_style('wp-pq-uppy', 'https://releases.transloadit.com/uppy/v3.27.1/uppy.min.css', [], '3.27.1');
+        wp_register_script('wp-pq-uppy', 'https://releases.transloadit.com/uppy/v3.27.1/uppy.min.js', [], '3.27.1', true);
         wp_register_script('sortable-js', 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js', [], '1.15.6', true);
         wp_register_script('wp-pq-fullcalendar', 'https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js', [], '6.1.19', true);
-        wp_register_script('wp-pq-uppy', 'https://releases.transloadit.com/uppy/v3.27.1/uppy.min.js', [], '3.27.1', true);
-        wp_register_script('wp-pq-admin', WP_PQ_PLUGIN_URL . 'assets/js/admin-queue.js', ['sortable-js', 'wp-pq-fullcalendar', 'wp-pq-uppy'], WP_PQ_VERSION, true);
+        wp_register_script('wp-pq-admin', WP_PQ_PLUGIN_URL . 'assets/js/admin-queue.js', ['sortable-js', 'wp-pq-fullcalendar'], WP_PQ_VERSION, true);
         wp_register_script('wp-pq-modals', WP_PQ_PLUGIN_URL . 'assets/js/admin-queue-modals.js', ['wp-pq-admin'], WP_PQ_VERSION, true);
         wp_register_script('wp-pq-alerts', WP_PQ_PLUGIN_URL . 'assets/js/admin-queue-alerts.js', ['wp-pq-admin'], WP_PQ_VERSION, true);
         wp_register_script('wp-pq-portal-manager', WP_PQ_PLUGIN_URL . 'assets/js/admin-portal-manager.js', ['wp-pq-admin', 'wp-pq-modals', 'wp-pq-alerts'], WP_PQ_VERSION, true);
@@ -47,13 +64,13 @@ class WP_PQ_Portal
             }
 
             if ($url === '') {
-                $url = home_url('/priority-portal/');
+                $url = home_url('/switchboard/');
             }
 
             self::$portal_url_cache = $url;
         }
 
-        $url = self::$portal_url_cache ?: home_url('/priority-portal/');
+        $url = self::$portal_url_cache ?: home_url('/switchboard/');
         $section = sanitize_key($section);
         if ($section === '' || $section === 'queue') {
             return $url;
@@ -66,17 +83,16 @@ class WP_PQ_Portal
     {
         wp_enqueue_style('wp-pq-admin');
         wp_enqueue_style('wp-pq-fullcalendar');
-        wp_enqueue_style('wp-pq-uppy');
 
         if (! is_user_logged_in()) {
             $login_url = wp_login_url(get_permalink());
 
             return '<div class="wp-pq-wrap wp-pq-guest">'
-                . '<h2>Priority Portal</h2>'
-                . '<p>Manage requests, files, approvals, and revisions.</p>'
+                . '<h2>Switchboard</h2>'
+                . '<p>Requests, approvals, files, and scheduling in one place.</p>'
                 . '<div class="wp-pq-guest-card">'
                 . '<h3>Sign in required</h3>'
-                . '<p>Please sign in to access your request workspace.</p>'
+                . '<p>Please sign in to access your workspace.</p>'
                 . '<a class="button button-primary" href="' . esc_url($login_url) . '">Log In</a>'
                 . '</div>'
                 . '</div>';
@@ -89,6 +105,8 @@ class WP_PQ_Portal
         $is_manager = current_user_can(WP_PQ_Roles::CAP_APPROVE);
         if ($is_manager) {
             wp_enqueue_script('wp-pq-portal-manager');
+            wp_enqueue_style('wp-pq-uppy');
+            wp_enqueue_script('wp-pq-uppy');
         }
 
         $portal_config = [
@@ -114,9 +132,9 @@ class WP_PQ_Portal
         echo '  <div class="wp-pq-app-shell">';
         echo '    <aside class="wp-pq-binder">';
         echo '      <div class="wp-pq-binder-head">';
-        echo '        <p class="wp-pq-kicker">Readspear Workflow</p>';
-        echo '        <h2>Priority Portal</h2>';
-        echo '        <p class="wp-pq-panel-note">Client accounts, jobs, approvals, and delivery all live here.</p>';
+        echo '        <p class="wp-pq-kicker">Readspear</p>';
+        echo '        <h2>Switchboard</h2>';
+        echo '        <p class="wp-pq-panel-note">Requests, approvals, files, and scheduling in one place.</p>';
         echo '      </div>';
         echo '      <div class="wp-pq-binder-section wp-pq-binder-section-action">';
         echo '        <button class="button button-primary wp-pq-primary-action" type="button" id="wp-pq-open-create">New Request</button>';
@@ -155,6 +173,7 @@ class WP_PQ_Portal
             echo '          <button class="button" type="button" data-pq-section="work-statements"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">✎</span><span>Work Statements</span></span></button>';
             echo '          <button class="button" type="button" data-pq-section="ai-import"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">✦</span><span>AI Import</span></span></button>';
             echo '          <button class="button" type="button" data-pq-section="preferences"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">○</span><span>Preferences</span></span></button>';
+            echo '          <button class="button" type="button" data-pq-section="documents"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">▤</span><span>Documents</span></span></button>';
             echo '        </div>';
             echo '      </div>';
         }
@@ -193,7 +212,12 @@ class WP_PQ_Portal
         echo '        </select>';
         echo '      </label>';
         echo '      <label>Requested Deadline <input type="datetime-local" name="requested_deadline" step="60"></label>';
-        echo '      <label class="inline wp-pq-span-2"><input type="checkbox" name="needs_meeting"> Meeting Requested</label>';
+        echo '      <label class="inline wp-pq-span-2"><input type="checkbox" name="needs_meeting" id="wp-pq-create-needs-meeting"> Meeting Requested</label>';
+        echo '      <div class="wp-pq-create-meeting-fields wp-pq-span-2" id="wp-pq-create-meeting-fields" hidden>';
+        echo '        <label>Meeting Start <input type="datetime-local" name="meeting_starts_at" id="wp-pq-create-meeting-start" step="60"></label>';
+        echo '        <label>Meeting End <input type="datetime-local" name="meeting_ends_at" id="wp-pq-create-meeting-end" step="60"></label>';
+        echo '        <p class="wp-pq-panel-note wp-pq-span-2">Google Meet will invite the task requester.</p>';
+        echo '      </div>';
         echo '      <label class="inline wp-pq-manager-only wp-pq-span-2"><input type="checkbox" name="is_billable" checked> Billable task</label>';
         echo '      <div class="wp-pq-create-actions wp-pq-span-2">';
         echo '        <button class="button button-primary" type="submit">Submit Request</button>';
@@ -219,6 +243,21 @@ class WP_PQ_Portal
         echo '      <div id="wp-pq-pref-list" class="wp-pq-pref-list"></div>';
         echo '      <button class="button button-primary" type="button" id="wp-pq-save-prefs">Save Preferences</button>';
         echo '    </section>';
+        // Google Calendar connection — managers only.
+        if (current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            echo '    <section class="wp-pq-pref-section" id="wp-pq-gcal-section">';
+            echo '      <div class="wp-pq-pref-section-head">';
+            echo '        <div>';
+            echo '          <h4>Google Calendar</h4>';
+            echo '          <p class="wp-pq-panel-note">Connect once so meetings auto-create Google Calendar events with Meet links.</p>';
+            echo '        </div>';
+            echo '      </div>';
+            echo '      <div id="wp-pq-gcal-status" class="wp-pq-gcal-status">';
+            echo '        <span class="wp-pq-gcal-indicator" id="wp-pq-gcal-indicator"></span>';
+            echo '      </div>';
+            echo '    </section>';
+        }
+
         echo '    <section class="wp-pq-pref-section">';
         echo '      <div class="wp-pq-pref-section-head">';
         echo '        <div>';
@@ -228,6 +267,18 @@ class WP_PQ_Portal
       echo '      </div>';
         echo '      <div class="wp-pq-empty-state">Preferences will keep growing here without turning into a separate admin screen.</div>';
         echo '    </section>';
+        echo '  </section>';
+
+        echo '  <section class="wp-pq-panel wp-pq-docs-panel" id="wp-pq-docs-panel" hidden>';
+        echo '    <div class="wp-pq-section-heading">';
+        echo '      <div>';
+        echo '        <h3>Documents</h3>';
+        echo '        <p class="wp-pq-panel-note">Upload, browse, and manage files across all tasks.</p>';
+        echo '      </div>';
+        echo '      <button class="button" type="button" id="wp-pq-close-docs">Close</button>';
+        echo '    </div>';
+        echo '    <div id="wp-pq-docs-uppy"></div>';
+        echo '    <div id="wp-pq-docs-list" class="wp-pq-docs-list"></div>';
         echo '  </section>';
 
         echo '  <div id="wp-pq-alert-stack" class="wp-pq-alert-stack" aria-live="polite" aria-label="Current alerts"></div>';
@@ -342,17 +393,11 @@ class WP_PQ_Portal
         echo '          <div class="wp-pq-subpanel wp-pq-workspace-panel" id="wp-pq-panel-files" hidden>';
         echo '            <h4>Files</h4>';
         echo '            <ul id="wp-pq-file-list" class="wp-pq-stream"></ul>';
-        echo '            <div id="wp-pq-uppy" class="wp-pq-uppy"></div>';
-        echo '            <form id="wp-pq-file-form">';
-        echo '              <label>Type';
-        echo '                <select name="file_role">';
-        echo '                  <option value="input">Input</option>';
-        echo '                  <option value="deliverable">Deliverable</option>';
-        echo '                </select>';
-        echo '              </label>';
-        echo '              <label>Upload file <input type="file" name="file" required></label>';
-        echo '              <button class="button" type="submit">Upload File</button>';
-        echo '            </form>';
+        echo '            <div id="wp-pq-uppy" class="wp-pq-file-dropzone">';
+        echo '              <span class="wp-pq-dropzone-label">Drop files here or <button type="button" class="wp-pq-dropzone-browse">browse</button></span>';
+        echo '              <input type="file" id="wp-pq-file-input" multiple hidden>';
+        echo '              <div id="wp-pq-upload-progress" class="wp-pq-upload-progress" hidden></div>';
+        echo '            </div>';
         echo '          </div>';
         echo '        </div>';
         echo '      </div>';

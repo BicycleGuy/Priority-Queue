@@ -62,6 +62,10 @@
   const createBucketEl = document.getElementById('wp-pq-create-bucket');
   const createNewBucketWrap = document.getElementById('wp-pq-create-new-bucket-wrap');
   const createNewBucketEl = document.getElementById('wp-pq-create-new-bucket');
+  const createNeedsMeetingEl = document.getElementById('wp-pq-create-needs-meeting');
+  const createMeetingFieldsEl = document.getElementById('wp-pq-create-meeting-fields');
+  const createMeetingStartEl = document.getElementById('wp-pq-create-meeting-start');
+  const createMeetingEndEl = document.getElementById('wp-pq-create-meeting-end');
   const currentTaskEl = document.getElementById('wp-pq-current-task');
   const currentTaskStatusEl = document.getElementById('wp-pq-current-task-status');
   const currentTaskMetaEl = document.getElementById('wp-pq-current-task-meta');
@@ -87,7 +91,6 @@
   const noteForm = document.getElementById('wp-pq-note-form');
   const mentionList = document.getElementById('wp-pq-mention-list');
   const fileList = document.getElementById('wp-pq-file-list');
-  const fileForm = document.getElementById('wp-pq-file-form');
   const boardViewBtn = document.getElementById('wp-pq-view-board');
   const calendarViewBtn = document.getElementById('wp-pq-view-calendar');
   const boardPanel = document.getElementById('wp-pq-board-panel') || document.getElementById('wp-pq-queue-panel');
@@ -304,13 +307,13 @@
   }
 
   function removeTaskById(taskId) {
-    tasksCache = tasksCache.filter((task) => task.id !== taskId);
+    tasksCache = tasksCache.filter((task) => !idEq(task.id, taskId));
     selectedApprovalTaskIds.delete(taskId);
     selectedBatchTaskIds.delete(taskId);
-    if (activeTaskRecord && activeTaskRecord.id === taskId) {
+    if (activeTaskRecord && idEq(activeTaskRecord.id, taskId)) {
       activeTaskRecord = null;
     }
-    if (selectedTaskId === taskId) {
+    if (idEq(selectedTaskId, taskId)) {
       selectedTaskId = null;
     }
   }
@@ -573,16 +576,16 @@
 
   function upsertTask(task) {
     if (!task || !task.id) return;
-    const index = tasksCache.findIndex((item) => item.id === task.id);
+    const index = tasksCache.findIndex((item) => idEq(item.id, task.id));
     if (index >= 0) {
       tasksCache[index] = task;
-      if (activeTaskRecord && activeTaskRecord.id === task.id) {
+      if (activeTaskRecord && idEq(activeTaskRecord.id, task.id)) {
         activeTaskRecord = task;
       }
       return;
     }
     tasksCache.push(task);
-    if (activeTaskRecord && activeTaskRecord.id === task.id) {
+    if (activeTaskRecord && idEq(activeTaskRecord.id, task.id)) {
       activeTaskRecord = task;
     }
   }
@@ -597,13 +600,13 @@
   function pruneBatchSelection() {
     selectedApprovalTaskIds = new Set(
       Array.from(selectedApprovalTaskIds).filter((taskId) => {
-        const task = tasksCache.find((item) => item.id === taskId);
+        const task = tasksCache.find((item) => idEq(item.id, taskId));
         return !!task && normalizeStatus(task.status) === 'pending_approval';
       })
     );
     selectedBatchTaskIds = new Set(
       Array.from(selectedBatchTaskIds).filter((taskId) => {
-        const task = tasksCache.find((item) => item.id === taskId);
+        const task = tasksCache.find((item) => idEq(item.id, taskId));
         return !!task && normalizeStatus(task.status) === 'delivered' && task.is_billable && task.billing_status === 'unbilled';
       })
     );
@@ -776,14 +779,23 @@
     const refreshCalendar = !!(options && options.refreshCalendar);
     const forceSelect = !!(options && options.forceSelect);
 
-    const current = selectedTaskId ? getTaskById(selectedTaskId) : null;
+    // Look up the selected task in cache first; fall back to the active
+    // record so the drawer survives when the task is filtered out of the
+    // current board view (e.g. after a status change).
+    const current = selectedTaskId
+      ? (getTaskById(selectedTaskId) || (activeTaskRecord && idEq(activeTaskRecord.id, selectedTaskId) ? activeTaskRecord : null))
+      : null;
     if (current) {
       await updateTaskSummary(current);
       if ((!boardEl || drawerIsOpen() || forceSelect) && reloadActivePane) {
         ensureTaskPanelState(current.id);
         await Promise.all([loadParticipants(), loadActiveWorkspacePane()]);
       }
-    } else {
+    } else if (!selectedTaskId) {
+      // Only reset the drawer when there is genuinely no selected task.
+      // If selectedTaskId is set but the task is missing from both cache
+      // and activeTaskRecord, leave the drawer alone — a concurrent load
+      // will repopulate it.
       resetTaskSummary();
       resetTaskPanelState(null);
       renderEmptyStream(messageList, 'Open a task to see its messages.');
@@ -1365,15 +1377,19 @@
     if (columnEl) columnEl.classList.add('is-drag-target');
   }
 
+  function idEq(a, b) {
+    return a != null && b != null && parseInt(a, 10) === parseInt(b, 10);
+  }
+
   function getTaskById(taskId) {
-    return tasksCache.find((task) => task.id === taskId) || null;
+    return tasksCache.find((task) => idEq(task.id, taskId)) || null;
   }
 
   function getKnownTask(taskId) {
     const cacheTask = getTaskById(taskId);
     if (cacheTask) return cacheTask;
-    if (activeTaskRecord && activeTaskRecord.id === taskId) return activeTaskRecord;
-    if (selectedTaskId === taskId) {
+    if (activeTaskRecord && idEq(activeTaskRecord.id, taskId)) return activeTaskRecord;
+    if (idEq(selectedTaskId, taskId)) {
       return {
         id: taskId,
         title: currentTaskEl ? String(currentTaskEl.textContent || '').trim() || ('Task #' + taskId) : ('Task #' + taskId),
@@ -1467,7 +1483,7 @@
   async function loadTasks() {
     const data = await api(apiPathWithFilters('tasks'), { method: 'GET' });
     replaceTasks(data.tasks || []);
-    if (selectedTaskId && !getTaskById(selectedTaskId)) {
+    if (selectedTaskId && !getTaskById(selectedTaskId) && !(activeTaskRecord && idEq(activeTaskRecord.id, selectedTaskId))) {
       closeDrawer();
     }
     filterOptions = data.filters || filterOptions;
@@ -1477,7 +1493,7 @@
 
   async function selectTask(taskId, shouldOpenDrawer, options) {
     const config = options || {};
-    const sameTask = selectedTaskId === taskId;
+    const sameTask = idEq(selectedTaskId, taskId);
     selectedTaskId = taskId;
     const task = getTaskById(taskId);
     if (!task) return;
@@ -1534,6 +1550,29 @@
       });
     }
 
+    if (createNeedsMeetingEl && createMeetingFieldsEl) {
+      createNeedsMeetingEl.addEventListener('change', () => {
+        const show = createNeedsMeetingEl.checked;
+        createMeetingFieldsEl.hidden = !show;
+        if (show && createMeetingStartEl && !createMeetingStartEl.value) {
+          const start = roundUpToQuarterHour(new Date());
+          createMeetingStartEl.value = toLocalDatetimeValue(start);
+          if (createMeetingEndEl) {
+            createMeetingEndEl.value = toLocalDatetimeValue(new Date(start.getTime() + 60 * 60 * 1000));
+          }
+        }
+      });
+      if (createMeetingStartEl) {
+        createMeetingStartEl.addEventListener('change', () => {
+          if (!createMeetingEndEl) return;
+          const start = new Date(createMeetingStartEl.value);
+          if (!Number.isNaN(start.getTime())) {
+            createMeetingEndEl.value = toLocalDatetimeValue(new Date(start.getTime() + 60 * 60 * 1000));
+          }
+        });
+      }
+    }
+
     createForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const formData = new FormData(createForm);
@@ -1551,13 +1590,17 @@
         alert('Name the first job for this client before submitting the task.');
         return;
       }
+      const needsMeeting = formData.get('needs_meeting') === 'on';
+      const meetingStart = (formData.get('meeting_starts_at') || '').toString();
+      const meetingEnd = (formData.get('meeting_ends_at') || '').toString();
+
       const body = {
         title: formData.get('title') || '',
         description: formData.get('description') || '',
         priority: formData.get('priority') || 'normal',
         due_at: formData.get('due_at') || null,
         requested_deadline: formData.get('requested_deadline') || null,
-        needs_meeting: formData.get('needs_meeting') === 'on',
+        needs_meeting: needsMeeting,
         is_billable: !window.wpPqConfig.canApprove || formData.get('is_billable') === 'on',
         owner_ids: parseOwnerIds(formData.get('owner_ids')),
         client_id: createClientId || 0,
@@ -1567,19 +1610,38 @@
 
       try {
         const result = await api('tasks', { method: 'POST', body: JSON.stringify(body) });
+        const newTaskId = result.task ? result.task.id : (result.task_id || null);
+
+        // Schedule the meeting inline — no separate modal.
+        if (needsMeeting && meetingStart && newTaskId) {
+          let endsAt = meetingEnd;
+          if (!endsAt) {
+            const s = new Date(meetingStart);
+            if (!Number.isNaN(s.getTime())) {
+              endsAt = toLocalDatetimeValue(new Date(s.getTime() + 60 * 60 * 1000));
+            }
+          }
+          try {
+            await api('tasks/' + newTaskId + '/meetings', {
+              method: 'POST',
+              body: JSON.stringify({ starts_at: meetingStart, ends_at: endsAt || meetingStart }),
+            });
+          } catch (meetErr) {
+            alert('Task created but meeting scheduling failed: ' + meetErr.message, 'warning');
+          }
+        }
+
         createForm.reset();
+        if (createMeetingFieldsEl) createMeetingFieldsEl.hidden = true;
         createFormState.clientUserId = 0;
         createFormState.billingBucketId = 0;
         syncCreateFormContext();
         if (createPanel) createPanel.hidden = true;
-        const newTaskId = result.task ? result.task.id : (result.task_id || null);
-        if (body.needs_meeting && newTaskId) {
-          openMeetingScheduler(newTaskId);
-        }
+
         if (result.task) {
           upsertTask(result.task);
           selectedTaskId = result.task.id;
-          await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar' });
+          await refreshFromCache({ reloadActivePane: false, refreshCalendar: true });
         } else {
           selectedTaskId = result.task_id || selectedTaskId;
           await loadTasks();
@@ -1849,44 +1911,7 @@
   }
 
   function wireFiles() {
-    if (!fileForm) return;
-
-    fileForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      if (!selectedTaskId) return alert('Select a task first.');
-
-      const formData = new FormData(fileForm);
-      const file = formData.get('file');
-      const fileRole = (formData.get('file_role') || 'input').toString();
-
-      if (!file || !(file instanceof File)) return alert('Select a file first.');
-
-      try {
-        const media = await uploadToMedia(file);
-        const result = await api('tasks/' + selectedTaskId + '/files', {
-          method: 'POST',
-          body: JSON.stringify({ media_id: media.id, file_role: fileRole }),
-        });
-        fileForm.reset();
-        if (result.task) {
-          upsertTask(result.task);
-        }
-        if (result.file && fileList) {
-          const emptyState = fileList.querySelector('.wp-pq-stream-empty');
-          if (emptyState) {
-            fileList.innerHTML = '';
-          }
-          const li = document.createElement('li');
-          li.innerHTML = fileItemHtml(result.file);
-          fileList.prepend(li);
-          taskPanelState.files = true;
-        } else {
-          await loadFiles({ force: true });
-        }
-      } catch (err) {
-        alert(err.message);
-      }
-    });
+    // Legacy file form removed — uploads handled by initUppy() dropzone.
   }
 
   function wireMeetings() {
@@ -2289,53 +2314,58 @@
   }
 
   function initUppy() {
-    if (!uppyTarget || typeof window.Uppy === 'undefined') return;
+    if (!uppyTarget) return;
 
-    const UppyCtor = window.Uppy.Uppy || window.Uppy.Core;
-    if (!UppyCtor) return;
+    const fileInput = document.getElementById('wp-pq-file-input');
+    const browseBtn = uppyTarget.querySelector('.wp-pq-dropzone-browse');
+    const progressEl = document.getElementById('wp-pq-upload-progress');
+    if (!fileInput) return;
 
-    if (fileForm) {
-      fileForm.style.display = 'none';
+    // Browse button opens file picker
+    if (browseBtn) {
+      browseBtn.addEventListener('click', () => fileInput.click());
     }
 
-    const uppy = new UppyCtor({
-      autoProceed: true,
-      restrictions: {
-        maxNumberOfFiles: 5,
-      },
+    // Drag-and-drop
+    uppyTarget.addEventListener('dragover', (e) => { e.preventDefault(); uppyTarget.classList.add('wp-pq-dragover'); });
+    uppyTarget.addEventListener('dragleave', () => uppyTarget.classList.remove('wp-pq-dragover'));
+    uppyTarget.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uppyTarget.classList.remove('wp-pq-dragover');
+      if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
     });
 
-    const Dashboard = window.Uppy.Dashboard;
-    if (Dashboard) {
-      uppy.use(Dashboard, {
-        inline: true,
-        target: '#wp-pq-uppy',
-        height: 280,
-        proudlyDisplayPoweredByUppy: false,
-        note: 'Upload files to selected task',
-      });
+    // File input change
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length) handleFiles(fileInput.files);
+      fileInput.value = '';
+    });
+
+    async function handleFiles(files) {
+      if (!selectedTaskId) return alert('Select a task first.');
+
+      const count = files.length;
+      if (progressEl) {
+        progressEl.textContent = 'Uploading ' + count + ' file' + (count === 1 ? '' : 's') + '…';
+        progressEl.hidden = false;
+      }
+
+      try {
+        for (const file of files) {
+          const media = await uploadToMedia(file);
+          await api('tasks/' + selectedTaskId + '/files', {
+            method: 'POST',
+            body: JSON.stringify({ media_id: media.id, file_role: 'input' }),
+          });
+        }
+        await loadFiles({ force: true });
+        toast(count + ' file' + (count === 1 ? '' : 's') + ' uploaded.');
+      } catch (err) {
+        toast(err.message || 'Upload failed.', true);
+      } finally {
+        if (progressEl) progressEl.hidden = true;
+      }
     }
-
-    uppy.addUploader(async (fileIDs) => {
-      if (!selectedTaskId) {
-        alert('Select a task first.');
-        return;
-      }
-
-      for (const fileID of fileIDs) {
-        const file = uppy.getFile(fileID);
-        if (!file || !file.data) continue;
-
-        const media = await uploadToMedia(file.data);
-        await api('tasks/' + selectedTaskId + '/files', {
-          method: 'POST',
-          body: JSON.stringify({ media_id: media.id, file_role: 'input' }),
-        });
-      }
-
-      await loadFiles();
-      uppy.cancelAll();
-    });
   }
 
   function wireUnifiedFilters() {
@@ -2420,7 +2450,7 @@
         const result = await api('tasks/' + id + '/status', { method: 'POST', body: JSON.stringify({ status: status }) });
         if (result.task) {
           upsertTask(result.task);
-          await refreshFromCache({ reloadActivePane: false, refreshCalendar: currentView === 'calendar' });
+          await refreshFromCache({ reloadActivePane: true, refreshCalendar: currentView === 'calendar' });
         } else {
           await loadTasks();
         }

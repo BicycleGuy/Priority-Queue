@@ -12,6 +12,7 @@ class WP_PQ_Admin
         add_action('admin_init', [self::class, 'register_settings']);
         add_action('admin_init', [self::class, 'redirect_retired_admin_pages']);
         add_action('admin_post_wp_pq_google_oauth_start', [self::class, 'handle_google_oauth_start']);
+        add_action('admin_post_wp_pq_google_disconnect', [self::class, 'handle_google_disconnect']);
         add_action('admin_post_wp_pq_create_client', [self::class, 'handle_create_client']);
         add_action('admin_post_wp_pq_link_client', [self::class, 'handle_link_client']);
         add_action('admin_post_wp_pq_create_bucket', [self::class, 'handle_create_bucket']);
@@ -44,8 +45,8 @@ class WP_PQ_Admin
         }
 
         add_menu_page(
-            'Priority Queue Settings',
-            'Priority Queue',
+            'Switchboard Settings',
+            'Switchboard',
             WP_PQ_Roles::CAP_APPROVE,
             'wp-pq-settings',
             [self::class, 'render_settings_page'],
@@ -113,13 +114,16 @@ class WP_PQ_Admin
             wp_die('Forbidden');
         }
 
-        $redirect_uri = (string) get_option('wp_pq_google_redirect_uri', home_url('/wp-json/pq/v1/google/oauth/callback'));
+        $redirect_uri = trim((string) get_option('wp_pq_google_redirect_uri', ''));
+        if ($redirect_uri === '') {
+            $redirect_uri = home_url('/wp-json/pq/v1/google/oauth/callback');
+        }
         $tokens = (array) get_option('wp_pq_google_tokens', []);
         $is_connected = ! empty($tokens['refresh_token']);
         $oauth_url = wp_nonce_url(admin_url('admin-post.php?action=wp_pq_google_oauth_start'), 'wp_pq_google_oauth_start');
 
         echo '<div class="wrap wp-pq-wrap wp-pq-settings-page">';
-        echo '<h1>Priority Queue Settings</h1>';
+        echo '<h1>Switchboard Settings</h1>';
         echo '<p>Manage workflow email preferences, Google Calendar / Meet integration, and AI document import settings here.</p>';
         echo self::admin_section_nav('settings');
 
@@ -145,16 +149,23 @@ class WP_PQ_Admin
         echo '      </div>';
         echo '    </form>';
         echo '    <div class="wp-pq-admin-callout">';
-        echo '      <p><strong>Status:</strong> ' . ($is_connected ? 'Connected' : 'Not connected') . '</p>';
+        $has_refresh = ! empty($tokens['refresh_token']);
+        $status_label = $is_connected ? ($has_refresh ? 'Connected' : 'Partial (missing refresh token — reconnect)') : 'Not connected';
+        $disconnect_url = wp_nonce_url(admin_url('admin-post.php?action=wp_pq_google_disconnect'), 'wp_pq_google_disconnect');
+        echo '      <p><strong>Status:</strong> ' . esc_html($status_label) . '</p>';
         echo '      <p><strong>Set this redirect URI in Google Cloud:</strong> ' . esc_html($redirect_uri) . '</p>';
-        echo '      <p><a href="' . esc_url($oauth_url) . '" class="button">Connect Google Calendar</a></p>';
+        echo '      <p><a href="' . esc_url($oauth_url) . '" class="button">' . ($is_connected ? 'Reconnect' : 'Connect') . ' Google Calendar</a>';
+        if ($is_connected) {
+            echo ' <a href="' . esc_url($disconnect_url) . '" class="button" onclick="return confirm(\'Disconnect Google Calendar?\');">Disconnect</a>';
+        }
+        echo '</p>';
         echo '      <p><a href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com" target="_blank" rel="noopener">Open Google Cloud Console</a></p>';
         echo '    </div>';
         echo '  </section>';
 
         echo '  <section class="wp-pq-panel wp-pq-settings-panel">';
         echo '    <h2>OpenAI Document Ingester</h2>';
-        echo '    <p class="wp-pq-panel-note">Add your OpenAI API key and model so Priority Queue can turn pasted lists, CSVs, and PDFs into draft tasks for review before import.</p>';
+        echo '    <p class="wp-pq-panel-note">Add your OpenAI API key and model so Switchboard can turn pasted lists, CSVs, and PDFs into draft tasks for review before import.</p>';
         echo '    <form method="post" action="options.php">';
         settings_fields('wp_pq_settings_group');
         echo '      <label>OpenAI API key <input type="password" name="wp_pq_openai_api_key" value="' . esc_attr((string) get_option('wp_pq_openai_api_key', '')) . '" autocomplete="off"></label>';
@@ -189,7 +200,20 @@ class WP_PQ_Admin
             exit;
         }
 
-        wp_safe_redirect($url);
+        // wp_redirect (not wp_safe_redirect) because Google's auth URL is external.
+        wp_redirect($url); // phpcs:ignore WordPress.Security.SafeRedirect.wp_redirect_wp_redirect
+        exit;
+    }
+
+    public static function handle_google_disconnect(): void
+    {
+        if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            wp_die('Forbidden');
+        }
+
+        check_admin_referer('wp_pq_google_disconnect');
+        delete_option('wp_pq_google_tokens');
+        wp_safe_redirect(admin_url('admin.php?page=wp-pq-settings'));
         exit;
     }
 
@@ -242,6 +266,7 @@ class WP_PQ_Admin
             }
 
             $user = WP_PQ_API::get_cached_user((int) $user_id);
+            self::send_welcome_email((int) $user_id, $client_name);
             $created = true;
         } else {
             $user->add_role('pq_client');
@@ -3107,7 +3132,7 @@ document.addEventListener('DOMContentLoaded', function () {
     </div>
 
     <p class="fine-print">
-      Generated from the Readspear Priority Portal. Keep this document with the related task record, work statement, and invoice draft for audit continuity.
+      Generated from Switchboard. Keep this document with the related task record, work statement, and invoice draft for audit continuity.
     </p>
   </main>
 </body>
@@ -3290,7 +3315,7 @@ document.addEventListener('DOMContentLoaded', function () {
     </div>
 
     <p class="fine-print">
-      Generated from the Readspear Priority Portal. This document is an invoice draft for accounting handoff, not the issued invoice of record.
+      Generated from Switchboard. This document is an invoice draft for accounting handoff, not the issued invoice of record.
     </p>
   </main>
 </body>
@@ -3311,5 +3336,104 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         return wp_date('M j, Y g:i A', $timestamp);
+    }
+
+    // ── Onboarding ──────────────────────────────────────────────
+
+    /**
+     * Send a branded welcome email with a password-set link.
+     */
+    public static function send_welcome_email(int $user_id, string $display_name = ''): void
+    {
+        $user = get_userdata($user_id);
+        if (! $user) {
+            return;
+        }
+
+        $email = (string) $user->user_email;
+        if ($email === '' || ! is_email($email)) {
+            return;
+        }
+
+        if ($display_name === '') {
+            $display_name = (string) $user->display_name ?: (string) $user->user_login;
+        }
+
+        $reset_key = get_password_reset_key($user);
+        if (is_wp_error($reset_key)) {
+            return;
+        }
+
+        $reset_url = network_site_url(
+            'wp-login.php?action=rp&key=' . rawurlencode($reset_key) . '&login=' . rawurlencode($user->user_login),
+            'login'
+        );
+
+        $portal_url = WP_PQ_Portal::portal_url();
+        $site_name = get_bloginfo('name', 'display');
+
+        $subject = 'You\'ve been invited to Switchboard';
+
+        $body = self::build_welcome_email_html($display_name, $reset_url, $portal_url, $site_name);
+
+        $headers = [
+            'Content-Type: text/html; charset=UTF-8',
+            'From: ' . $site_name . ' <' . get_option('admin_email') . '>',
+        ];
+
+        $sent = wp_mail($email, $subject, $body, $headers);
+        if (! $sent && defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('Switchboard: welcome email failed for user ' . $user_id . ' (' . $email . ')');
+        }
+    }
+
+    private static function build_welcome_email_html(
+        string $name,
+        string $reset_url,
+        string $portal_url,
+        string $site_name
+    ): string {
+        $name_esc = esc_html($name);
+        $reset_esc = esc_url($reset_url);
+        $portal_esc = esc_url($portal_url);
+        $site_esc = esc_html($site_name);
+
+        return <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,Segoe UI,Roboto,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:40px 20px;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1);">
+
+<tr><td style="background:#1e293b;padding:28px 32px;">
+  <h1 style="margin:0;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:.3px;">Switchboard</h1>
+</td></tr>
+
+<tr><td style="padding:32px;">
+  <p style="margin:0 0 16px;font-size:16px;line-height:1.5;color:#334155;">Hi {$name_esc},</p>
+  <p style="margin:0 0 16px;font-size:16px;line-height:1.5;color:#334155;">You've been invited to <strong>Switchboard</strong> on {$site_esc}. This is where you'll manage requests, approvals, files, and scheduling.</p>
+  <p style="margin:0 0 24px;font-size:16px;line-height:1.5;color:#334155;">Set your password to get started:</p>
+
+  <table cellpadding="0" cellspacing="0" style="margin:0 0 24px;">
+  <tr><td style="background:#2563eb;border-radius:6px;padding:12px 28px;">
+    <a href="{$reset_esc}" style="color:#ffffff;text-decoration:none;font-size:16px;font-weight:600;display:inline-block;">Set Your Password</a>
+  </td></tr>
+  </table>
+
+  <p style="margin:0 0 8px;font-size:14px;line-height:1.5;color:#64748b;">Once your password is set, sign in at:</p>
+  <p style="margin:0 0 24px;font-size:14px;"><a href="{$portal_esc}" style="color:#2563eb;">{$portal_esc}</a></p>
+
+  <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0;">
+  <p style="margin:0;font-size:13px;color:#94a3b8;">If you didn't expect this invite, you can safely ignore this email.</p>
+</td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>
+HTML;
     }
 }

@@ -314,6 +314,7 @@ class WP_PQ_Manager_API
                 return new WP_REST_Response(['message' => $user_id->get_error_message()], 422);
             }
             $user = WP_PQ_API::get_cached_user((int) $user_id);
+            WP_PQ_Admin::send_welcome_email((int) $user_id, $client_name);
             $created = true;
         } else {
             $user->add_role('pq_client');

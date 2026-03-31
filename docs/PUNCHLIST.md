@@ -3,7 +3,7 @@
 ## Active UI/UX Issues
 
 - [ ] Status transition performance — 10-15 second delay between click and toast on some moves (profile server-side `sync_task_calendar_event` and `emit_event`)
-- [ ] File uploads — Uppy not completing uploads (needs investigation)
+- [x] File uploads — replaced Uppy with lightweight custom dropzone (drag-and-drop + browse)
 - [ ] Messages/Notes UI — user wants unified conversation view instead of separate cards
 - [ ] Tooltip clipping — sticky note and priority marker tooltips can get clipped by card `overflow: hidden` on cards near container edges
 - [ ] Date validation bug — `datetime-local` input sends browser-local format; `strtotime()` handles it but display may show wrong timezone
@@ -47,6 +47,23 @@ These were identified by review agents but deferred as higher-risk refactors:
 - [ ] **SMTP / Email** — depends on Google OAuth or alternative SMTP plugin. `wp_mail()` calls exist but no mail delivery confirmed.
 - [ ] **Google Meet scheduling** — depends on OAuth fix. Floating scheduler UI is wired but API calls will fail without valid tokens.
 - [ ] **Front-end portal route** — user wants `/portal` route with custom login (not wp-admin). Discussed but not started. Will become the basis for multi-tenant migration.
+
+## Swimlanes (Future Feature)
+
+Horizontal row groupings that cut across status columns. Design decisions locked in:
+
+- **Lanes are per-manager**, optionally shared with their client via `client_visible` flag
+- **Each task gets a lane assignment** — defaults to "Uncategorized" (bottom-most row)
+- **Within each lane**, cards sort by priority (high → low), then queue position
+- **Cross-lane drag** triggers a confirmation prompt before re-categorizing
+- **Lanes are collapsible** so managers can focus on one category at a time
+- **Example lanes:** Priority, Grow, Sell, Discuss (user-defined, not hardcoded)
+
+Data model: new `pq_lanes` table (`id`, `manager_user_id`, `client_id` nullable, `label`, `sort_order`, `client_visible`) + `lane_id` column on `pq_tasks`.
+
+## Rebrand
+
+App name: **Switchboard**. All user-facing references (login page, welcome emails, portal header, browser title) should use "Switchboard" instead of "Priority Queue" or "Priority Portal".
 
 ## Multi-Tenant Migration (Future)
 

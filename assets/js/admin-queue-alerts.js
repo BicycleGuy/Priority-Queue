@@ -174,6 +174,62 @@
 
   async function refreshPreferencesPanel() {
     await loadPrefs();
+    await refreshGcalStatus();
+  }
+
+  async function refreshGcalStatus() {
+    var container = document.getElementById('wp-pq-gcal-status');
+    if (!container) return; // Not a manager — section hidden
+
+    try {
+      var data = await bridge.api('google/oauth/status', { method: 'GET' });
+      var connected = !!(data && data.connected);
+      var email = (data && data.connected_email) || '';
+      var usingRelay = !!(data && data.using_relay);
+
+      if (connected) {
+        container.innerHTML =
+          '<span class="wp-pq-gcal-badge wp-pq-gcal-connected">&#x2713; Connected' +
+          (email ? ' &mdash; ' + bridge.escapeHtml(email) : '') + '</span>' +
+          '<button class="button wp-pq-gcal-disconnect" type="button" id="wp-pq-gcal-disconnect">Disconnect</button>';
+        var disconnectBtn = document.getElementById('wp-pq-gcal-disconnect');
+        if (disconnectBtn) {
+          disconnectBtn.addEventListener('click', async function () {
+            if (!confirm('Disconnect Google Calendar? Meetings will stop creating events.')) return;
+            try {
+              await bridge.api('google/oauth/disconnect', { method: 'POST' });
+              bridge.alert('Google Calendar disconnected.');
+              await refreshGcalStatus();
+            } catch (err) {
+              bridge.alert(err.message || 'Failed to disconnect.', true);
+            }
+          });
+        }
+      } else {
+        var connectLabel = usingRelay ? 'Connect Google Calendar' : 'Connect Google Calendar (requires setup)';
+        var endpoint = usingRelay ? 'google/oauth/relay-initiate' : 'google/oauth/url';
+        container.innerHTML =
+          '<span class="wp-pq-gcal-badge wp-pq-gcal-disconnected">Not connected</span>' +
+          '<button class="button button-primary wp-pq-gcal-connect" type="button" id="wp-pq-gcal-connect">' + connectLabel + '</button>';
+        var connectBtn = document.getElementById('wp-pq-gcal-connect');
+        if (connectBtn) {
+          connectBtn.addEventListener('click', async function () {
+            try {
+              var urlData = await bridge.api(endpoint, { method: 'GET' });
+              if (urlData && urlData.url) {
+                window.location.href = urlData.url;
+              } else {
+                bridge.alert('Could not generate OAuth URL.', true);
+              }
+            } catch (err) {
+              bridge.alert(err.message || 'Failed to start Google connection.', true);
+            }
+          });
+        }
+      }
+    } catch (err) {
+      container.innerHTML = '<span class="wp-pq-gcal-badge wp-pq-gcal-error">Unable to check status</span>';
+    }
   }
 
   async function openPreferencesPanel() {
@@ -235,10 +291,25 @@
 
     // 4. Select the task and always open the drawer.
     bridge.setSelectedTaskId(taskId);
-    await bridge.selectTask(taskId, true);
+    await bridge.selectTask(taskId, true, { forceWorkspace: true, forceParticipants: true });
 
-    // 5. As a safety-net, explicitly open the drawer even if selectTask
-    //    bailed (e.g. task still missing due to permissions).
+    // 5. If selectTask bailed (task filtered out / missing), force-fetch
+    //    the full unfiltered list, upsert the match, and retry so the
+    //    drawer doesn't show the empty placeholder.
+    if (!bridge.getTaskById(taskId)) {
+      try {
+        var data = await bridge.api('tasks', { method: 'GET' });
+        var tasks = data && data.tasks ? data.tasks : [];
+        var match = tasks.find(function (t) { return t.id === taskId; });
+        if (match) {
+          bridge.upsertTask(match);
+          bridge.setSelectedTaskId(taskId);
+          await bridge.selectTask(taskId, true, { forceWorkspace: true, forceParticipants: true });
+        }
+      } catch (ignore) { /* best-effort */ }
+    }
+
+    // 6. Ensure drawer is visually open even if selectTask didn't open it.
     if (typeof bridge.openDrawer === 'function') bridge.openDrawer();
 
     if (notificationId > 0) {
@@ -328,6 +399,22 @@
   if (prefList && prefSaveBtn && !openPrefsBtn) {
     refreshPreferencesPanel().catch(console.error);
   }
+
+  // Handle ?gcal_connected=1 redirect from OAuth relay
+  (function () {
+    var params = new URLSearchParams(window.location.search);
+    if (params.get('gcal_connected') === '1') {
+      // Clean the URL
+      params.delete('gcal_connected');
+      var clean = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+      window.history.replaceState(null, '', clean);
+      // Show success and open preferences
+      setTimeout(function () {
+        bridge.alert('Google Calendar connected successfully!', 'success');
+        if (typeof openPreferencesPanel === 'function') openPreferencesPanel().catch(console.error);
+      }, 300);
+    }
+  })();
 
   // Boot: load prefs then inbox, with polling
   loadPrefs()

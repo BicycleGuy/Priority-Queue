@@ -41,6 +41,15 @@ final class WP_PQ_Plugin
         WP_PQ_Portal::init();
 
         add_filter('upload_size_limit', [self::class, 'upload_size_limit']);
+
+        // Branded login page.
+        add_action('login_enqueue_scripts', [self::class, 'login_styles']);
+        add_filter('login_headerurl', [self::class, 'login_header_url']);
+        add_filter('login_headertext', [self::class, 'login_header_text']);
+        add_filter('login_title', [self::class, 'login_title']);
+
+        // Redirect non-admin users to the portal after login.
+        add_filter('login_redirect', [self::class, 'login_redirect'], 10, 3);
     }
 
     public static function upload_size_limit($size)
@@ -49,5 +58,108 @@ final class WP_PQ_Plugin
         $bytes = $mb * 1024 * 1024;
 
         return max((int) $size, $bytes);
+    }
+
+    // ── Branded Login Page ──────────────────────────────────────
+
+    public static function login_styles(): void
+    {
+        ?>
+        <style>
+            body.login {
+                background: #f3f4f6;
+                font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+            }
+            .login h1 a {
+                background-image: none !important;
+                font-size: 26px;
+                font-weight: 700;
+                color: #1e293b;
+                text-indent: 0;
+                width: auto;
+                height: auto;
+                letter-spacing: .3px;
+                text-decoration: none;
+                padding: 0;
+                margin-bottom: 20px;
+            }
+            .login h1 a:hover,
+            .login h1 a:focus {
+                color: #2563eb;
+            }
+            .login form {
+                border: 1px solid #e2e8f0;
+                border-radius: 8px;
+                box-shadow: 0 1px 3px rgba(0,0,0,.08);
+            }
+            .login #backtoblog,
+            .login #nav {
+                text-align: center;
+            }
+            .login #backtoblog a,
+            .login #nav a {
+                color: #64748b;
+            }
+            .login #backtoblog a:hover,
+            .login #nav a:hover {
+                color: #2563eb;
+            }
+            .wp-core-ui .button-primary {
+                background: #2563eb;
+                border-color: #1d4ed8;
+                border-radius: 6px;
+                font-weight: 600;
+            }
+            .wp-core-ui .button-primary:hover,
+            .wp-core-ui .button-primary:focus {
+                background: #1d4ed8;
+                border-color: #1e40af;
+            }
+            .login .message,
+            .login .success {
+                border-left-color: #2563eb;
+                border-radius: 4px;
+            }
+        </style>
+        <?php
+    }
+
+    public static function login_header_url(): string
+    {
+        return home_url('/');
+    }
+
+    public static function login_header_text(): string
+    {
+        return 'Switchboard';
+    }
+
+    public static function login_title(): string
+    {
+        return 'Sign In — Switchboard';
+    }
+
+    /**
+     * After login, send pq_client and pq_worker users to the portal
+     * instead of wp-admin (which they can't access anyway).
+     */
+    public static function login_redirect(string $redirect_to, string $requested_redirect_to, $user): string
+    {
+        if (! $user instanceof WP_User) {
+            return $redirect_to;
+        }
+
+        // If they were headed somewhere specific (e.g. password reset redirect), honour that.
+        if ($requested_redirect_to !== '' && $requested_redirect_to !== admin_url()) {
+            return $redirect_to;
+        }
+
+        // Managers and admins go to wp-admin as usual.
+        if ($user->has_cap(WP_PQ_Roles::CAP_APPROVE)) {
+            return $redirect_to;
+        }
+
+        // Everyone else goes to the portal.
+        return WP_PQ_Portal::portal_url();
     }
 }

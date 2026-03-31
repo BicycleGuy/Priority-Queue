@@ -10,7 +10,7 @@ class WP_PQ_AI_Importer
     {
         $api_key = trim((string) ($args['api_key'] ?? ''));
         if ($api_key === '') {
-            return new WP_Error('pq_openai_missing_key', 'Add an OpenAI API key in Priority Queue Settings before using the document ingester.');
+            return new WP_Error('pq_openai_missing_key', 'Add an OpenAI API key in Switchboard Settings before using the document ingester.');
         }
 
         $model = trim((string) ($args['model'] ?? 'gpt-4o-mini'));
