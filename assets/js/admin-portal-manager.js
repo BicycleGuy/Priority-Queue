@@ -1368,12 +1368,15 @@
 
       const rows = docs.map((doc) => {
         const date = doc.created_at ? new Date(doc.created_at + 'Z').toLocaleDateString() : '';
+        const isDrive = doc.storage_type === 'drive';
+        const linkUrl = doc.download_url || doc.media_url || '#';
+        const storageLabel = isDrive ? ' <span class="wp-pq-drive-badge">Drive</span>' : '';
         return '<tr data-doc-id="' + doc.id + '">'
-          + '<td><a href="' + esc(doc.media_url || '#') + '" target="_blank" rel="noopener">' + esc(doc.filename || 'Untitled') + '</a></td>'
+          + '<td><a href="' + esc(linkUrl) + '" target="_blank" rel="noopener">' + esc(doc.filename || 'Untitled') + '</a>' + storageLabel + '</td>'
           + '<td>' + esc(doc.task_title || '(standalone)') + '</td>'
           + '<td>' + esc(doc.file_role || '') + '</td>'
           + '<td>' + esc(doc.uploader_name || '') + '</td>'
-          + '<td>' + formatBytes(doc.filesize) + '</td>'
+          + '<td>' + formatBytes(doc.filesize || doc.drive_file_size || 0) + '</td>'
           + '<td>' + esc(date) + '</td>'
           + '<td><button class="button wp-pq-docs-delete" data-doc-id="' + doc.id + '" data-filename="' + esc(doc.filename || '') + '">Delete</button></td>'
           + '</tr>';

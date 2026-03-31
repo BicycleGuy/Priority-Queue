@@ -440,9 +440,12 @@
 
   function fileItemHtml(file) {
     const fileName = file.filename || ('media #' + file.media_id);
-    const fileUrl = file.media_url || '';
+    const fileUrl = file.download_url || file.media_url || '';
+    const viewUrl = file.media_url || '';
+    const isDrive = file.storage_type === 'drive';
     const createdAt = formatDateTime(file.created_at);
-    return '<div><strong>' + escapeHtml(file.file_role) + '</strong> v' + escapeHtml(file.version_num) + '</div>' +
+    const driveTag = isDrive ? ' <span class="wp-pq-drive-badge">Drive</span>' : '';
+    return '<div><strong>' + escapeHtml(file.file_role) + '</strong> v' + escapeHtml(file.version_num) + driveTag + '</div>' +
       (fileUrl
         ? '<div><a href="' + encodeURI(fileUrl) + '" target="_blank" rel="noopener">' + escapeHtml(fileName) + '</a></div>'
         : '<div>' + escapeHtml(fileName) + '</div>') +
@@ -2352,11 +2355,21 @@
 
       try {
         for (const file of files) {
-          const media = await uploadToMedia(file);
-          await api('tasks/' + selectedTaskId + '/files', {
-            method: 'POST',
-            body: JSON.stringify({ media_id: media.id, file_role: 'input' }),
-          });
+          if (config.driveEnabled) {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('file_role', 'input');
+            await api('tasks/' + selectedTaskId + '/files/drive', {
+              method: 'POST',
+              body: formData,
+            });
+          } else {
+            const media = await uploadToMedia(file);
+            await api('tasks/' + selectedTaskId + '/files', {
+              method: 'POST',
+              body: JSON.stringify({ media_id: media.id, file_role: 'input' }),
+            });
+          }
         }
         await loadFiles({ force: true });
         toast(count + ' file' + (count === 1 ? '' : 's') + ' uploaded.');

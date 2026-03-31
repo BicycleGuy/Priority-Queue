@@ -45,7 +45,7 @@ define('GOOGLE_AUTH_URL',  'https://accounts.google.com/o/oauth2/v2/auth');
 define('GOOGLE_TOKEN_URL', 'https://oauth2.googleapis.com/token');
 
 // Scopes — calendar.events is narrower than full calendar access
-define('GOOGLE_SCOPES', 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email');
+define('GOOGLE_SCOPES', 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive');
 
 /**
  * Encrypt a string with AES-256-GCM.

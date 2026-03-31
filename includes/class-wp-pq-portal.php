@@ -121,6 +121,7 @@ class WP_PQ_Portal
             'canViewAll' => current_user_can(WP_PQ_Roles::CAP_VIEW_ALL),
             'currentUserId' => get_current_user_id(),
             'isManager' => $is_manager,
+            'driveEnabled' => WP_PQ_Drive::is_enabled(),
         ];
         wp_localize_script('wp-pq-admin', 'wpPqConfig', $portal_config);
         if ($is_manager) {

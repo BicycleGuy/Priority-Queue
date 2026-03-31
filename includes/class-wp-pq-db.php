@@ -1060,6 +1060,46 @@ class WP_PQ_DB
         update_option('wp_pq_clear_false_archived_at_applied', 1, true);
     }
 
+    public static function migrate_drive_storage_model(): void
+    {
+        global $wpdb;
+
+        if (get_option('wp_pq_drive_storage_migration_applied')) {
+            return;
+        }
+
+        $clients_table = $wpdb->prefix . 'pq_clients';
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $files_table = $wpdb->prefix . 'pq_task_files';
+
+        // Add google_drive_id to clients.
+        $col = $wpdb->get_results("SHOW COLUMNS FROM {$clients_table} LIKE 'google_drive_id'");
+        if (empty($col)) {
+            $wpdb->query("ALTER TABLE {$clients_table} ADD COLUMN google_drive_id VARCHAR(191) NULL AFTER primary_contact_user_id");
+        }
+
+        // Add google_folder_id to tasks.
+        $col = $wpdb->get_results("SHOW COLUMNS FROM {$tasks_table} LIKE 'google_folder_id'");
+        if (empty($col)) {
+            $wpdb->query("ALTER TABLE {$tasks_table} ADD COLUMN google_folder_id VARCHAR(191) NULL AFTER google_event_id");
+        }
+
+        // Add Drive columns to task_files.
+        $col = $wpdb->get_results("SHOW COLUMNS FROM {$files_table} LIKE 'storage_type'");
+        if (empty($col)) {
+            $wpdb->query("ALTER TABLE {$files_table}
+                ADD COLUMN storage_type VARCHAR(20) NOT NULL DEFAULT 'media' AFTER media_id,
+                ADD COLUMN drive_file_id VARCHAR(191) NULL AFTER storage_type,
+                ADD COLUMN drive_file_name VARCHAR(500) NULL AFTER drive_file_id,
+                ADD COLUMN drive_file_url VARCHAR(1000) NULL AFTER drive_file_name,
+                ADD COLUMN drive_mime_type VARCHAR(191) NULL AFTER drive_file_url,
+                ADD COLUMN drive_file_size BIGINT UNSIGNED NULL AFTER drive_mime_type,
+                MODIFY COLUMN media_id BIGINT UNSIGNED NULL");
+        }
+
+        update_option('wp_pq_drive_storage_migration_applied', 1, true);
+    }
+
     public static function get_or_create_default_billing_bucket_id(int $client_id): int
     {
         global $wpdb;
