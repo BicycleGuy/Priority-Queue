@@ -1057,7 +1057,7 @@
 
   function boardCard(task) {
     const card = document.createElement('article');
-    card.className = 'wp-pq-task-card is-status-' + normalizeStatus(task.status || 'pending_approval').replaceAll('_', '-');
+    card.className = 'wp-pq-task-card is-priority-' + (task.priority || 'normal');
     card.dataset.id = task.id;
 
     const brief = truncateText(task.description || 'No request brief yet.', 160);

@@ -2165,13 +2165,11 @@ button.wp-pq-manager-list-item.is-active {
   box-shadow: 0 0 0 1px var(--pq-accent), var(--pq-shadow-lg);
 }
 
-.wp-pq-task-card.is-status-pending-approval { --pq-card-status: #d97706; }
-.wp-pq-task-card.is-status-approved { --pq-card-status: #78716c; }
-.wp-pq-task-card.is-status-in-progress { --pq-card-status: #991b1b; }
-.wp-pq-task-card.is-status-pending-review { --pq-card-status: #7c3aed; }
-.wp-pq-task-card.is-status-delivered { --pq-card-status: #15803d; }
-.wp-pq-task-card.is-status-not-approved,
-.wp-pq-task-card.is-status-revision-requested { --pq-card-status: #dc2626; }
+/* Card edge color — priority, not status (status is already clear from the column) */
+.wp-pq-task-card.is-priority-low      { --pq-card-status: #a8a29e; }  /* stone */
+.wp-pq-task-card.is-priority-normal   { --pq-card-status: #78716c; }  /* mid-stone */
+.wp-pq-task-card.is-priority-high     { --pq-card-status: #d97706; }  /* amber */
+.wp-pq-task-card.is-priority-urgent   { --pq-card-status: #dc2626; }  /* red */
 
 .wp-pq-task-card-top {
   display: flex;
