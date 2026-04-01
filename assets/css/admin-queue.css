@@ -517,13 +517,20 @@
 
 .wp-pq-mention-chip {
   border: 1px solid var(--pq-border);
-  border-radius: 6px;
-  background: var(--pq-surface);
+  border-radius: 999px;
+  background: var(--pq-soft);
   color: var(--pq-ink);
-  padding: 6px 10px;
+  padding: 5px 12px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.wp-pq-mention-chip:hover {
+  background: var(--pq-accent-soft);
+  border-color: var(--pq-accent);
+  color: var(--pq-accent);
 }
 
 .wp-pq-mention-hint {
@@ -2791,6 +2798,30 @@ button.wp-pq-manager-list-item.is-active {
   font-size: 12px;
 }
 
+.wp-pq-drawer-actions .button {
+  background: var(--pq-soft) !important;
+  color: var(--pq-ink) !important;
+  border: 1px solid var(--pq-border) !important;
+  border-radius: 8px;
+}
+
+.wp-pq-drawer-actions .button:hover {
+  background: var(--pq-accent-soft) !important;
+  color: var(--pq-accent) !important;
+  border-color: var(--pq-accent) !important;
+}
+
+.wp-pq-drawer-actions .button.button-primary {
+  background: var(--pq-accent) !important;
+  color: #fff !important;
+  border-color: var(--pq-accent) !important;
+}
+
+.wp-pq-drawer-actions .button.button-primary:hover {
+  background: var(--pq-accent-dark) !important;
+  border-color: var(--pq-accent-dark) !important;
+}
+
 .wp-pq-wrap .button.wp-pq-button-danger,
 .wp-pq-wrap .button.wp-pq-button-danger.button-primary {
   background: #b91c1c;
@@ -2838,14 +2869,14 @@ button.wp-pq-manager-list-item.is-active {
 
 .wp-pq-workspace-tabs .button.is-active,
 .wp-pq-workspace-tabs .button.button-primary {
-  background: var(--pq-accent) !important;
-  color: #fff !important;
+  background: var(--pq-accent-soft) !important;
+  color: var(--pq-accent) !important;
   box-shadow: none !important;
 }
 
 .wp-pq-workspace-tabs .button.is-active .wp-pq-tab-badge {
-  background: rgba(255, 255, 255, 0.25);
-  color: #fff;
+  background: var(--pq-accent-soft);
+  color: var(--pq-accent);
 }
 
 .wp-pq-meeting-panel {
