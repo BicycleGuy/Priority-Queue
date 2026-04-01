@@ -160,7 +160,15 @@ class WP_PQ_Portal
         echo '      <div class="wp-pq-binder-section wp-pq-binder-section-action">';
         echo '        <button class="button button-primary wp-pq-primary-action" type="button" id="wp-pq-open-create">New Request</button>';
         echo '      </div>';
+        // Queue — top-level nav, always visible.
+        echo '      <div class="wp-pq-binder-section">';
+        echo '        <div class="wp-pq-filter-nav">';
+        echo '          <button class="button is-active" type="button" data-pq-section="queue" id="wp-pq-nav-queue"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span>Queue</span></span></button>';
+        echo '        </div>';
+        echo '      </div>';
+
         echo '      <div id="wp-pq-queue-binder-sections">';
+        // View toggle
         echo '      <div class="wp-pq-binder-section">';
         echo '        <p class="wp-pq-binder-label">View</p>';
         echo '        <div class="wp-pq-view-toggle">';
@@ -168,32 +176,35 @@ class WP_PQ_Portal
         echo '          <button class="button" id="wp-pq-view-calendar" type="button">Calendar</button>';
         echo '        </div>';
         echo '      </div>';
+        // Scope — collapsible, default open
         echo '      <div class="wp-pq-binder-section wp-pq-binder-section-scope">';
-        echo '        <p class="wp-pq-binder-label">Scope</p>';
-        echo '        <div id="wp-pq-binder-client-context" class="wp-pq-binder-context">Loading client scope…</div>';
-        echo '        <div id="wp-pq-binder-job-context" class="wp-pq-binder-context">Loading jobs…</div>';
-        echo '        <div class="wp-pq-board-filters" id="wp-pq-board-filters" hidden>';
-        echo '          <label class="wp-pq-filter-control" id="wp-pq-client-filter-wrap" hidden>Client';
-        echo '            <select id="wp-pq-client-filter"></select>';
-        echo '          </label>';
-        echo '        </div>';
+        echo '        <details class="wp-pq-admin-group" open>';
+        echo '          <summary><svg class="wp-pq-summary-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>Scope</summary>';
+        echo '          <div class="wp-pq-scope-inner">';
+        echo '            <div id="wp-pq-binder-client-context" class="wp-pq-binder-context">Loading client scope…</div>';
+        echo '            <div id="wp-pq-binder-job-context" class="wp-pq-binder-context">Loading jobs…</div>';
+        echo '            <div class="wp-pq-board-filters" id="wp-pq-board-filters" hidden>';
+        echo '              <label class="wp-pq-filter-control" id="wp-pq-client-filter-wrap" hidden>Client';
+        echo '                <select id="wp-pq-client-filter"></select>';
+        echo '              </label>';
+        echo '            </div>';
+        echo '          </div>';
+        echo '        </details>';
         echo '      </div>';
+        // Jobs — collapsible, default open
         echo '      <div class="wp-pq-binder-section" id="wp-pq-job-nav-wrap" hidden>';
-        echo '        <p class="wp-pq-binder-label">Jobs</p>';
-        echo '        <div id="wp-pq-job-nav" class="wp-pq-job-nav wp-pq-filter-nav"></div>';
+        echo '        <details class="wp-pq-admin-group" open>';
+        echo '          <summary><svg class="wp-pq-summary-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>Jobs</summary>';
+        echo '          <div id="wp-pq-job-nav" class="wp-pq-job-nav wp-pq-filter-nav"></div>';
+        echo '        </details>';
         echo '      </div>';
         echo '      </div>'; // close wp-pq-queue-binder-sections
 
-        // Work section — Queue is always visible.
-        echo '      <div class="wp-pq-binder-section">';
-        echo '        <p class="wp-pq-binder-label">Work</p>';
-        echo '        <div class="wp-pq-filter-nav">';
-        echo '          <button class="button is-active" type="button" data-pq-section="queue" id="wp-pq-nav-queue"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span>Queue</span></span></button>';
-        echo '        </div>';
-
         if ($is_manager) {
-            echo '        <details class="wp-pq-admin-group" id="wp-pq-admin-group" open>';
-            echo '          <summary>Administration</summary>';
+            // Administration — collapsible, default closed.
+            echo '      <div class="wp-pq-binder-section">';
+            echo '        <details class="wp-pq-admin-group" id="wp-pq-admin-group">';
+            echo '          <summary><svg class="wp-pq-summary-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Administration</summary>';
             echo '          <div id="wp-pq-manager-nav" class="wp-pq-filter-nav wp-pq-manager-nav">';
             echo '            <button class="button" type="button" data-pq-section="clients"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span>Clients</span></span></button>';
             echo '            <button class="button" type="button" data-pq-section="billing-rollup"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><span>Billing Rollup</span></span></button>';
@@ -203,8 +214,8 @@ class WP_PQ_Portal
             echo '            <button class="button" type="button" data-pq-section="preferences"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span>Preferences</span></span></button>';
             echo '          </div>';
             echo '        </details>';
+            echo '      </div>';
         }
-        echo '      </div>';
 
         echo '      <div class="wp-pq-binder-section wp-pq-binder-section-bottom">';
         echo '        <button class="button wp-pq-dark-mode-btn" type="button" id="wp-pq-dark-toggle"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></span><span>Dark mode</span></span></button>';
