@@ -2565,5 +2565,44 @@
     }
   })();
 
+  // ── Fixed-position tooltip (escapes overflow:hidden ancestors) ──
+  (function () {
+    var tip = document.getElementById('wp-pq-tooltip');
+    if (!tip) return;
+    var wrap = document.querySelector('.wp-pq-wrap');
+    if (!wrap) return;
+
+    function show(e) {
+      var el = e.target.closest('[data-tooltip]');
+      if (!el) return;
+      var text = el.getAttribute('data-tooltip');
+      if (!text) return;
+      tip.textContent = text;
+      tip.style.display = 'block';
+      var rect = el.getBoundingClientRect();
+      var tipRect = tip.getBoundingClientRect();
+      var top = rect.top - tipRect.height - 6;
+      var left = rect.right - tipRect.width;
+      if (top < 4) { top = rect.bottom + 6; }
+      if (left < 4) { left = rect.left; }
+      tip.style.top = top + 'px';
+      tip.style.left = left + 'px';
+      requestAnimationFrame(function () { tip.classList.add('is-visible'); });
+    }
+
+    function hide() {
+      tip.classList.remove('is-visible');
+      tip.addEventListener('transitionend', function once() {
+        tip.removeEventListener('transitionend', once);
+        if (!tip.classList.contains('is-visible')) { tip.style.display = 'none'; }
+      });
+    }
+
+    wrap.addEventListener('mouseover', show);
+    wrap.addEventListener('mouseout', function (e) {
+      if (e.target.closest('[data-tooltip]')) hide();
+    });
+  })();
+
   loadTasks().catch(console.error);
 })();

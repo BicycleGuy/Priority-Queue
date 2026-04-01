@@ -567,6 +567,7 @@ class WP_PQ_Portal
         echo '      </div>';
         echo '    </form>';
         echo '  </div>';
+        echo '  <div id="wp-pq-tooltip"></div>';
         echo '</div>';
 
         return (string) ob_get_clean();

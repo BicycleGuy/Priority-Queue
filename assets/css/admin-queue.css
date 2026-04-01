@@ -2231,12 +2231,9 @@ button.wp-pq-manager-list-item.is-active {
   cursor: default;
 }
 
-.wp-pq-note-flag::after,
-.wp-pq-priority-marker::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  bottom: calc(100% + 6px);
-  right: 0;
+/* Tooltips rendered via JS into #wp-pq-tooltip (fixed position, escapes overflow) */
+#wp-pq-tooltip {
+  position: fixed;
   min-width: 120px;
   max-width: 220px;
   padding: 6px 10px;
@@ -2252,11 +2249,10 @@ button.wp-pq-manager-list-item.is-active {
   opacity: 0;
   transform: translateY(4px);
   transition: opacity 120ms ease, transform 120ms ease;
-  z-index: 100;
+  z-index: 10000;
 }
 
-.wp-pq-note-flag:hover::after,
-.wp-pq-priority-marker:hover::after {
+#wp-pq-tooltip.is-visible {
   opacity: 1;
   transform: translateY(0);
 }

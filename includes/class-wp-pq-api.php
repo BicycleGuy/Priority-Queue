@@ -5728,8 +5728,14 @@ class WP_PQ_API
             return null;
         }
 
-        $timestamp = strtotime((string) $value);
-        return $timestamp ? gmdate('Y-m-d H:i:s', $timestamp) : null;
+        // datetime-local inputs have no timezone; interpret in the WP-configured timezone.
+        try {
+            $dt = new \DateTimeImmutable((string) $value, wp_timezone());
+        } catch (\Exception $e) {
+            return null;
+        }
+
+        return $dt->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s');
     }
 
     private static function render_oauth_result_page(bool $ok, string $message): void
