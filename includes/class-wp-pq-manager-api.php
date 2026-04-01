@@ -871,8 +871,7 @@ class WP_PQ_Manager_API
 
         $subject = sprintf('Invoice Draft %s', (string) ($statement['statement_code'] ?? $statement_id));
         $message = self::statement_email_html($statement);
-        $headers = ['Content-Type: text/html; charset=UTF-8'];
-        $sent = wp_mail($client_email, $subject, $message, $headers);
+        $sent = WP_PQ_API::send_gmail($client_email, $subject, $message, get_current_user_id(), 'text/html');
         if (! $sent) {
             return new WP_REST_Response(['message' => 'Invoice draft email could not be sent.'], 500);
         }

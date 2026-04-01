@@ -179,7 +179,7 @@
 
   async function refreshGcalStatus() {
     var container = document.getElementById('wp-pq-gcal-status');
-    if (!container) return; // Not a manager — section hidden
+    if (!container) return;
 
     try {
       var data = await bridge.api('google/oauth/status', { method: 'GET' });
@@ -195,7 +195,7 @@
         var disconnectBtn = document.getElementById('wp-pq-gcal-disconnect');
         if (disconnectBtn) {
           disconnectBtn.addEventListener('click', async function () {
-            if (!confirm('Disconnect Google? Calendar events and Drive file storage will stop working.')) return;
+            if (!confirm('Disconnect Google? Calendar events, Meet links, and email notifications will stop working.')) return;
             try {
               await bridge.api('google/oauth/disconnect', { method: 'POST' });
               bridge.alert('Google disconnected.');
@@ -410,9 +410,35 @@
       window.history.replaceState(null, '', clean);
       // Show success and open preferences
       setTimeout(function () {
-        bridge.alert('Google connected — Calendar and Drive are active.', 'success');
+        bridge.alert('Google connected — Calendar, Meet, and Gmail are active.', 'success');
+        // Hide onboarding overlay if visible.
+        var overlay = document.getElementById('wp-pq-onboarding-overlay');
+        if (overlay) overlay.hidden = true;
         if (typeof openPreferencesPanel === 'function') openPreferencesPanel().catch(console.error);
       }, 300);
+    }
+  })();
+
+  // Onboarding interstitial — show if Google not connected.
+  (function () {
+    var overlay = document.getElementById('wp-pq-onboarding-overlay');
+    if (!overlay) return;
+    if (window.wpPqConfig && window.wpPqConfig.googleConnected) return;
+    overlay.hidden = false;
+    var connectBtn = document.getElementById('wp-pq-onboarding-connect');
+    if (connectBtn) {
+      connectBtn.addEventListener('click', async function () {
+        try {
+          var data = await bridge.api('google/oauth/relay-initiate', { method: 'GET' });
+          if (data && data.url) {
+            window.location.href = data.url;
+          } else {
+            bridge.alert('Could not start Google connection.', true);
+          }
+        } catch (err) {
+          bridge.alert(err.message || 'Failed to start Google connection.', true);
+        }
+      });
     }
   })();
 

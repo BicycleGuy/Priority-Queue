@@ -1116,6 +1116,31 @@ class WP_PQ_DB
         update_option('wp_pq_files_link_migration_applied', 1, true);
     }
 
+    /**
+     * Migrate the legacy site-wide Google tokens (wp_options) to user meta
+     * for every admin user. Runs once.
+     */
+    public static function migrate_per_user_google_tokens(): void
+    {
+        if (get_option('wp_pq_per_user_tokens_migration_applied')) {
+            return;
+        }
+
+        $legacy = get_option('wp_pq_google_tokens', []);
+        if (! empty($legacy) && (! empty($legacy['access_token']) || ! empty($legacy['encrypted_refresh_token']))) {
+            // Copy legacy tokens to all administrator users who don't already have tokens.
+            $admins = get_users(['role' => 'administrator', 'fields' => ['ID']]);
+            foreach ($admins as $admin) {
+                $existing = get_user_meta((int) $admin->ID, 'wp_pq_google_tokens', true);
+                if (empty($existing) || (! is_array($existing)) || empty($existing['access_token'])) {
+                    update_user_meta((int) $admin->ID, 'wp_pq_google_tokens', $legacy);
+                }
+            }
+        }
+
+        update_option('wp_pq_per_user_tokens_migration_applied', 1, true);
+    }
+
     public static function get_or_create_default_billing_bucket_id(int $client_id): int
     {
         global $wpdb;

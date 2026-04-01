@@ -52,6 +52,7 @@ if (isset($state_data['ts']) && (time() - (int) $state_data['ts']) > 3600) {
 $site_url   = $state_data['site_url'];
 $nonce      = $state_data['nonce'];
 $return_url = $state_data['return_url'] ?? '';
+$user_id    = (int) ($state_data['user_id'] ?? 0);
 
 // ── Exchange code for tokens ───────────────────────────────────────────
 
@@ -95,6 +96,7 @@ $receive_url = rtrim($site_url, '/') . '/wp-json/pq/v1/google/oauth/relay-receiv
 
 $payload = json_encode([
     'nonce'                    => $nonce,
+    'user_id'                  => $user_id,
     'access_token'             => $access_token,
     'expires_in'               => $expires_in,
     'encrypted_refresh_token'  => $encrypted_refresh,

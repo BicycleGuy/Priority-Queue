@@ -71,7 +71,7 @@ class WP_PQ_Housekeeping
 
             $user = WP_PQ_API::get_cached_user($user_id);
             if ($user && self::is_event_enabled($user_id, 'retention_day_300')) {
-                wp_mail(
+                WP_PQ_API::send_gmail(
                     $user->user_email,
                     'File retention reminder (300 days)',
                     'Task #' . $task_id . ' files are 300 days old. Move long-term copies to alternate storage before day 365.'
@@ -257,7 +257,7 @@ class WP_PQ_Housekeeping
                 continue;
             }
 
-            wp_mail(
+            WP_PQ_API::send_gmail(
                 $user->user_email,
                 'Switchboard daily digest',
                 $body

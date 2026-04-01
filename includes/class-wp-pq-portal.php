@@ -119,7 +119,7 @@ class WP_PQ_Portal
             'canViewAll' => current_user_can(WP_PQ_Roles::CAP_VIEW_ALL),
             'currentUserId' => get_current_user_id(),
             'isManager' => $is_manager,
-            // Drive integration removed — file exchange handled externally.
+            'googleConnected' => ! empty(get_user_meta(get_current_user_id(), 'wp_pq_google_tokens', true)),
         ];
         wp_localize_script('wp-pq-admin', 'wpPqConfig', $portal_config);
         if ($is_manager) {
@@ -128,19 +128,41 @@ class WP_PQ_Portal
 
         ob_start();
         echo '<div class="wp-pq-wrap wp-pq-portal">';
+
+        // Onboarding interstitial — shown until user connects Google.
+        echo '  <div class="wp-pq-onboarding-overlay" id="wp-pq-onboarding-overlay" hidden>';
+        echo '    <div class="wp-pq-onboarding-card">';
+        echo '      <h2>Connect Your Google Account</h2>';
+        echo '      <p>Switchboard needs access to your Google account so calendar events, Meet links, and email notifications come from <strong>your</strong> address.</p>';
+        echo '      <ul>';
+        echo '        <li>Google Calendar — events and Meet invites</li>';
+        echo '        <li>Gmail — send status notifications</li>';
+        echo '        <li>Google Drive — future file integrations</li>';
+        echo '      </ul>';
+        echo '      <button class="button button-primary" type="button" id="wp-pq-onboarding-connect">Connect Google Account</button>';
+        echo '    </div>';
+        echo '  </div>';
+
+        // Mobile bar (visible ≤960px).
+        echo '  <div class="wp-pq-mobile-bar" id="wp-pq-mobile-bar">';
+        echo '    <button type="button" class="button" id="wp-pq-mobile-menu-btn">Menu</button>';
+        echo '    <h3>Task Board</h3>';
+        echo '    <button type="button" class="button button-primary" id="wp-pq-mobile-new-btn" style="min-height:34px;padding:6px 12px;">New</button>';
+        echo '  </div>';
+
         echo '  <div class="wp-pq-app-shell">';
-        echo '    <aside class="wp-pq-binder">';
+        echo '    <aside class="wp-pq-binder" id="wp-pq-binder">';
         echo '      <div class="wp-pq-binder-head">';
         echo '        <p class="wp-pq-kicker">Readspear</p>';
         echo '        <h2>Switchboard</h2>';
-        echo '        <p class="wp-pq-panel-note">Requests, approvals, files, and scheduling in one place.</p>';
+        echo '        <p class="wp-pq-panel-note">Requests, approvals, and scheduling in one calm workspace.</p>';
         echo '      </div>';
         echo '      <div class="wp-pq-binder-section wp-pq-binder-section-action">';
         echo '        <button class="button button-primary wp-pq-primary-action" type="button" id="wp-pq-open-create">New Request</button>';
         echo '      </div>';
         echo '      <div id="wp-pq-queue-binder-sections">';
         echo '      <div class="wp-pq-binder-section">';
-        echo '        <p class="wp-pq-binder-label">Mode</p>';
+        echo '        <p class="wp-pq-binder-label">View</p>';
         echo '        <div class="wp-pq-view-toggle">';
         echo '          <button class="button button-primary is-active" id="wp-pq-view-board" type="button">Board</button>';
         echo '          <button class="button" id="wp-pq-view-calendar" type="button">Calendar</button>';
@@ -161,24 +183,32 @@ class WP_PQ_Portal
         echo '        <div id="wp-pq-job-nav" class="wp-pq-job-nav wp-pq-filter-nav"></div>';
         echo '      </div>';
         echo '      </div>'; // close wp-pq-queue-binder-sections
+
+        // Work section — Queue is always visible.
+        echo '      <div class="wp-pq-binder-section">';
+        echo '        <p class="wp-pq-binder-label">Work</p>';
+        echo '        <div class="wp-pq-filter-nav">';
+        echo '          <button class="button is-active" type="button" data-pq-section="queue" id="wp-pq-nav-queue"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span><span>Queue</span></span></button>';
+        echo '        </div>';
+
         if ($is_manager) {
-            echo '      <div class="wp-pq-binder-section">';
-            echo '        <p class="wp-pq-binder-label">Workspace</p>';
-            echo '        <div id="wp-pq-manager-nav" class="wp-pq-filter-nav wp-pq-manager-nav">';
-            echo '          <button class="button is-active" type="button" data-pq-section="queue"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">☰</span><span>Queue</span></span></button>';
-            echo '          <button class="button" type="button" data-pq-section="clients"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">◌</span><span>Clients</span></span></button>';
-            echo '          <button class="button" type="button" data-pq-section="billing-rollup"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">◔</span><span>Billing Rollup</span></span></button>';
-            echo '          <button class="button" type="button" data-pq-section="monthly-statements"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">◫</span><span>Monthly Statements</span></span></button>';
-            echo '          <button class="button" type="button" data-pq-section="work-statements"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">✎</span><span>Work Statements</span></span></button>';
-            echo '          <button class="button" type="button" data-pq-section="ai-import"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">✦</span><span>AI Import</span></span></button>';
-            echo '          <button class="button" type="button" data-pq-section="preferences"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">○</span><span>Preferences</span></span></button>';
-            // Documents section removed — file exchange handled externally.
-            echo '        </div>';
-            echo '      </div>';
+            echo '        <details class="wp-pq-admin-group" id="wp-pq-admin-group" open>';
+            echo '          <summary>Administration</summary>';
+            echo '          <div id="wp-pq-manager-nav" class="wp-pq-filter-nav wp-pq-manager-nav">';
+            echo '            <button class="button" type="button" data-pq-section="clients"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span>Clients</span></span></button>';
+            echo '            <button class="button" type="button" data-pq-section="billing-rollup"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><span>Billing Rollup</span></span></button>';
+            echo '            <button class="button" type="button" data-pq-section="monthly-statements"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span><span>Monthly Statements</span></span></button>';
+            echo '            <button class="button" type="button" data-pq-section="work-statements"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg></span><span>Work Statements</span></span></button>';
+            echo '            <button class="button" type="button" data-pq-section="ai-import"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.8h6l-4.9 3.6 1.9 5.8-5-3.6-5 3.6 1.9-5.8-4.9-3.6h6z"/></svg></span><span>AI Import</span></span></button>';
+            echo '            <button class="button" type="button" data-pq-section="preferences"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span>Preferences</span></span></button>';
+            echo '          </div>';
+            echo '        </details>';
         }
+        echo '      </div>';
+
         echo '      <div class="wp-pq-binder-section wp-pq-binder-section-bottom">';
-        echo '        <button class="button wp-pq-dark-mode-btn" type="button" id="wp-pq-dark-toggle"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">◐</span><span>Dark Mode</span></span></button>';
-        echo '        <button class="button" type="button" id="wp-pq-open-prefs"' . ($is_manager ? ' hidden' : '') . '><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">○</span><span>Preferences</span></span></button>';
+        echo '        <button class="button wp-pq-dark-mode-btn" type="button" id="wp-pq-dark-toggle"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></span><span>Dark mode</span></span></button>';
+        echo '        <button class="button" type="button" id="wp-pq-open-prefs"' . ($is_manager ? ' hidden' : '') . '><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span>Preferences</span></span></button>';
         echo '      </div>';
         echo '    </aside>';
         echo '    <main class="wp-pq-workspace">';
@@ -242,20 +272,18 @@ class WP_PQ_Portal
         echo '      <div id="wp-pq-pref-list" class="wp-pq-pref-list"></div>';
         echo '      <button class="button button-primary" type="button" id="wp-pq-save-prefs">Save Preferences</button>';
         echo '    </section>';
-        // Google Calendar connection — managers only.
-        if (current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
-            echo '    <section class="wp-pq-pref-section" id="wp-pq-gcal-section">';
-            echo '      <div class="wp-pq-pref-section-head">';
-            echo '        <div>';
-            echo '          <h4>Google</h4>';
-            echo '          <p class="wp-pq-panel-note">Connect once to enable Calendar events with Meet links and Google Drive file storage for each client.</p>';
-            echo '        </div>';
-            echo '      </div>';
-            echo '      <div id="wp-pq-gcal-status" class="wp-pq-gcal-status">';
-            echo '        <span class="wp-pq-gcal-indicator" id="wp-pq-gcal-indicator"></span>';
-            echo '      </div>';
-            echo '    </section>';
-        }
+        // Google account connection — all users.
+        echo '    <section class="wp-pq-pref-section" id="wp-pq-gcal-section">';
+        echo '      <div class="wp-pq-pref-section-head">';
+        echo '        <div>';
+        echo '          <h4>Google Account</h4>';
+        echo '          <p class="wp-pq-panel-note">Connect your Google account to enable calendar events, Meet links, and email notifications from your own address.</p>';
+        echo '        </div>';
+        echo '      </div>';
+        echo '      <div id="wp-pq-gcal-status" class="wp-pq-gcal-status">';
+        echo '        <span class="wp-pq-gcal-indicator" id="wp-pq-gcal-indicator"></span>';
+        echo '      </div>';
+        echo '    </section>';
 
         echo '    <section class="wp-pq-pref-section">';
         echo '      <div class="wp-pq-pref-section-head">';
@@ -288,9 +316,10 @@ class WP_PQ_Portal
         echo '  <section class="wp-pq-board-shell">';
         echo '    <div class="wp-pq-section-heading">';
         echo '      <div>';
-        echo '        <h3>Task Board</h3>';
-        echo '        <p class="wp-pq-panel-note">Open any card to review details, files, approvals, and messages in the task workspace.</p>';
+        echo '        <h3>Task board</h3>';
+        echo '        <p class="wp-pq-panel-note">Pick a card to open details, messages, and files. Drag moves follow your workflow rules.</p>';
         echo '      </div>';
+        echo '      <div class="wp-pq-focal-hint" id="wp-pq-focal-hint"><strong>Next step</strong>Select a task or create a new request. Filters stay secondary so the board stays the focus.</div>';
         echo '    </div>';
         echo '    <div id="wp-pq-board-filter-bar" class="wp-pq-board-filter-bar"></div>';
         echo '    <div id="wp-pq-board-panel">';
@@ -344,9 +373,9 @@ class WP_PQ_Portal
         echo '      <div id="wp-pq-task-empty" class="wp-pq-task-empty">Select a task to open its workspace and review messages, notes, files, and approvals.</div>';
         echo '      <div id="wp-pq-task-workspace" class="wp-pq-task-workspace" hidden>';
         echo '        <div class="wp-pq-workspace-tabs">';
-        echo '          <button class="button button-primary is-active" type="button" id="wp-pq-tab-messages">Messages</button>';
+        echo '          <button class="button button-primary is-active" type="button" id="wp-pq-tab-messages">Messages<span class="wp-pq-tab-badge" id="wp-pq-badge-messages"></span></button>';
         echo '          <button class="button" type="button" id="wp-pq-tab-meetings">Meeting</button>';
-        echo '          <button class="button" type="button" id="wp-pq-tab-notes">Sticky Notes</button>';
+        echo '          <button class="button" type="button" id="wp-pq-tab-notes">Notes</button>';
         echo '          <button class="button" type="button" id="wp-pq-tab-files">Files</button>';
         echo '        </div>';
         echo '        <div class="wp-pq-workspace-shell">';

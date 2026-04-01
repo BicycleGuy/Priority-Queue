@@ -652,15 +652,17 @@
     const selectedClient = (filterOptions.clients || []).find((client) => parseInt(client.id, 10) === filterState.clientUserId);
     const selectedBucket = (filterOptions.buckets || []).find((bucket) => parseInt(bucket.id, 10) === filterState.billingBucketId);
     if (binderClientContext) {
-      binderClientContext.textContent = selectedClient
+      var clientLabel = selectedClient
         ? (selectedClient.name || selectedClient.label || 'Selected client')
         : (window.wpPqConfig.canViewAll ? 'All clients' : 'Your client workspace');
+      binderClientContext.innerHTML = '<strong>Client</strong>' + escapeHtml(clientLabel);
     }
     if (binderJobContext) {
-      const countLabel = (visibleTasks || []).length + ' visible tasks';
-      binderJobContext.textContent = selectedBucket
+      var countLabel = (visibleTasks || []).length + ' visible tasks';
+      var jobLabel = selectedBucket
         ? ((selectedBucket.label || selectedBucket.bucket_name || 'Selected job') + ' · ' + countLabel)
         : ('All jobs · ' + countLabel);
+      binderJobContext.innerHTML = '<strong>Job</strong>' + escapeHtml(jobLabel);
     }
     renderUnifiedFilters(scopedTasks || []);
   }
@@ -1084,6 +1086,13 @@
       avatars.push(personAvatarHtml(clientName, 'Client', 'client'));
     }
 
+    // "Allowed next" workflow hint
+    var flowHint = '';
+    var allowedMoves = dragTransitions[normalizeStatus(task.status)] || [];
+    if (allowedMoves.length) {
+      flowHint = '<p class="wp-pq-card-flow"><strong>Allowed next:</strong> ' + allowedMoves.map(humanizeToken).join(', ') + '</p>';
+    }
+
     card.innerHTML =
       '<div class="wp-pq-task-card-top">' +
       '<div class="wp-pq-task-card-identity"><span class="wp-pq-task-id">#' + escapeHtml(task.id) + '</span></div>' +
@@ -1098,7 +1107,8 @@
       '<div class="wp-pq-task-footer">' +
       '<span class="wp-pq-task-awaiting">' + escapeHtml(taskActorLabel(task)) + '</span>' +
       '<div class="wp-pq-task-avatars">' + avatars.join('') + '</div>' +
-      '</div>';
+      '</div>' +
+      flowHint;
 
     card.addEventListener('click', () => {
       if (boardDragActive || Date.now() < boardDragLockUntil) return;
@@ -1447,6 +1457,8 @@
     return !!drawerEl && drawerEl.classList.contains('is-open');
   }
 
+  var focalHintEl = document.getElementById('wp-pq-focal-hint');
+
   function openDrawer() {
     if (!drawerEl) return;
     drawerEl.classList.add('is-open');
@@ -1454,6 +1466,7 @@
     if (appShellEl) appShellEl.classList.add('is-detail-focus');
     if (drawerBackdrop) drawerBackdrop.hidden = isDesktopWorkspace();
     document.body.classList.toggle('wp-pq-drawer-open', !isDesktopWorkspace());
+    if (focalHintEl) focalHintEl.hidden = true;
   }
 
   function closeDrawer() {
@@ -1466,6 +1479,7 @@
     document.body.classList.remove('wp-pq-drawer-open');
     resetTaskSummary();
     highlightSelected();
+    if (focalHintEl) focalHintEl.hidden = false;
   }
 
   function highlightSelected() {
@@ -1749,12 +1763,16 @@
       return;
     }
 
-    (data.messages || []).forEach((msg) => {
+    var msgs = data.messages || [];
+    msgs.forEach((msg) => {
       const li = document.createElement('li');
       li.className = msg.author_id === window.wpPqConfig.currentUserId ? 'mine' : 'theirs';
       li.innerHTML = messageItemHtml(msg);
       messageList.appendChild(li);
     });
+    // Update badge count
+    var badge = document.getElementById('wp-pq-badge-messages');
+    if (badge) badge.textContent = msgs.length > 0 ? String(msgs.length) : '';
   }
 
   async function loadNotes(options) {
@@ -2512,11 +2530,11 @@
       if (isDark) {
         wrap.setAttribute('data-theme', 'dark');
         toggle.classList.add('is-active');
-        if (toggleLabel) toggleLabel.textContent = 'Light Mode';
+        if (toggleLabel) toggleLabel.textContent = 'Light mode';
       } else {
         wrap.removeAttribute('data-theme');
         toggle.classList.remove('is-active');
-        if (toggleLabel) toggleLabel.textContent = 'Dark Mode';
+        if (toggleLabel) toggleLabel.textContent = 'Dark mode';
       }
     }
     applyTheme(saved === 'dark');
@@ -2525,6 +2543,26 @@
       applyTheme(isDark);
       localStorage.setItem(key, isDark ? 'dark' : 'light');
     });
+  })();
+
+  /* ── Mobile bar toggle ─────────────────────────────── */
+  (function initMobileBar() {
+    var menuBtn = document.getElementById('wp-pq-mobile-menu-btn');
+    var binder = document.getElementById('wp-pq-binder');
+    var mobileNewBtn = document.getElementById('wp-pq-mobile-new-btn');
+    var createBtn = document.getElementById('wp-pq-open-create');
+
+    if (menuBtn && binder) {
+      menuBtn.addEventListener('click', function () {
+        binder.classList.toggle('is-open');
+      });
+    }
+    if (mobileNewBtn && createBtn) {
+      mobileNewBtn.addEventListener('click', function () {
+        createBtn.click();
+        if (binder) binder.classList.remove('is-open');
+      });
+    }
   })();
 
   loadTasks().catch(console.error);

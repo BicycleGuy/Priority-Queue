@@ -292,7 +292,7 @@ class WP_PQ_API
         register_rest_route('pq/v1', '/google/oauth/status', [
             'methods' => WP_REST_Server::READABLE,
             'callback' => [self::class, 'google_oauth_status'],
-            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
+            'permission_callback' => static fn() => is_user_logged_in(),
         ]);
 
         // ── Relay OAuth endpoints ─────────────────────────────────────────
@@ -305,13 +305,13 @@ class WP_PQ_API
         register_rest_route('pq/v1', '/google/oauth/relay-initiate', [
             'methods' => WP_REST_Server::READABLE,
             'callback' => [self::class, 'google_oauth_relay_initiate'],
-            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
+            'permission_callback' => static fn() => is_user_logged_in(),
         ]);
 
         register_rest_route('pq/v1', '/google/oauth/disconnect', [
             'methods' => WP_REST_Server::CREATABLE,
             'callback' => [self::class, 'google_oauth_disconnect'],
-            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
+            'permission_callback' => static fn() => is_user_logged_in(),
         ]);
 
         register_rest_route('pq/v1', '/notification-prefs', [
@@ -1566,7 +1566,7 @@ class WP_PQ_API
     {
         return new WP_REST_Response([
             'enabled' => WP_PQ_Drive::is_enabled(),
-            'has_tokens' => ! empty(get_option('wp_pq_google_tokens', [])),
+            'has_tokens' => ! empty(get_user_meta(get_current_user_id(), 'wp_pq_google_tokens', true)),
         ], 200);
     }
 
@@ -2354,7 +2354,8 @@ class WP_PQ_API
 
     public static function google_oauth_status(): WP_REST_Response
     {
-        $tokens = (array) get_option('wp_pq_google_tokens', []);
+        $user_id = get_current_user_id();
+        $tokens = self::get_user_google_tokens($user_id);
         $relay_url = trim((string) get_option('wp_pq_relay_url', ''));
         $using_relay = $relay_url !== '';
 
@@ -2400,6 +2401,7 @@ class WP_PQ_API
         }
 
         $nonce                   = sanitize_text_field((string) ($body['nonce'] ?? ''));
+        $user_id                 = (int) ($body['user_id'] ?? 0);
         $access_token            = sanitize_text_field((string) ($body['access_token'] ?? ''));
         $expires_in              = (int) ($body['expires_in'] ?? 3600);
         $encrypted_refresh_token = (string) ($body['encrypted_refresh_token'] ?? '');
@@ -2410,16 +2412,20 @@ class WP_PQ_API
             return new WP_REST_Response(['error' => 'Missing required fields.'], 400);
         }
 
-        // ── Verify nonce ───────────────────────────────────────────────────
-        $stored_nonce = (string) get_option('wp_pq_relay_oauth_nonce', '');
-        if (! hash_equals($stored_nonce, $nonce)) {
+        if ($user_id <= 0 || ! get_userdata($user_id)) {
+            return new WP_REST_Response(['error' => 'Invalid user_id.'], 400);
+        }
+
+        // ── Verify nonce (per-user) ────────────────────────────────────────
+        $stored_nonce = (string) get_user_meta($user_id, 'wp_pq_relay_oauth_nonce', true);
+        if ($stored_nonce === '' || ! hash_equals($stored_nonce, $nonce)) {
             return new WP_REST_Response(['error' => 'Nonce mismatch.'], 403);
         }
 
         // Clear the nonce (single-use).
-        delete_option('wp_pq_relay_oauth_nonce');
+        delete_user_meta($user_id, 'wp_pq_relay_oauth_nonce');
 
-        // ── Store tokens ───────────────────────────────────────────────────
+        // ── Store tokens on the user ───────────────────────────────────────
         $tokens = [
             'access_token'            => $access_token,
             'encrypted_refresh_token' => $encrypted_refresh_token,
@@ -2427,19 +2433,20 @@ class WP_PQ_API
             'expires_at'              => time() + max(60, $expires_in - 30),
             'connected_email'         => $connected_email,
             'granted_scope'           => $granted_scope,
+            'connected_at'            => gmdate('Y-m-d H:i:s'),
         ];
 
-        update_option('wp_pq_google_tokens', $tokens, false);
+        update_user_meta($user_id, 'wp_pq_google_tokens', $tokens);
 
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('PQ Relay: tokens received and stored for ' . $connected_email);
+            error_log('PQ Relay: tokens stored for user ' . $user_id . ' (' . $connected_email . ')');
         }
 
         return new WP_REST_Response(['ok' => true], 200);
     }
 
     /**
-     * Relay-initiate — redirects the manager to the relay to start OAuth.
+     * Relay-initiate — redirects the user to the relay to start OAuth.
      *
      * GET /wp-json/pq/v1/google/oauth/relay-initiate
      * Returns { url: "..." } that the portal JS navigates to.
@@ -2451,14 +2458,17 @@ class WP_PQ_API
             return new WP_REST_Response(['error' => 'OAuth relay URL is not configured.'], 422);
         }
 
-        // Generate a one-time nonce and store it so relay-receive can verify.
+        $user_id = get_current_user_id();
+
+        // Generate a per-user one-time nonce so relay-receive can verify.
         $nonce = wp_generate_password(32, false, false);
-        update_option('wp_pq_relay_oauth_nonce', $nonce, false);
+        update_user_meta($user_id, 'wp_pq_relay_oauth_nonce', $nonce);
 
         $params = http_build_query([
             'site_url'   => home_url(),
             'nonce'      => $nonce,
             'return_url' => home_url('/switchboard/?section=preferences'),
+            'user_id'    => $user_id,
         ], '', '&', PHP_QUERY_RFC3986);
 
         $url = rtrim($relay_url, '/') . '/initiate.php?' . $params;
@@ -2467,17 +2477,18 @@ class WP_PQ_API
     }
 
     /**
-     * Disconnect Google Calendar — wipe stored tokens.
+     * Disconnect Google — wipe the current user's stored tokens.
      */
     public static function google_oauth_disconnect(): WP_REST_Response
     {
-        delete_option('wp_pq_google_tokens');
+        $user_id = get_current_user_id();
+        delete_user_meta($user_id, 'wp_pq_google_tokens');
 
         if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('PQ: Google Calendar disconnected by user ' . get_current_user_id());
+            error_log('PQ: Google disconnected by user ' . $user_id);
         }
 
-        return new WP_REST_Response(['ok' => true, 'message' => 'Google Calendar disconnected.'], 200);
+        return new WP_REST_Response(['ok' => true, 'message' => 'Google disconnected.'], 200);
     }
 
     public static function get_notification_prefs(): WP_REST_Response
@@ -3150,10 +3161,11 @@ class WP_PQ_API
 
         // Defer email delivery to after the response is sent.
         if (! empty($deferred_emails)) {
-            self::defer(static function () use ($deferred_emails): void {
+            $sender_id = get_current_user_id();
+            self::defer(static function () use ($deferred_emails, $sender_id): void {
                 foreach ($deferred_emails as $mail) {
                     try {
-                        wp_mail($mail['to'], $mail['subject'], $mail['body']);
+                        self::send_gmail($mail['to'], $mail['subject'], $mail['body'], $sender_id);
                     } catch (\Throwable $e) {
                         // Mail failure must not block operations
                     }
@@ -3193,7 +3205,7 @@ class WP_PQ_API
         ]);
 
         if (is_email($recipient->user_email) && WP_PQ_Housekeeping::is_event_enabled($action_owner_id, 'task_assigned')) {
-            wp_mail($recipient->user_email, $message['title'], $message['body'] . "\n\nTask ID: {$task_id}");
+            self::send_gmail($recipient->user_email, $message['title'], $message['body'] . "\n\nTask ID: {$task_id}", get_current_user_id());
         }
     }
 
@@ -3241,11 +3253,12 @@ class WP_PQ_API
             ]);
 
             if (is_email($user->user_email) && WP_PQ_Housekeeping::is_event_enabled($mentioned_user_id, 'task_mentioned')) {
-                wp_mail(
+                self::send_gmail(
                     $user->user_email,
                     'You were mentioned on a task',
                     $author_name . ' mentioned @' . $participant['handle'] . ' on "' . (string) ($task['title'] ?? 'Task') . "\".\n\n"
-                    . 'Message: ' . wp_strip_all_tags($body) . "\n\nTask ID: {$task_id}"
+                    . 'Message: ' . wp_strip_all_tags($body) . "\n\nTask ID: {$task_id}",
+                    $author_id
                 );
             }
         }
@@ -3383,7 +3396,8 @@ class WP_PQ_API
      */
     private static function send_client_status_update(int $task_id, string $new_status): void
     {
-        self::defer(static function () use ($task_id, $new_status): void {
+        $sender_id = get_current_user_id();
+        self::defer(static function () use ($task_id, $new_status, $sender_id): void {
             $task = self::get_enriched_task($task_id);
             if (! $task) {
                 return;
@@ -3409,10 +3423,11 @@ class WP_PQ_API
                     continue;
                 }
 
-                wp_mail(
+                self::send_gmail(
                     $user->user_email,
-                    'Switchboard update:' . self::task_title($task),
-                    $body
+                    'Switchboard update: ' . self::task_title($task),
+                    $body,
+                    $sender_id
                 );
             }
         });
@@ -5177,30 +5192,60 @@ class WP_PQ_API
         return $scopes;
     }
 
-    private static function store_google_tokens(array $token_payload): void
+    /**
+     * Get a user's stored Google tokens from user_meta.
+     * Falls back to the legacy site-wide wp_options token during migration.
+     */
+    private static function get_user_google_tokens(int $user_id): array
     {
-        $existing = (array) get_option('wp_pq_google_tokens', []);
-        $expires_in = isset($token_payload['expires_in']) ? (int) $token_payload['expires_in'] : 3600;
+        $tokens = (array) get_user_meta($user_id, 'wp_pq_google_tokens', true);
+        if (! empty($tokens['access_token']) || ! empty($tokens['encrypted_refresh_token']) || ! empty($tokens['refresh_token'])) {
+            return $tokens;
+        }
 
-        // Always stash client credentials alongside tokens so refresh survives settings wipe.
-        $client_id = (string) get_option('wp_pq_google_client_id', '');
-        $client_secret = (string) get_option('wp_pq_google_client_secret', '');
+        // Fallback: legacy site-wide token (migration period).
+        return (array) get_option('wp_pq_google_tokens', []);
+    }
+
+    /**
+     * Store Google tokens. Used only for direct-mode (non-relay) token refresh.
+     */
+    private static function store_google_tokens(array $token_payload, int $user_id = 0): void
+    {
+        if ($user_id <= 0) {
+            $user_id = get_current_user_id();
+        }
+
+        $existing = self::get_user_google_tokens($user_id);
+        $expires_in = isset($token_payload['expires_in']) ? (int) $token_payload['expires_in'] : 3600;
 
         $tokens = [
             'access_token' => (string) ($token_payload['access_token'] ?? ($existing['access_token'] ?? '')),
             'refresh_token' => (string) ($token_payload['refresh_token'] ?? ($existing['refresh_token'] ?? '')),
             'token_type' => (string) ($token_payload['token_type'] ?? ($existing['token_type'] ?? 'Bearer')),
             'expires_at' => time() + max(60, $expires_in - 30),
-            'client_id' => $client_id !== '' ? $client_id : ($existing['client_id'] ?? ''),
-            'client_secret' => $client_secret !== '' ? $client_secret : ($existing['client_secret'] ?? ''),
+            'connected_email' => (string) ($existing['connected_email'] ?? ''),
+            'granted_scope' => (string) ($existing['granted_scope'] ?? ''),
         ];
 
-        update_option('wp_pq_google_tokens', $tokens, false);
+        update_user_meta($user_id, 'wp_pq_google_tokens', $tokens);
     }
 
-    public static function get_google_access_token(): string
+    /**
+     * Get a valid Google access token for a user.
+     *
+     * @param int $user_id WordPress user ID. 0 = current user.
+     */
+    public static function get_google_access_token(int $user_id = 0): string
     {
-        $tokens = (array) get_option('wp_pq_google_tokens', []);
+        if ($user_id <= 0) {
+            $user_id = get_current_user_id();
+        }
+        if ($user_id <= 0) {
+            return '';
+        }
+
+        $tokens = self::get_user_google_tokens($user_id);
         $access_token = (string) ($tokens['access_token'] ?? '');
         $expires_at = (int) ($tokens['expires_at'] ?? 0);
         if ($access_token !== '' && $expires_at > (time() + 30)) {
@@ -5210,14 +5255,14 @@ class WP_PQ_API
         // ── Relay mode: call the relay's /refresh.php endpoint ────────────
         $relay_url = trim((string) get_option('wp_pq_relay_url', ''));
         if ($relay_url !== '') {
-            return self::refresh_via_relay($tokens, $relay_url);
+            return self::refresh_via_relay($tokens, $relay_url, $user_id);
         }
 
         // ── Direct mode: refresh directly with Google ─────────────────────
         $refresh_token = (string) ($tokens['refresh_token'] ?? '');
         if ($refresh_token === '') {
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('PQ Google: no refresh_token stored');
+                error_log('PQ Google: no refresh_token for user ' . $user_id);
             }
             return '';
         }
@@ -5225,17 +5270,9 @@ class WP_PQ_API
         $client_id = (string) get_option('wp_pq_google_client_id', '');
         $client_secret = (string) get_option('wp_pq_google_client_secret', '');
 
-        // Fall back to credentials stashed inside the tokens array (survives settings wipe).
-        if ($client_id === '') {
-            $client_id = (string) ($tokens['client_id'] ?? '');
-        }
-        if ($client_secret === '') {
-            $client_secret = (string) ($tokens['client_secret'] ?? '');
-        }
-
         if ($client_id === '' || $client_secret === '') {
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('PQ Google: client_id or client_secret missing (checked options + tokens)');
+                error_log('PQ Google: client_id or client_secret missing');
             }
             return '';
         }
@@ -5265,9 +5302,8 @@ class WP_PQ_API
             return '';
         }
 
-        self::store_google_tokens($body);
-        $updated = (array) get_option('wp_pq_google_tokens', []);
-        return (string) ($updated['access_token'] ?? '');
+        self::store_google_tokens($body, $user_id);
+        return (string) ($body['access_token'] ?? '');
     }
 
     /**
@@ -5275,12 +5311,12 @@ class WP_PQ_API
      * Sends the encrypted_refresh_token to the relay, which decrypts it,
      * calls Google, and returns a fresh access_token.
      */
-    private static function refresh_via_relay(array $tokens, string $relay_url): string
+    private static function refresh_via_relay(array $tokens, string $relay_url, int $user_id): string
     {
         $encrypted_refresh = (string) ($tokens['encrypted_refresh_token'] ?? '');
         if ($encrypted_refresh === '') {
             if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('PQ Relay: no encrypted_refresh_token stored');
+                error_log('PQ Relay: no encrypted_refresh_token for user ' . $user_id);
             }
             return '';
         }
@@ -5311,20 +5347,21 @@ class WP_PQ_API
             return '';
         }
 
-        // Update stored access token and expiry, keep encrypted_refresh_token intact.
+        // Update stored access token and expiry on the user, keep encrypted_refresh_token intact.
         $tokens['access_token'] = (string) $body['access_token'];
         $tokens['expires_at']   = time() + max(60, ((int) ($body['expires_in'] ?? 3600)) - 30);
 
-        update_option('wp_pq_google_tokens', $tokens, false);
+        update_user_meta($user_id, 'wp_pq_google_tokens', $tokens);
 
         return (string) $body['access_token'];
     }
 
     private static function create_google_calendar_event(array $task, string $starts_at, string $ends_at)
     {
-        $token = self::get_google_access_token();
+        // Use the acting user's token — the person scheduling the meeting.
+        $token = self::get_google_access_token(get_current_user_id());
         if ($token === '') {
-            return new WP_Error('google_not_connected', 'Google Calendar is not connected. Complete OAuth first.');
+            return new WP_Error('google_not_connected', 'Google is not connected. Complete OAuth first.');
         }
 
         $description = (string) ($task['description'] ?? '');
@@ -5423,7 +5460,8 @@ class WP_PQ_API
 
         if ($starts_at === '') {
             if ($event_id !== '') {
-                self::delete_google_calendar_event($event_id);
+                $del_user_id = (int) ($task['action_owner_id'] ?? 0) ?: get_current_user_id();
+                self::delete_google_calendar_event($event_id, $del_user_id);
                 $wpdb->update($table, [
                     'google_event_id' => null,
                     'google_event_url' => null,
@@ -5434,7 +5472,13 @@ class WP_PQ_API
             return;
         }
 
-        $token = self::get_google_access_token();
+        // Use the action owner's token so the event appears on their calendar.
+        // Fall back to the current user if no action owner is set.
+        $cal_user_id = (int) ($task['action_owner_id'] ?? 0);
+        if ($cal_user_id <= 0) {
+            $cal_user_id = get_current_user_id();
+        }
+        $token = self::get_google_access_token($cal_user_id);
         if ($token === '') {
             return;
         }
@@ -5519,9 +5563,9 @@ class WP_PQ_API
         }
     }
 
-    private static function delete_google_calendar_event(string $event_id): void
+    private static function delete_google_calendar_event(string $event_id, int $user_id = 0): void
     {
-        $token = self::get_google_access_token();
+        $token = self::get_google_access_token($user_id ?: get_current_user_id());
         if ($token === '' || $event_id === '') {
             return;
         }
@@ -5535,9 +5579,69 @@ class WP_PQ_API
         ]);
     }
 
+    /**
+     * Send an email via Gmail API using a specific user's token.
+     * Falls back to wp_mail() if the user has no Google token.
+     */
+    /**
+     * Send an email via Gmail API using a specific user's token.
+     * Falls back to wp_mail() if the user has no Google token.
+     *
+     * @param string $content_type  'text/plain' or 'text/html'
+     */
+    public static function send_gmail(string $to, string $subject, string $body, int $sender_user_id = 0, string $content_type = 'text/plain'): bool
+    {
+        if ($sender_user_id <= 0) {
+            $sender_user_id = get_current_user_id();
+        }
+
+        $token = self::get_google_access_token($sender_user_id);
+        if ($token === '') {
+            // Fallback to wp_mail if no Gmail token available.
+            $headers = $content_type === 'text/html' ? ['Content-Type: text/html; charset=UTF-8'] : [];
+            return (bool) wp_mail($to, $subject, $body, $headers);
+        }
+
+        // Build RFC 2822 message.
+        $sender = get_user_by('id', $sender_user_id);
+        $from_email = $sender ? $sender->user_email : '';
+        $from_name = $sender ? $sender->display_name : '';
+
+        $mime = "From: " . ($from_name ? "{$from_name} <{$from_email}>" : $from_email) . "\r\n";
+        $mime .= "To: {$to}\r\n";
+        $mime .= "Subject: {$subject}\r\n";
+        $mime .= "Content-Type: {$content_type}; charset=UTF-8\r\n";
+        $mime .= "\r\n";
+        $mime .= $body;
+
+        $encoded = rtrim(strtr(base64_encode($mime), '+/', '-_'), '=');
+
+        $response = wp_remote_post('https://www.googleapis.com/gmail/v1/users/me/messages/send', [
+            'headers' => [
+                'Authorization' => 'Bearer ' . $token,
+                'Content-Type' => 'application/json',
+            ],
+            'body' => wp_json_encode(['raw' => $encoded]),
+            'timeout' => 15,
+        ]);
+
+        if (is_wp_error($response)) {
+            $headers = $content_type === 'text/html' ? ['Content-Type: text/html; charset=UTF-8'] : [];
+            return (bool) wp_mail($to, $subject, $body, $headers);
+        }
+
+        $code = (int) wp_remote_retrieve_response_code($response);
+        if ($code < 200 || $code >= 300) {
+            $headers = $content_type === 'text/html' ? ['Content-Type: text/html; charset=UTF-8'] : [];
+            return (bool) wp_mail($to, $subject, $body, $headers);
+        }
+
+        return true;
+    }
+
     private static function fetch_google_calendar_events(): array
     {
-        $token = self::get_google_access_token();
+        $token = self::get_google_access_token(get_current_user_id());
         if ($token === '') {
             return [];
         }

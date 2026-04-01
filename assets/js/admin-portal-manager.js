@@ -208,10 +208,17 @@
   }
 
   function setActiveNav(section) {
-    if (!managerNav) return;
-    managerNav.querySelectorAll('[data-pq-section]').forEach((button) => {
-      button.classList.toggle('is-active', button.dataset.pqSection === section);
-    });
+    // Update admin nav buttons (inside <details>)
+    if (managerNav) {
+      managerNav.querySelectorAll('[data-pq-section]').forEach((button) => {
+        button.classList.toggle('is-active', button.dataset.pqSection === section);
+      });
+    }
+    // Update standalone Queue button (outside admin nav)
+    var queueBtn = document.getElementById('wp-pq-nav-queue');
+    if (queueBtn) {
+      queueBtn.classList.toggle('is-active', section === 'queue');
+    }
   }
 
   function closeDrawer() {
@@ -1294,6 +1301,15 @@
     }
     openSection(button.dataset.pqSection);
   });
+
+  // Standalone Queue button (outside admin nav <details>).
+  var queueBtn = document.getElementById('wp-pq-nav-queue');
+  if (queueBtn) {
+    queueBtn.addEventListener('click', function (event) {
+      event.preventDefault();
+      openSection('queue');
+    });
+  }
 
   closePrefsBtn?.addEventListener('click', (event) => {
     if (state.section !== 'preferences') return;

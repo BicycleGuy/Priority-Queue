@@ -21,13 +21,16 @@ class WP_PQ_Drive
     /**
      * Get a valid access token, cached for the lifetime of this request.
      */
-    private static function token(): string
+    /**
+     * @param int $user_id WordPress user ID whose token to use. 0 = current user.
+     */
+    private static function token(int $user_id = 0): string
     {
         if (self::$cached_token !== null) {
             return self::$cached_token;
         }
 
-        $token = WP_PQ_API::get_google_access_token();
+        $token = WP_PQ_API::get_google_access_token($user_id);
         if (! $token) {
             throw new RuntimeException('No Google access token available.');
         }
@@ -351,9 +354,12 @@ class WP_PQ_Drive
     /**
      * Check if the current access token has Drive scope.
      */
-    public static function is_enabled(): bool
+    public static function is_enabled(int $user_id = 0): bool
     {
-        $tokens = get_option('wp_pq_google_tokens', []);
+        if ($user_id <= 0) {
+            $user_id = get_current_user_id();
+        }
+        $tokens = (array) get_user_meta($user_id, 'wp_pq_google_tokens', true);
         if (empty($tokens)) {
             return false;
         }

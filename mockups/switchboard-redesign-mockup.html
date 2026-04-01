@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Switchboard — UI redesign mockup</title>
+  <style>
+    /* Design tokens aligned with assets/css/admin-queue.css */
+    :root {
+      --pq-bg: #faf9f7;
+      --pq-surface: #ffffff;
+      --pq-ink: #1a1a1a;
+      --pq-muted: #78716c;
+      --pq-border: #e7e5e4;
+      --pq-soft: #f5f5f4;
+      --pq-accent: #991b1b;
+      --pq-accent-dark: #7f1d1d;
+      --pq-accent-soft: rgba(153, 27, 27, 0.08);
+      --pq-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 6px 16px rgba(0, 0, 0, 0.03);
+      --pq-radius: 12px;
+      --pq-radius-lg: 16px;
+      --pq-sidebar-bg: #ffffff;
+      --pq-sidebar-hover: #f5f5f4;
+      --pq-sidebar-active: #fef2f2;
+      --pq-sidebar-active-ink: #991b1b;
+      --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    [data-theme="dark"] {
+      --pq-bg: #1c1917;
+      --pq-surface: #292524;
+      --pq-ink: #f5f5f4;
+      --pq-muted: #a8a29e;
+      --pq-border: #44403c;
+      --pq-soft: #292524;
+      --pq-accent: #f87171;
+      --pq-accent-dark: #ef4444;
+      --pq-accent-soft: rgba(248, 113, 113, 0.1);
+      --pq-shadow: 0 1px 3px rgba(0, 0, 0, 0.2), 0 6px 16px rgba(0, 0, 0, 0.15);
+      --pq-sidebar-bg: #1c1917;
+      --pq-sidebar-hover: #292524;
+      --pq-sidebar-active: rgba(248, 113, 113, 0.12);
+      --pq-sidebar-active-ink: #f87171;
+      color-scheme: dark;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: var(--font);
+      background: var(--pq-bg);
+      color: var(--pq-ink);
+      line-height: 1.45;
+      min-height: 100vh;
+    }
+
+    .mock-banner {
+      background: var(--pq-accent-soft);
+      border-bottom: 1px solid var(--pq-border);
+      padding: 10px 20px;
+      font-size: 13px;
+      color: var(--pq-ink);
+      text-align: center;
+    }
+
+    .mock-banner strong { color: var(--pq-accent); }
+
+    .wrap {
+      max-width: none;
+      width: calc(100vw - 32px);
+      margin: 0 auto;
+      padding: 14px 16px 32px;
+    }
+
+    .app-shell {
+      display: grid;
+      grid-template-columns: minmax(260px, 288px) minmax(0, 1fr);
+      gap: 0;
+      min-height: calc(100vh - 52px);
+      background: var(--pq-surface);
+      border: 1px solid var(--pq-border);
+      border-radius: var(--pq-radius-lg);
+      box-shadow: var(--pq-shadow);
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    .binder {
+      background: var(--pq-sidebar-bg);
+      border-right: 1px solid var(--pq-border);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .binder-head {
+      padding: 20px 18px 16px;
+    }
+
+    .kicker {
+      margin: 0 0 4px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--pq-muted);
+    }
+
+    .binder-head h1 {
+      margin: 0 0 8px;
+      font-size: 1.5rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+    }
+
+    .binder-head .note {
+      margin: 0;
+      font-size: 13px;
+      color: var(--pq-muted);
+      line-height: 1.45;
+    }
+
+    .binder-section {
+      padding: 0 14px 14px;
+    }
+
+    .binder-label {
+      margin: 0 0 8px 4px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--pq-muted);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: 0;
+      border-radius: 11px;
+      min-height: 38px;
+      padding: 8px 14px;
+      font-weight: 700;
+      font-size: 13px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.15s, filter 0.15s;
+    }
+
+    .btn-primary {
+      background: var(--pq-accent);
+      color: #fff;
+      width: 100%;
+    }
+
+    .btn-primary:hover { background: var(--pq-accent-dark); }
+
+    .btn-ghost {
+      background: var(--pq-ink);
+      color: #fff;
+    }
+
+    [data-theme="dark"] .btn-ghost {
+      background: #44403c;
+      color: var(--pq-ink);
+    }
+
+    .btn-ghost:hover { filter: brightness(1.08); }
+
+    .btn-active {
+      background: var(--pq-accent);
+      color: #fff;
+    }
+
+    .view-toggle {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .scope-card {
+      background: var(--pq-soft);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 13px;
+      color: var(--pq-muted);
+      margin-bottom: 8px;
+    }
+
+    .scope-card strong {
+      display: block;
+      color: var(--pq-ink);
+      font-size: 12px;
+      margin-bottom: 2px;
+    }
+
+    .nav-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .nav-stack .btn {
+      width: 100%;
+      justify-content: flex-start;
+      font-weight: 600;
+    }
+
+    .nav-stack .btn:not(.btn-active) {
+      background: var(--pq-soft);
+      color: var(--pq-ink);
+    }
+
+    [data-theme="dark"] .nav-stack .btn:not(.btn-active) {
+      background: var(--pq-soft);
+    }
+
+    .nav-stack .btn.btn-active {
+      background: var(--pq-sidebar-active);
+      color: var(--pq-sidebar-active-ink);
+      box-shadow: inset 0 0 0 1px var(--pq-accent-soft);
+    }
+
+    .nav-icon {
+      width: 18px;
+      height: 18px;
+      opacity: 0.85;
+      flex-shrink: 0;
+    }
+
+    /* Collapsible admin group */
+    details.admin-group {
+      border-top: 1px solid var(--pq-border);
+      margin-top: 4px;
+      padding-top: 12px;
+    }
+
+    details.admin-group summary {
+      list-style: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 4px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--pq-muted);
+      user-select: none;
+    }
+
+    details.admin-group summary::-webkit-details-marker { display: none; }
+
+    details.admin-group summary::after {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-right: 2px solid var(--pq-muted);
+      border-bottom: 2px solid var(--pq-muted);
+      transform: rotate(45deg);
+      transition: transform 0.2s;
+    }
+
+    details.admin-group[open] summary::after {
+      transform: rotate(-135deg);
+      margin-top: 4px;
+    }
+
+    details.admin-group .nav-stack {
+      padding-bottom: 4px;
+    }
+
+    .binder-footer {
+      margin-top: auto;
+      padding: 14px;
+      border-top: 1px solid var(--pq-border);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .binder-footer .btn {
+      width: 100%;
+      justify-content: flex-start;
+      background: transparent;
+      color: var(--pq-ink);
+      border: 1px solid var(--pq-border);
+    }
+
+    .binder-footer .btn:hover {
+      background: var(--pq-sidebar-hover);
+    }
+
+    /* ── Workspace ── */
+    .workspace {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      background: var(--pq-bg);
+    }
+
+    .workspace-inner {
+      flex: 1;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+      min-height: 0;
+    }
+
+    .workspace-main {
+      padding: 18px 20px;
+      overflow: auto;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .section-head h2 {
+      margin: 0 0 6px;
+      font-size: 1.25rem;
+      font-weight: 700;
+    }
+
+    .section-head .note {
+      margin: 0;
+      font-size: 13px;
+      color: var(--pq-muted);
+      max-width: 42rem;
+    }
+
+    .focal-hint {
+      flex-shrink: 0;
+      padding: 10px 14px;
+      background: var(--pq-surface);
+      border: 1px solid var(--pq-border);
+      border-radius: var(--pq-radius);
+      font-size: 12px;
+      color: var(--pq-muted);
+      max-width: 220px;
+      box-shadow: var(--pq-shadow);
+    }
+
+    .focal-hint strong {
+      display: block;
+      color: var(--pq-ink);
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+
+    /* Filter bar — one row, secondary actions de-emphasized */
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      background: var(--pq-surface);
+      border: 1px solid var(--pq-border);
+      border-radius: var(--pq-radius);
+      margin-bottom: 16px;
+      box-shadow: var(--pq-shadow);
+    }
+
+    .filter-bar .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: var(--pq-soft);
+      border: 1px solid var(--pq-border);
+      color: var(--pq-ink);
+    }
+
+    .chip.is-active {
+      background: var(--pq-accent-soft);
+      border-color: transparent;
+      color: var(--pq-sidebar-active-ink);
+    }
+
+    .filter-bar .btn-link {
+      background: transparent;
+      color: var(--pq-muted);
+      font-weight: 600;
+      font-size: 12px;
+      padding: 6px 10px;
+      min-height: auto;
+      border-radius: 8px;
+    }
+
+    .filter-bar .btn-link:hover {
+      background: var(--pq-soft);
+      color: var(--pq-ink);
+    }
+
+    /* Board */
+    .board {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(240px, 1fr);
+      gap: 14px;
+      align-items: start;
+      overflow-x: auto;
+      padding-bottom: 8px;
+    }
+
+    .column {
+      background: var(--pq-surface);
+      border: 1px solid var(--pq-border);
+      border-radius: var(--pq-radius);
+      box-shadow: var(--pq-shadow);
+      min-height: 320px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .column-head {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--pq-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .column-head h3 {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .column-head .count {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--pq-muted);
+      background: var(--pq-soft);
+      padding: 2px 8px;
+      border-radius: 999px;
+    }
+
+    .column-body {
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex: 1;
+    }
+
+    .card {
+      background: var(--pq-bg);
+      border: 1px solid var(--pq-border);
+      border-radius: 10px;
+      padding: 12px;
+      cursor: pointer;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .card:hover {
+      border-color: var(--pq-accent);
+      box-shadow: 0 0 0 1px var(--pq-accent-soft);
+    }
+
+    .card.is-selected {
+      border-color: var(--pq-accent);
+      box-shadow: 0 0 0 2px var(--pq-accent-soft);
+    }
+
+    .card-title {
+      margin: 0 0 6px;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+
+    .card-meta {
+      font-size: 12px;
+      color: var(--pq-muted);
+      margin: 0 0 8px;
+    }
+
+    .card-flow {
+      font-size: 11px;
+      color: var(--pq-muted);
+      padding: 6px 8px;
+      background: var(--pq-surface);
+      border-radius: 6px;
+      border: 1px dashed var(--pq-border);
+    }
+
+    .card-flow strong { color: var(--pq-ink); }
+
+    .priority {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-bottom: 6px;
+    }
+
+    .priority-urgent { background: var(--pq-accent-soft); color: var(--pq-sidebar-active-ink); }
+    .priority-normal { background: var(--pq-soft); color: var(--pq-muted); }
+
+    /* Drawer */
+    .drawer {
+      border-left: 1px solid var(--pq-border);
+      background: var(--pq-surface);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .drawer-header {
+      padding: 18px 18px 14px;
+      border-bottom: 1px solid var(--pq-border);
+    }
+
+    .drawer-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .drawer-kicker {
+      margin: 0;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--pq-accent);
+    }
+
+    .drawer-close {
+      border: 0;
+      background: var(--pq-soft);
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      color: var(--pq-muted);
+    }
+
+    .drawer-close:hover { color: var(--pq-ink); }
+
+    .drawer-header h2 {
+      margin: 8px 0 6px;
+      font-size: 1.1rem;
+      font-weight: 700;
+    }
+
+    .drawer-context {
+      font-size: 13px;
+      color: var(--pq-muted);
+      margin: 0 0 12px;
+    }
+
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .tabs .btn {
+      min-height: 34px;
+      padding: 6px 12px;
+      font-size: 12px;
+      border-radius: 8px;
+    }
+
+    .tabs .btn:not(.btn-active) {
+      background: var(--pq-soft);
+      color: var(--pq-ink);
+    }
+
+    .tab-badge {
+      font-size: 10px;
+      background: var(--pq-border);
+      padding: 1px 5px;
+      border-radius: 4px;
+      margin-left: 4px;
+    }
+
+    .drawer-body {
+      flex: 1;
+      padding: 20px 18px;
+      overflow: auto;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 28px 16px;
+      max-width: 280px;
+      margin: 0 auto;
+    }
+
+    .empty-icon {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 16px;
+      border-radius: 14px;
+      background: var(--pq-accent-soft);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .empty-state h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .empty-state p {
+      margin: 0;
+      font-size: 13px;
+      color: var(--pq-muted);
+      line-height: 1.5;
+    }
+
+    .toast-stack {
+      position: fixed;
+      top: 56px;
+      right: 20px;
+      width: min(360px, calc(100vw - 40px));
+      z-index: 100;
+      pointer-events: none;
+    }
+
+    .toast {
+      pointer-events: auto;
+      background: var(--pq-ink);
+      color: #fff;
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      margin-bottom: 8px;
+      box-shadow: var(--pq-shadow);
+    }
+
+    [data-theme="dark"] .toast {
+      background: #44403c;
+      color: var(--pq-ink);
+    }
+
+    /* Mobile top bar */
+    .mobile-bar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: var(--pq-surface);
+      border-bottom: 1px solid var(--pq-border);
+    }
+
+    .mobile-bar h2 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    @media (max-width: 960px) {
+      .mobile-bar { display: flex; }
+      .app-shell {
+        grid-template-columns: 1fr;
+      }
+      .binder {
+        display: none;
+      }
+      .binder.is-open {
+        display: flex;
+        position: fixed;
+        inset: 48px 12px 12px;
+        z-index: 50;
+        border-radius: var(--pq-radius-lg);
+        box-shadow: var(--pq-shadow);
+        max-height: calc(100vh - 60px);
+      }
+      .workspace-inner {
+        grid-template-columns: 1fr;
+      }
+      .drawer {
+        display: none;
+      }
+      .drawer.is-open {
+        display: flex;
+        position: fixed;
+        top: 48px;
+        right: 0;
+        bottom: 0;
+        width: min(400px, 100vw);
+        z-index: 40;
+        box-shadow: -12px 0 40px rgba(0,0,0,0.12);
+      }
+      .section-head {
+        flex-direction: column;
+      }
+      .focal-hint { max-width: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="mock-banner">
+    <strong>Static mockup</strong> — proposed Switchboard layout after UX improvements. Open this file in a browser; use <strong>Menu</strong> on narrow screens. Not wired to WordPress.
+  </div>
+
+  <div class="wrap" id="app-root" data-theme="light">
+    <div class="mobile-bar">
+      <button type="button" class="btn btn-ghost" id="btn-menu" style="width:auto; min-height:36px;">Menu</button>
+      <h2>Task Board</h2>
+      <button type="button" class="btn btn-primary" id="btn-new-req" style="width:auto; min-height:36px; padding:6px 12px;">New</button>
+    </div>
+
+    <div class="app-shell">
+      <aside class="binder" id="binder" aria-label="Main navigation">
+        <div class="binder-head">
+          <p class="kicker">Readspear</p>
+          <h1>Switchboard</h1>
+          <p class="note">Requests, approvals, and scheduling in one calm workspace.</p>
+        </div>
+
+        <div class="binder-section">
+          <button type="button" class="btn btn-primary">New Request</button>
+        </div>
+
+        <div class="binder-section">
+          <p class="binder-label">View</p>
+          <div class="view-toggle">
+            <button type="button" class="btn btn-active">Board</button>
+            <button type="button" class="btn btn-ghost">Calendar</button>
+          </div>
+        </div>
+
+        <div class="binder-section">
+          <p class="binder-label">Scope</p>
+          <div class="scope-card">
+            <strong>Client</strong>
+            Acme Corp — all jobs
+          </div>
+          <div class="scope-card">
+            <strong>Job</strong>
+            Website refresh · Q1
+          </div>
+        </div>
+
+        <div class="binder-section">
+          <p class="binder-label">Work</p>
+          <div class="nav-stack">
+            <button type="button" class="btn btn-active" aria-current="page">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+              Queue
+            </button>
+          </div>
+
+          <details class="admin-group" open>
+            <summary>Administration</summary>
+            <div class="nav-stack" style="margin-top:8px;">
+              <button type="button" class="btn">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                Clients
+              </button>
+              <button type="button" class="btn">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                Billing rollup
+              </button>
+              <button type="button" class="btn">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                Monthly statements
+              </button>
+              <button type="button" class="btn">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
+                Work statements
+              </button>
+              <button type="button" class="btn">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.8h6l-4.9 3.6 1.9 5.8-5-3.6-5 3.6 1.9-5.8-4.9-3.6h6z"/></svg>
+                AI import
+              </button>
+              <button type="button" class="btn">
+                <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                Preferences
+              </button>
+            </div>
+          </details>
+        </div>
+
+        <div class="binder-footer">
+          <button type="button" class="btn" id="theme-toggle">
+            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+            <span id="theme-label">Dark mode</span>
+          </button>
+        </div>
+      </aside>
+
+      <div class="workspace">
+        <div class="workspace-inner">
+          <main class="workspace-main">
+            <div class="section-head">
+              <div>
+                <h2>Task board</h2>
+                <p class="note">Pick a card to open details, messages, and files. Drag moves follow your workflow rules.</p>
+              </div>
+              <div class="focal-hint">
+                <strong>Next step</strong>
+                Select a task or create a new request. Filters stay secondary so the board stays the focus.
+              </div>
+            </div>
+
+            <div class="filter-bar">
+              <div class="chips">
+                <span class="chip is-active">All open</span>
+                <span class="chip">Assigned to me</span>
+                <span class="chip">Needs review</span>
+              </div>
+              <button type="button" class="btn btn-link">More filters</button>
+            </div>
+
+            <div class="board" role="list">
+              <div class="column" role="listitem">
+                <div class="column-head">
+                  <h3><span style="width:8px;height:8px;border-radius:50%;background:var(--pq-muted);display:inline-block;"></span> Pending approval</h3>
+                  <span class="count">2</span>
+                </div>
+                <div class="column-body">
+                  <article class="card is-selected" tabindex="0">
+                    <span class="priority priority-urgent">Urgent</span>
+                    <h4 class="card-title">Homepage hero copy refresh</h4>
+                    <p class="card-meta">Acme · Due Mar 28</p>
+                    <p class="card-flow"><strong>Allowed next:</strong> Approve, Needs clarification</p>
+                  </article>
+                  <article class="card" tabindex="0">
+                    <span class="priority priority-normal">Normal</span>
+                    <h4 class="card-title">Footer legal links</h4>
+                    <p class="card-meta">Acme · Due Apr 2</p>
+                  </article>
+                </div>
+              </div>
+
+              <div class="column" role="listitem">
+                <div class="column-head">
+                  <h3><span style="width:8px;height:8px;border-radius:50%;background:var(--pq-accent);display:inline-block;opacity:.7;"></span> In progress</h3>
+                  <span class="count">3</span>
+                </div>
+                <div class="column-body">
+                  <article class="card" tabindex="0">
+                    <span class="priority priority-normal">Normal</span>
+                    <h4 class="card-title">Blog taxonomy cleanup</h4>
+                    <p class="card-meta">Acme · Assigned to Sam</p>
+                  </article>
+                  <article class="card" tabindex="0">
+                    <span class="priority priority-normal">Normal</span>
+                    <h4 class="card-title">Analytics event audit</h4>
+                    <p class="card-meta">Acme · No deadline</p>
+                  </article>
+                </div>
+              </div>
+
+              <div class="column" role="listitem">
+                <div class="column-head">
+                  <h3><span style="width:8px;height:8px;border-radius:50%;background:#22c55e;display:inline-block;"></span> Delivered</h3>
+                  <span class="count">1</span>
+                </div>
+                <div class="column-body">
+                  <article class="card" tabindex="0">
+                    <span class="priority priority-normal">Normal</span>
+                    <h4 class="card-title">Q1 newsletter template</h4>
+                    <p class="card-meta">Acme · Awaiting client</p>
+                  </article>
+                </div>
+              </div>
+            </div>
+          </main>
+
+          <aside class="drawer is-open" aria-label="Task details" id="drawer">
+            <div class="drawer-header">
+              <div class="drawer-top">
+                <p class="drawer-kicker">In progress</p>
+                <button type="button" class="drawer-close" aria-label="Close" id="drawer-close">×</button>
+              </div>
+              <h2>Homepage hero copy refresh</h2>
+              <p class="drawer-context">Acme Corp · Website refresh · Q1 · Billable</p>
+              <div class="tabs" role="tablist">
+                <button type="button" class="btn btn-active" role="tab" aria-selected="true">Messages<span class="tab-badge">3</span></button>
+                <button type="button" class="btn" role="tab">Meeting</button>
+                <button type="button" class="btn" role="tab">Notes</button>
+                <button type="button" class="btn" role="tab">Files</button>
+              </div>
+            </div>
+            <div class="drawer-body">
+              <div class="empty-state" id="drawer-placeholder" hidden>
+                <div class="empty-icon" aria-hidden="true">
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--pq-sidebar-active-ink)" stroke-width="2"><path d="M15 15l-2 5L9 9l11 4-5 2zM9 9l5 2"/></svg>
+                </div>
+                <h3>No task selected</h3>
+                <p>Choose a card on the board to see messages, meeting details, notes, and file links in one place.</p>
+              </div>
+              <div id="drawer-content-mock">
+                <p style="margin:0 0 12px;font-size:13px;color:var(--pq-muted);">Recent thread (mock)</p>
+                <div style="padding:12px;background:var(--pq-bg);border-radius:10px;border:1px solid var(--pq-border);font-size:13px;margin-bottom:10px;">
+                  <strong style="color:var(--pq-ink);">You</strong> · 2h ago<br />
+                  Draft headlines are in the doc — can we lock tone by EOD?
+                </div>
+                <div style="padding:12px;background:var(--pq-soft);border-radius:10px;border:1px solid var(--pq-border);font-size:13px;">
+                  <strong style="color:var(--pq-ink);">Client</strong> · 1h ago<br />
+                  Yes, bold and short. No exclamation marks.
+                </div>
+                <label style="display:block;margin-top:16px;font-weight:600;font-size:13px;">Reply
+                  <textarea rows="3" style="width:100%;margin-top:6px;padding:10px;border-radius:10px;border:1px solid var(--pq-border);font-family:inherit;font-size:13px;background:var(--pq-bg);color:var(--pq-ink);"></textarea>
+                </label>
+                <button type="button" class="btn btn-primary" style="margin-top:10px;width:auto;">Send message</button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast-stack" aria-live="polite">
+      <div class="toast">Preferences saved — same toast style everywhere.</div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var root = document.getElementById('app-root');
+      var toggle = document.getElementById('theme-toggle');
+      var themeLabel = document.getElementById('theme-label');
+      var binder = document.getElementById('binder');
+      var btnMenu = document.getElementById('btn-menu');
+      var drawer = document.getElementById('drawer');
+      var drawerClose = document.getElementById('drawer-close');
+
+      if (toggle && themeLabel) {
+        toggle.addEventListener('click', function () {
+          var isDark = root.getAttribute('data-theme') === 'dark';
+          root.setAttribute('data-theme', isDark ? 'light' : 'dark');
+          themeLabel.textContent = isDark ? 'Dark mode' : 'Light mode';
+        });
+      }
+
+      if (btnMenu && binder) {
+        btnMenu.addEventListener('click', function () {
+          binder.classList.toggle('is-open');
+        });
+      }
+
+      if (drawerClose && drawer) {
+        drawerClose.addEventListener('click', function () {
+          drawer.classList.remove('is-open');
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

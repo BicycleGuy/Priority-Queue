@@ -15,9 +15,14 @@ require __DIR__ . '/config.php';
 $site_url   = filter_input(INPUT_GET, 'site_url',   FILTER_SANITIZE_URL)    ?: '';
 $nonce      = filter_input(INPUT_GET, 'nonce',       FILTER_SANITIZE_SPECIAL_CHARS) ?: '';
 $return_url = filter_input(INPUT_GET, 'return_url',  FILTER_SANITIZE_URL)    ?: '';
+$user_id    = (int) (filter_input(INPUT_GET, 'user_id', FILTER_SANITIZE_NUMBER_INT) ?: 0);
 
 if ($site_url === '' || $nonce === '') {
     relay_json(['error' => 'Missing site_url or nonce.'], 400);
+}
+
+if ($user_id <= 0) {
+    relay_json(['error' => 'Missing user_id.'], 400);
 }
 
 if (RELAY_GOOGLE_CLIENT_ID === '' || RELAY_BASE_URL === '') {
@@ -31,6 +36,7 @@ $state_data = json_encode([
     'site_url'   => $site_url,
     'nonce'      => $nonce,
     'return_url' => $return_url,
+    'user_id'    => $user_id,
     'ts'         => time(),
 ], JSON_UNESCAPED_SLASHES);
 

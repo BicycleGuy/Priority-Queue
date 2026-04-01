@@ -36,6 +36,7 @@ final class WP_PQ_Plugin
         WP_PQ_DB::migrate_clear_false_archived_at();
         WP_PQ_DB::migrate_drive_storage_model();
         WP_PQ_DB::migrate_files_link();
+        WP_PQ_DB::migrate_per_user_google_tokens();
         WP_PQ_Housekeeping::init();
         WP_PQ_Admin::init();
         WP_PQ_API::init();

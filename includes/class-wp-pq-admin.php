@@ -118,8 +118,8 @@ class WP_PQ_Admin
         if ($redirect_uri === '') {
             $redirect_uri = home_url('/wp-json/pq/v1/google/oauth/callback');
         }
-        $tokens = (array) get_option('wp_pq_google_tokens', []);
-        $is_connected = ! empty($tokens['refresh_token']);
+        $tokens = (array) get_user_meta(get_current_user_id(), 'wp_pq_google_tokens', true);
+        $is_connected = ! empty($tokens['refresh_token']) || ! empty($tokens['encrypted_refresh_token']);
         $oauth_url = wp_nonce_url(admin_url('admin-post.php?action=wp_pq_google_oauth_start'), 'wp_pq_google_oauth_start');
 
         echo '<div class="wrap wp-pq-wrap wp-pq-settings-page">';
@@ -212,7 +212,7 @@ class WP_PQ_Admin
         }
 
         check_admin_referer('wp_pq_google_disconnect');
-        delete_option('wp_pq_google_tokens');
+        delete_user_meta(get_current_user_id(), 'wp_pq_google_tokens');
         wp_safe_redirect(admin_url('admin.php?page=wp-pq-settings'));
         exit;
     }
@@ -3376,12 +3376,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         $body = self::build_welcome_email_html($display_name, $reset_url, $portal_url, $site_name);
 
-        $headers = [
-            'Content-Type: text/html; charset=UTF-8',
-            'From: ' . $site_name . ' <' . get_option('admin_email') . '>',
-        ];
-
-        $sent = wp_mail($email, $subject, $body, $headers);
+        $sent = WP_PQ_API::send_gmail($email, $subject, $body, get_current_user_id(), 'text/html');
         if (! $sent && defined('WP_DEBUG') && WP_DEBUG) {
             error_log('Switchboard: welcome email failed for user ' . $user_id . ' (' . $email . ')');
         }
