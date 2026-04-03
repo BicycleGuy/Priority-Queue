@@ -387,17 +387,11 @@
   border: 0 !important;
 }
 
-.wp-pq-view-toggle,
 .wp-pq-workspace-tabs {
   display: flex;
   gap: 8px;
 }
 
-.wp-pq-view-toggle {
-  flex-wrap: nowrap;
-}
-
-.wp-pq-view-toggle .button,
 .wp-pq-workspace-tabs .button {
   min-width: 0;
 }
@@ -422,34 +416,6 @@
 .wp-pq-task.active {
   border-color: var(--pq-accent);
   box-shadow: 0 0 0 1px var(--pq-accent);
-}
-
-.wp-pq-task .title {
-  font-size: 1.12rem;
-  font-weight: 700;
-}
-
-.wp-pq-task .meta {
-  color: var(--pq-muted);
-  font-size: 12px;
-  margin-top: 8px;
-}
-
-.wp-pq-task .actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.wp-pq-task .request {
-  margin-top: 12px;
-  padding: 12px;
-  background: var(--pq-surface);
-  border: 1px solid var(--pq-border);
-  border-radius: 12px;
-  font-size: 13px;
-  line-height: 1.5;
 }
 
 #wp-pq-current-task {
@@ -1138,10 +1104,6 @@ details.wp-pq-admin-group .wp-pq-filter-nav {
 
 .wp-pq-filter-check.is-active .wp-pq-filter-check-count {
   color: var(--pq-sidebar-active-ink);
-}
-
-.wp-pq-filter-sep {
-  display: none;
 }
 
 .wp-pq-filter-group {
@@ -2087,6 +2049,20 @@ button.wp-pq-manager-list-item.is-active {
   margin-bottom: 10px;
   padding: 0 0 8px;
   border-bottom: 1px solid var(--pq-border);
+  cursor: pointer;
+  user-select: none;
+}
+
+.wp-pq-board-column-head:hover h4 {
+  color: var(--pq-accent);
+}
+
+.wp-pq-board-column-head.is-filtered {
+  border-bottom-color: var(--pq-accent);
+}
+
+.wp-pq-board-column-head.is-filtered h4 {
+  color: var(--pq-accent);
 }
 
 .wp-pq-board-column-head h4 {
@@ -2201,31 +2177,41 @@ button.wp-pq-manager-list-item.is-active {
 
 /* ── Swimlane layout ─────────────────────────────────────────────── */
 
+.wp-pq-board.has-lanes {
+  display: block;
+  overflow-x: auto;
+}
+
 .wp-pq-board-lane-header-row {
   display: grid;
-  grid-template-columns: 140px repeat(6, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 0;
   position: sticky;
   top: 0;
   z-index: 10;
   background: var(--pq-bg);
-  border-bottom: 2px solid var(--pq-border);
+  border: none;
   margin-bottom: 0;
-}
-
-.wp-pq-board-lane-corner {
-  padding: 8px 10px;
-  font-weight: 600;
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--pq-muted);
 }
 
 .wp-pq-board-lane-col-head {
   padding: 8px 10px;
-  border-left: 1px solid var(--pq-border);
+  border: none;
   text-align: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.wp-pq-board-lane-col-head:hover h4 {
+  color: var(--pq-accent);
+}
+
+.wp-pq-board-lane-col-head.is-filtered {
+  border-bottom: 2px solid var(--pq-accent);
+}
+
+.wp-pq-board-lane-col-head.is-filtered h4 {
+  color: var(--pq-accent);
 }
 
 .wp-pq-board-lane-col-head h4 {
@@ -2240,67 +2226,73 @@ button.wp-pq-manager-list-item.is-active {
 .wp-pq-board-lane-head {
   display: flex;
   align-items: center;
-  padding: 6px 10px;
-  background: var(--pq-surface);
-  border-bottom: 1px solid var(--pq-border);
-  border-top: 1px solid var(--pq-border);
+  padding: 10px 6px 4px;
+  background: transparent;
+  border: none;
   cursor: pointer;
   user-select: none;
 }
 
 .wp-pq-board-lane-head.is-collapsed {
-  opacity: 0.7;
+  opacity: 0.55;
+  padding-bottom: 6px;
+  margin-bottom: 2px;
+}
+
+.wp-pq-board-lane-head.is-empty {
+  opacity: 0.35;
 }
 
 .wp-pq-lane-toggle {
-  background: none;
+  background: transparent;
   border: none;
   padding: 0;
   margin: 0;
   cursor: pointer;
   font: inherit;
-  color: inherit;
-  display: flex;
+  color: var(--pq-ink);
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  font-size: 0.82rem;
 }
 
 .wp-pq-lane-toggle:hover {
   color: var(--pq-accent);
 }
 
+.wp-pq-lane-toggle strong {
+  font-weight: 600;
+  font-size: 0.82rem;
+}
+
 .wp-pq-lane-arrow {
-  font-size: 0.7rem;
+  font-size: 0.6rem;
   line-height: 1;
   display: inline-block;
-  width: 12px;
+  width: 10px;
   text-align: center;
+  color: var(--pq-muted);
 }
 
 .wp-pq-lane-count {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: var(--pq-muted);
-  background: var(--pq-bg);
-  padding: 1px 7px;
-  border-radius: 10px;
-  margin-left: 4px;
+  font-weight: 400;
+  margin-left: 2px;
 }
 
 .wp-pq-board-lane-row {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   gap: 0;
-  border-bottom: 1px solid var(--pq-border);
+  border: none;
 }
 
 .wp-pq-board-lane-cell {
-  border-left: 1px solid var(--pq-border);
+  border: none;
   min-height: 80px;
   padding: 6px;
-}
-
-.wp-pq-board-lane-cell:first-child {
-  border-left: none;
 }
 
 .wp-pq-board-lane-cell .wp-pq-board-column-list {
@@ -2315,61 +2307,34 @@ button.wp-pq-manager-list-item.is-active {
   padding: 0;
 }
 
-/* ── Lane panel in drawer ────────────────────────────────────────── */
+/* ── Lane panel in drawer (now inside settings panel) ──────────── */
 
-.wp-pq-lane-panel {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 14px;
-  border-top: 1px solid var(--pq-border);
+.wp-pq-lane-panel[hidden] {
+  display: none;
 }
 
-.wp-pq-lane-copy strong {
-  font-size: 0.85rem;
-}
+/* ── Lane mode inline (inside filter bar) ────────────────────────── */
 
-.wp-pq-lane-copy .wp-pq-panel-note {
-  font-size: 0.78rem;
+.wp-pq-lane-mode-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--pq-muted);
-  margin: 2px 0 0;
+  cursor: default;
+  padding: 2px 0;
+  line-height: 1.2;
 }
 
-.wp-pq-lane-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.wp-pq-lane-controls select {
-  max-width: 160px;
-}
-
-/* ── Lane mode toggle bar ────────────────────────────────────────── */
-
-.wp-pq-lane-mode-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0 8px;
-}
-
-.wp-pq-lane-mode-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.82rem;
-  color: var(--pq-muted);
-}
-
-.wp-pq-lane-mode-toggle select {
-  font-size: 0.82rem;
-  padding: 2px 6px;
+.wp-pq-lane-mode-inline select {
+  font-size: 12px;
+  padding: 1px 4px;
   border-radius: 4px;
   border: 1px solid var(--pq-border);
   background: var(--pq-surface);
+  line-height: 1.2;
+  cursor: pointer;
 }
 
 /* ── Lanes management section ────────────────────────────────────── */
@@ -2412,6 +2377,99 @@ button.wp-pq-manager-list-item.is-active {
   border-color: var(--pq-accent);
   background: var(--pq-surface);
   outline: none;
+}
+
+.wp-pq-lane-uncat-note {
+  font-size: 0.82rem;
+  color: var(--pq-muted);
+  margin-top: 10px;
+}
+
+/* ── Lane assignment dialog ──────────────────────────────────────── */
+
+.wp-pq-lane-assign-dialog {
+  border: 1px solid var(--pq-border);
+  border-radius: 10px;
+  padding: 0;
+  max-width: 480px;
+  width: 90vw;
+  max-height: 80vh;
+  background: var(--pq-surface);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.18);
+}
+
+.wp-pq-lane-assign-dialog::backdrop {
+  background: rgba(0,0,0,0.35);
+}
+
+.wp-pq-lane-assign-inner {
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+}
+
+.wp-pq-lane-assign-inner h4 {
+  margin: 0;
+  padding: 16px 18px 8px;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.wp-pq-lane-assign-search {
+  padding: 0 18px 10px;
+}
+
+.wp-pq-lane-assign-search input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--pq-border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.88rem;
+}
+
+.wp-pq-lane-assign-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 18px;
+  max-height: 50vh;
+}
+
+.wp-pq-lane-assign-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--pq-border);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
+.wp-pq-lane-assign-item:last-child {
+  border-bottom: none;
+}
+
+.wp-pq-lane-assign-item input[type="checkbox"] {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.wp-pq-lane-assign-task-title {
+  font-weight: 500;
+}
+
+.wp-pq-lane-assign-task-sub {
+  font-size: 0.78rem;
+  color: var(--pq-muted);
+  margin-left: 4px;
+}
+
+.wp-pq-lane-assign-actions {
+  padding: 12px 18px;
+  display: flex;
+  gap: 8px;
+  border-top: 1px solid var(--pq-border);
 }
 
 .wp-pq-task-card {
@@ -3019,66 +3077,57 @@ button.wp-pq-manager-list-item.is-active {
   line-height: 1.4;
 }
 
-.wp-pq-assignment-panel {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
+/* ── Consolidated task-settings panel ───────────────────────────── */
+
+.wp-pq-task-settings-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 14px;
   margin: 10px 0 14px;
-  padding: 0;
-  border: 0;
-  background: transparent;
+  padding: 10px 14px;
+  border-top: 1px solid var(--pq-border);
 }
 
-.wp-pq-assignment-copy {
-  min-width: 0;
+.wp-pq-task-settings-panel[hidden] {
+  display: none;
 }
 
-.wp-pq-assignment-copy strong {
-  display: block;
-  margin-bottom: 8px;
-  font-size: 12px;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+.wp-pq-setting-row {
+  flex: 1 1 100%;
 }
 
 .wp-pq-assignment-facts {
   font-size: 13px;
-}
-
-.wp-pq-priority-panel {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
-  margin: 0 0 14px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
-
-.wp-pq-priority-copy {
-  min-width: 0;
-}
-
-.wp-pq-priority-copy strong {
-  display: block;
   margin-bottom: 4px;
-  font-size: 12px;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
 }
 
-.wp-pq-priority-controls {
+.wp-pq-setting-field {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 120px;
+  min-width: 0;
 }
 
-.wp-pq-priority-controls select {
-  min-width: 0;
-  flex: 1 1 auto;
-  min-height: 34px;
-  font-size: 12px;
+.wp-pq-setting-field > span {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--pq-muted);
+}
+
+.wp-pq-setting-field select {
+  width: 100%;
+  font-size: 13px;
+  padding: 4px 6px;
+}
+
+.wp-pq-task-settings-panel > .button {
+  flex: 0 0 auto;
+  align-self: flex-end;
+  white-space: nowrap;
 }
 
 .wp-pq-assignment-controls {
@@ -3579,13 +3628,11 @@ body.wp-pq-drawer-open {
     grid-template-columns: 1fr;
   }
 
-  .wp-pq-priority-controls,
   .wp-pq-assignment-controls {
     width: 100%;
     flex-wrap: wrap;
   }
 
-  .wp-pq-priority-controls select,
   .wp-pq-assignment-controls select {
     min-width: 0;
     flex: 1 1 auto;
@@ -3741,13 +3788,11 @@ body.wp-pq-drawer-open {
     gap: 8px;
   }
 
-  .wp-pq-priority-controls select,
   .wp-pq-assignment-controls select {
     min-height: 44px;
     font-size: 14px;
   }
 
-  .wp-pq-priority-controls .button,
   .wp-pq-assignment-controls .button,
   .wp-pq-drawer .wp-pq-subpanel .button {
     min-height: 44px;
@@ -3914,10 +3959,8 @@ body.wp-pq-drawer-open {
   .wp-pq-subpanel {
     padding: 14px 10px;
   }
-}
 
-/* ── Swimlane mobile: stack lanes vertically, hide grid ──────────── */
-@media (max-width: 640px) {
+  /* ── Swimlane mobile: stack lanes vertically, hide grid ── */
   .wp-pq-board-lane-header-row {
     display: none;
   }
@@ -3944,47 +3987,22 @@ body.wp-pq-drawer-open {
     z-index: 5;
   }
 
-  .wp-pq-lane-panel {
+  .wp-pq-task-settings-panel {
     flex-direction: column;
-    gap: 8px;
+    align-items: stretch;
   }
 
-  .wp-pq-lane-controls {
-    width: 100%;
-  }
-
-  .wp-pq-lane-controls select {
-    flex: 1;
-    max-width: none;
+  .wp-pq-setting-field {
+    flex: 1 1 100%;
   }
 }
 
 /* ── Phone-optimised (375px target) ────────────────────────────────── */
 @media (max-width: 480px) {
 
-  /* ── Generic buttons: base touch targets (specific rules below override) ── */
-  .wp-pq-wrap .button,
-  .wp-pq-wrap .button.button-primary {
-    min-height: 36px;
-    padding: 8px 12px;
-    font-size: 13px;
-  }
-
   /* ── Shell & wrap ── */
-  .wp-pq-wrap.wp-pq-portal {
-    padding: 6px 8px 24px;
-  }
-
-  .wp-pq-wrap h2 {
-    font-size: 1.55rem;
-  }
-
   .wp-pq-wrap > p {
     font-size: 0.95rem;
-  }
-
-  .wp-pq-workspace {
-    padding: 10px 6px;
   }
 
   /* ── Mobile bar ── */
@@ -3993,50 +4011,13 @@ body.wp-pq-drawer-open {
     gap: 8px;
   }
 
-  .wp-pq-mobile-bar .button {
-    min-height: 44px;
-    min-width: 44px;
-    padding: 8px 14px;
-    font-size: 14px;
-  }
-
-  /* ── Sidebar overlay ── */
-  .wp-pq-binder.is-open {
-    inset: 48px 0 0;
-    border-radius: 0;
-  }
-
-  /* ── Board columns: snap-scroll one column at a time ── */
-  .wp-pq-board {
-    gap: 14px;
-    scroll-snap-type: x mandatory;
-    -webkit-overflow-scrolling: touch;
-    padding-bottom: 10px;
-  }
-
+  /* ── Board columns ── */
   .wp-pq-board-column {
     flex: 0 0 calc(100vw - 40px);
     scroll-snap-align: start;
   }
 
-  .wp-pq-board-column.is-collapsed {
-    flex-basis: 34px;
-    scroll-snap-align: none;
-  }
-
-  .wp-pq-board-column-head h4 {
-    font-size: 0.82rem;
-  }
-
   /* ── Task cards ── */
-  .wp-pq-task-card {
-    padding: 12px 10px;
-  }
-
-  .wp-pq-task-card h4 {
-    font-size: 0.92rem;
-  }
-
   .wp-pq-task-card-top {
     gap: 4px;
   }
@@ -4052,22 +4033,10 @@ body.wp-pq-drawer-open {
   }
 
   /* ── Filter chips ── */
-  .wp-pq-board-filter-bar {
-    padding: 10px;
-    gap: 6px;
-  }
-
   .wp-pq-filter-check {
     font-size: 12px;
     padding: 8px 12px;
     min-height: 36px;
-  }
-
-  /* ── Focal hint (Next step) ── */
-  .wp-pq-focal-hint {
-    max-width: none;
-    padding: 10px 12px;
-    font-size: 13px;
   }
 
   /* ── Section headings ── */
@@ -4079,12 +4048,6 @@ body.wp-pq-drawer-open {
 
   .wp-pq-section-heading h3 {
     font-size: 0.95rem;
-  }
-
-  .wp-pq-section-heading .button {
-    min-height: 40px;
-    padding: 8px 16px;
-    font-size: 13px;
   }
 
   .wp-pq-panel-note {
@@ -4111,29 +4074,12 @@ body.wp-pq-drawer-open {
   }
 
   /* ── Drawer (task detail) ── */
-  .wp-pq-drawer {
-    width: 100vw;
-    padding: 14px 12px 24px;
-    top: 0;
-  }
-
   .wp-pq-drawer-header {
     margin-bottom: 10px;
   }
 
-  .wp-pq-drawer-close {
-    width: 44px;
-    height: 44px;
-    font-size: 20px;
-  }
-
   .wp-pq-drawer-kicker {
     font-size: 11px;
-  }
-
-  .wp-pq-drawer-topline h3 {
-    font-size: 1.1rem;
-    line-height: 1.25;
   }
 
   .wp-pq-drawer-context {
@@ -4142,26 +4088,6 @@ body.wp-pq-drawer-open {
 
   .wp-pq-drawer-description {
     font-size: 14px;
-  }
-
-  .wp-pq-drawer-actions {
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .wp-pq-drawer-actions .button {
-    min-height: 44px !important;
-    padding: 10px 12px !important;
-    font-size: 13px !important;
-    flex: 1 1 auto;
-    justify-content: center;
-    text-align: center;
-  }
-
-  .wp-pq-drawer-facts,
-  .wp-pq-responsibility-facts {
-    grid-template-columns: 1fr;
-    gap: 8px;
   }
 
   .wp-pq-drawer-facts dt,
@@ -4174,29 +4100,10 @@ body.wp-pq-drawer-open {
     font-size: 14px;
   }
 
-  .wp-pq-priority-controls,
   .wp-pq-assignment-controls {
     width: 100%;
     flex-wrap: wrap;
     gap: 6px;
-  }
-
-  .wp-pq-priority-controls select,
-  .wp-pq-assignment-controls select {
-    min-height: 44px;
-    font-size: 14px;
-  }
-
-  /* ── Conversation / compose ── */
-  .wp-pq-compose-panel textarea {
-    min-height: 80px;
-    font-size: 14px;
-  }
-
-  .wp-pq-compose-panel .button {
-    min-height: 44px;
-    padding: 10px 16px;
-    font-size: 14px;
   }
 
   /* ── Create / new request form ── */
@@ -4205,35 +4112,12 @@ body.wp-pq-drawer-open {
     gap: 4px;
   }
 
-  .wp-pq-create-meeting-fields {
-    grid-template-columns: 1fr;
-  }
-
   .wp-pq-create-grid label {
     font-size: 13px;
   }
 
-  .wp-pq-create-grid input,
-  .wp-pq-create-grid select,
-  .wp-pq-create-grid textarea {
-    min-height: 44px !important;
-    font-size: 14px !important;
-    padding: 10px !important;
-  }
-
-  .wp-pq-create-grid textarea {
-    min-height: 100px !important;
-  }
-
   .wp-pq-create-actions {
     padding-top: 8px;
-  }
-
-  .wp-pq-create-actions .button {
-    min-height: 48px !important;
-    width: 100% !important;
-    font-size: 15px !important;
-    padding: 12px 20px !important;
   }
 
   /* ── Workspace tabs ── */
@@ -4266,17 +4150,8 @@ body.wp-pq-drawer-open {
     font-size: 15px;
   }
 
-  .wp-pq-modal-card-compact {
-    width: calc(100vw - 24px);
-  }
-
   .wp-pq-modal-card h3 {
     font-size: 1.1rem;
-  }
-
-  .wp-pq-modal-actions {
-    flex-direction: column;
-    gap: 8px;
   }
 
   .wp-pq-modal-actions .button {
@@ -4287,71 +4162,24 @@ body.wp-pq-drawer-open {
     text-align: center;
   }
 
-  .wp-pq-modal-body {
-    padding: 18px 14px;
-    gap: 12px;
-  }
-
-  .wp-pq-modal-dialog {
-    width: calc(100vw - 24px);
-    max-width: none;
-  }
-
   .wp-pq-modal-dialog .wp-pq-modal-body {
     padding: 18px 14px;
   }
 
   /* ── Onboarding overlay ── */
-  .wp-pq-onboarding-card {
-    padding: 28px 20px;
-    width: calc(100vw - 24px);
-    max-width: none;
-  }
-
-  .wp-pq-onboarding-card h2 {
-    font-size: 1.25rem;
-  }
-
   .wp-pq-onboarding-card p {
     font-size: 0.9rem;
   }
 
-  .wp-pq-onboarding-card .button-primary {
-    min-height: 48px;
-    width: 100%;
-    font-size: 1rem;
-    padding: 12px 24px;
-  }
-
   /* ── Preferences / Settings panel ── */
-  .wp-pq-settings-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .wp-pq-settings-panel {
-    padding: 18px 14px;
-  }
-
   .wp-pq-settings-panel h2 {
     font-size: 1.3rem;
   }
 
   /* ── Google Calendar status ── */
-  .wp-pq-gcal-status {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-  }
-
   .wp-pq-gcal-badge {
     font-size: 0.85rem;
     padding: 8px 14px;
-  }
-
-  /* ── Calendar ── */
-  #wp-pq-calendar {
-    padding: 2px;
-    font-size: 12px;
   }
 
   /* ── Panel (generic) ── */
@@ -4360,47 +4188,14 @@ body.wp-pq-drawer-open {
     border-radius: 14px;
   }
 
-  /* ── Alert stack ── */
-  .wp-pq-alert-stack {
-    right: 8px;
-    left: 8px;
-    top: 8px;
-  }
-
-  /* ── Files link form ── */
-  .wp-pq-files-link-form {
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .wp-pq-files-link-form input[type="url"] {
-    min-height: 44px;
-    font-size: 14px;
-  }
-
   /* ── Billing grid ── */
   .wp-pq-billing-grid {
     grid-template-columns: 1fr;
   }
 
-  /* ── Prevent body horizontal overflow ── */
-  .wp-pq-wrap,
-  .wp-pq-wrap.wp-pq-portal {
-    overflow-x: hidden;
-  }
-
-  .wp-pq-board-shell {
-    overflow: hidden;
-  }
-
   /* ── Manager browser (admin) ── */
   .wp-pq-manager-browser-layout {
     grid-template-columns: 1fr;
-  }
-
-  /* ── Subpanel spacing ── */
-  .wp-pq-subpanel {
-    padding: 14px 10px;
   }
 
   /* ── Span-2 override ── */

@@ -290,16 +290,37 @@
 
   // ── Swimlanes Management ──────────────────────────────────────────────
 
+  var lanesTasksCache = []; // cached task list for assignment modal
+
   async function renderLanes() {
     renderManagerFrame('lanes');
     el.managerContent.innerHTML = '<div class="wp-pq-empty-state">Loading lanes…</div>';
 
-    var data = await api('manager/lanes');
-    var lanes = data.lanes || [];
+    // Fetch lanes and tasks in parallel.
+    var results = await Promise.all([
+      api('manager/lanes'),
+      api('tasks'),
+    ]);
+    var lanes = results[0].lanes || [];
+    var allTasks = results[1].tasks || [];
+    lanesTasksCache = allTasks;
+
+    // Count tasks per lane.
+    var laneCounts = {};
+    lanes.forEach(function (l) { laneCounts[l.id] = 0; });
+    var uncatCount = 0;
+    allTasks.forEach(function (t) {
+      var lid = parseInt(t.lane_id || 0, 10);
+      if (lid > 0 && laneCounts[lid] !== undefined) {
+        laneCounts[lid]++;
+      } else {
+        uncatCount++;
+      }
+    });
 
     var html = '<div class="wp-pq-section-heading"><div><h3>Swimlanes</h3>' +
       '<p class="wp-pq-panel-note">Swimlanes add horizontal rows across the board to group tasks by category. ' +
-      'Drag tasks between lanes on the board, or assign lanes from the task drawer.</p></div></div>';
+      'Click a task count to assign or remove tasks from that lane.</p></div></div>';
 
     html += '<div class="wp-pq-lanes-manager">';
 
@@ -318,15 +339,29 @@
         '<th>Lane</th><th>Client Visible</th><th>Tasks</th><th></th>' +
         '</tr></thead><tbody>';
       lanes.forEach(function (lane) {
+        var count = laneCounts[lane.id] || 0;
         html += '<tr data-lane-id="' + lane.id + '">' +
           '<td><input type="text" class="wp-pq-lane-label-input" value="' + esc(lane.label) + '" data-lane-id="' + lane.id + '" /></td>' +
           '<td><input type="checkbox" class="wp-pq-lane-visible-toggle" data-lane-id="' + lane.id + '"' + (lane.client_visible ? ' checked' : '') + ' /></td>' +
-          '<td class="wp-pq-lane-task-count" data-lane-id="' + lane.id + '">—</td>' +
+          '<td><button type="button" class="button button-small wp-pq-lane-assign-btn" data-lane-id="' + lane.id + '" data-lane-label="' + esc(lane.label) + '">' + count + ' task' + (count !== 1 ? 's' : '') + '</button></td>' +
           '<td><button type="button" class="button button-small wp-pq-lane-delete" data-lane-id="' + lane.id + '">Delete</button></td>' +
           '</tr>';
       });
       html += '</tbody></table>';
+      html += '<p class="wp-pq-lane-uncat-note">' + uncatCount + ' task' + (uncatCount !== 1 ? 's' : '') + ' not assigned to any lane.</p>';
     }
+
+    // Assignment modal (hidden, reused).
+    html += '<dialog id="wp-pq-lane-assign-dialog" class="wp-pq-lane-assign-dialog">' +
+      '<div class="wp-pq-lane-assign-inner">' +
+      '<h4 id="wp-pq-lane-assign-title">Assign tasks</h4>' +
+      '<div class="wp-pq-lane-assign-search"><input type="text" id="wp-pq-lane-assign-search" placeholder="Filter tasks…" autocomplete="off" /></div>' +
+      '<div class="wp-pq-lane-assign-list" id="wp-pq-lane-assign-list"></div>' +
+      '<div class="wp-pq-lane-assign-actions">' +
+      '<button type="button" class="button button-primary" id="wp-pq-lane-assign-save">Save</button>' +
+      ' <button type="button" class="button" id="wp-pq-lane-assign-cancel">Cancel</button>' +
+      '</div>' +
+      '</div></dialog>';
 
     html += '</div>';
     el.managerContent.innerHTML = html;
@@ -339,7 +374,7 @@
         var label = addForm.elements.label.value.trim();
         if (!label) return;
         var clientVisible = addForm.elements.client_visible.checked;
-        await submitJson('manager/lanes', { label: label, client_visible: clientVisible });
+        await submitJson('manager/lanes', 'POST', { label: label, client_visible: clientVisible });
         toast('Lane created.');
         await renderLanes();
       });
@@ -351,7 +386,7 @@
         var laneId = input.dataset.laneId;
         var newLabel = input.value.trim();
         if (!newLabel) return;
-        await submitJson('manager/lanes/' + laneId, { label: newLabel });
+        await submitJson('manager/lanes/' + laneId, 'POST', { label: newLabel });
       });
       input.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
@@ -362,7 +397,7 @@
     el.managerContent.querySelectorAll('.wp-pq-lane-visible-toggle').forEach(function (cb) {
       cb.addEventListener('change', async function () {
         var laneId = cb.dataset.laneId;
-        await submitJson('manager/lanes/' + laneId, { client_visible: cb.checked });
+        await submitJson('manager/lanes/' + laneId, 'POST', { client_visible: cb.checked });
       });
     });
 
@@ -376,6 +411,81 @@
         await renderLanes();
       });
     });
+
+    // Wire assignment buttons.
+    el.managerContent.querySelectorAll('.wp-pq-lane-assign-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        openAssignDialog(parseInt(btn.dataset.laneId, 10), btn.dataset.laneLabel);
+      });
+    });
+  }
+
+  function openAssignDialog(laneId, laneLabel) {
+    var dialog = document.getElementById('wp-pq-lane-assign-dialog');
+    var titleEl = document.getElementById('wp-pq-lane-assign-title');
+    var listEl = document.getElementById('wp-pq-lane-assign-list');
+    var searchEl = document.getElementById('wp-pq-lane-assign-search');
+    var saveBtn = document.getElementById('wp-pq-lane-assign-save');
+    var cancelBtn = document.getElementById('wp-pq-lane-assign-cancel');
+    if (!dialog || !listEl) return;
+
+    titleEl.textContent = 'Assign tasks to "' + laneLabel + '"';
+    searchEl.value = '';
+
+    // Build task checklist sorted by title.
+    var sorted = lanesTasksCache.slice().sort(function (a, b) {
+      return (a.title || '').localeCompare(b.title || '');
+    });
+
+    function renderList(filter) {
+      var query = (filter || '').toLowerCase();
+      var html = '';
+      sorted.forEach(function (task) {
+        var title = task.title || 'Task #' + task.id;
+        var subtitle = task.bucket_name || '';
+        if (query && title.toLowerCase().indexOf(query) === -1 && subtitle.toLowerCase().indexOf(query) === -1) return;
+        var checked = parseInt(task.lane_id || 0, 10) === laneId;
+        html += '<label class="wp-pq-lane-assign-item">' +
+          '<input type="checkbox" value="' + task.id + '"' + (checked ? ' checked' : '') + ' /> ' +
+          '<span class="wp-pq-lane-assign-task-title">#' + esc(task.id) + ' ' + esc(title) + '</span>' +
+          (subtitle ? '<span class="wp-pq-lane-assign-task-sub">' + esc(subtitle) + '</span>' : '') +
+          '</label>';
+      });
+      if (!html) html = '<p class="wp-pq-empty-state">No tasks match.</p>';
+      listEl.innerHTML = html;
+    }
+
+    renderList('');
+    searchEl.addEventListener('input', function () { renderList(searchEl.value); });
+
+    // Save handler.
+    var onSave = async function () {
+      var checked = listEl.querySelectorAll('input[type="checkbox"]:checked');
+      var taskIds = [];
+      checked.forEach(function (cb) { taskIds.push(parseInt(cb.value, 10)); });
+      saveBtn.disabled = true;
+      try {
+        await submitJson('manager/lanes/' + laneId + '/assign', 'POST', { task_ids: taskIds });
+        dialog.close();
+        toast(taskIds.length + ' task(s) assigned to "' + laneLabel + '".');
+        await renderLanes();
+      } catch (err) {
+        toast(err.message || 'Assignment failed.', true);
+      } finally {
+        saveBtn.disabled = false;
+      }
+    };
+
+    // Clean up old listeners by cloning buttons.
+    var newSave = saveBtn.cloneNode(true);
+    saveBtn.parentNode.replaceChild(newSave, saveBtn);
+    newSave.addEventListener('click', onSave);
+
+    var newCancel = cancelBtn.cloneNode(true);
+    cancelBtn.parentNode.replaceChild(newCancel, cancelBtn);
+    newCancel.addEventListener('click', function () { dialog.close(); });
+
+    dialog.showModal();
   }
 
   m.render.files = renderFiles;

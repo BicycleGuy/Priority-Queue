@@ -10,7 +10,7 @@ class WP_PQ_Installer
     {
         WP_PQ_Roles::register_roles_and_caps();
         WP_PQ_DB::create_tables();
-        WP_PQ_DB::ensure_default_billing_buckets();
+        WP_PQ_Migrations::ensure_default_billing_buckets();
         self::set_default_options();
         self::deploy_relay();
         WP_PQ_Housekeeping::schedule();

@@ -178,28 +178,17 @@ class WP_PQ_Portal
                         exit;
                     }
 
-                    $base_login = sanitize_user((string) current(explode('@', $invite['email'])), true);
-                    if ($base_login === '') $base_login = 'user';
-                    $login = $base_login;
-                    $suffix = 1;
-                    while (username_exists($login)) {
-                        $suffix++;
-                        $login = $base_login . $suffix;
-                    }
-
                     $first = trim((string) ($invite['first_name'] ?? ''));
                     $last = trim((string) ($invite['last_name'] ?? ''));
                     $display = trim("{$first} {$last}") ?: $invite['email'];
 
-                    $user_id = wp_insert_user([
-                        'user_login' => $login,
-                        'user_pass' => $password,
-                        'user_email' => $invite['email'],
-                        'first_name' => $first,
-                        'last_name' => $last,
-                        'display_name' => $display,
-                        'nickname' => $display,
-                        'role' => $invite['role'],
+                    $user_id = WP_PQ_DB::create_wp_user($invite['email'], [
+                        'display_name'      => $display,
+                        'first_name'        => $first,
+                        'last_name'         => $last,
+                        'role'              => $invite['role'],
+                        'password'          => $password,
+                        'username_fallback' => 'user',
                     ]);
 
                     if (is_wp_error($user_id)) {
@@ -1006,26 +995,7 @@ class WP_PQ_Portal
         echo '  </section>';
         echo '  <div id="wp-pq-queue-main-sections">';
         echo '  <section class="wp-pq-board-shell">';
-        echo '    <div class="wp-pq-section-heading">';
-        echo '      <div>';
-        echo '        <h3>Task board</h3>';
-        echo '        <p class="wp-pq-panel-note">Pick a card to open details, messages, and files. Drag moves follow your workflow rules.</p>';
-        echo '      </div>';
-        // Focal hint removed — was static, not contextual.
-        echo '    </div>';
         echo '    <div id="wp-pq-board-filter-bar" class="wp-pq-board-filter-bar"></div>';
-        if ($is_manager) {
-            echo '    <div class="wp-pq-lane-mode-bar" id="wp-pq-lane-mode-bar">';
-            echo '      <label class="wp-pq-lane-mode-toggle">';
-            echo '        <span class="wp-pq-lane-mode-label">Lanes:</span>';
-            echo '        <select id="wp-pq-lane-mode-select">';
-            echo '          <option value="off">Off</option>';
-            echo '          <option value="manual">Manual</option>';
-            echo '          <option value="auto_job">Auto by Job</option>';
-            echo '        </select>';
-            echo '      </label>';
-            echo '    </div>';
-        }
         echo '    <div id="wp-pq-board-panel">';
         echo '      <div id="wp-pq-board" class="wp-pq-board"></div>';
         echo '    </div>';
@@ -1048,45 +1018,26 @@ class WP_PQ_Portal
         echo '        <div id="wp-pq-current-task-guidance" class="wp-pq-guidance-callout" hidden></div>';
         echo '        <p id="wp-pq-current-task-description" class="wp-pq-drawer-description"></p>';
         echo '        <div id="wp-pq-current-task-actions" class="wp-pq-drawer-actions"></div>';
-        echo '        <div id="wp-pq-assignment-panel" class="wp-pq-assignment-panel" hidden>';
-        echo '          <div class="wp-pq-assignment-copy">';
-        echo '            <strong>Responsibility</strong>';
-        echo '            <div id="wp-pq-assignment-summary" class="wp-pq-assignment-facts">Choose who is responsible for the next step.</div>';
+        echo '        <div id="wp-pq-task-settings-panel" class="wp-pq-task-settings-panel" hidden>';
+        echo '          <div id="wp-pq-assignment-panel" class="wp-pq-setting-row">';
+        echo '            <div id="wp-pq-assignment-summary" class="wp-pq-assignment-facts"></div>';
+        echo '            <label class="wp-pq-setting-field"><span>Owner</span><select id="wp-pq-assignment-select"></select></label>';
         echo '          </div>';
-        echo '          <div class="wp-pq-assignment-controls">';
-        echo '            <select id="wp-pq-assignment-select"></select>';
-        echo '            <button class="button" type="button" id="wp-pq-save-assignment">Assign</button>';
-        echo '          </div>';
-        echo '        </div>';
-        echo '        <div id="wp-pq-priority-panel" class="wp-pq-priority-panel" hidden>';
-        echo '          <div class="wp-pq-priority-copy">';
-        echo '            <strong>Priority</strong>';
-        echo '            <div class="wp-pq-panel-note">Set urgency directly when it changes.</div>';
-        echo '          </div>';
-        echo '          <div class="wp-pq-priority-controls">';
+        echo '          <label class="wp-pq-setting-field" id="wp-pq-priority-panel"><span>Priority</span>';
         echo '            <select id="wp-pq-priority-select">';
         echo '              <option value="low">Low</option>';
         echo '              <option value="normal">Normal</option>';
         echo '              <option value="high">High</option>';
         echo '              <option value="urgent">Urgent</option>';
         echo '            </select>';
-        echo '            <button class="button" type="button" id="wp-pq-save-priority">Update Priority</button>';
-        echo '          </div>';
-        echo '        </div>';
+        echo '          </label>';
         if ($is_manager) {
-            echo '        <div id="wp-pq-lane-panel" class="wp-pq-lane-panel" hidden>';
-            echo '          <div class="wp-pq-lane-copy">';
-            echo '            <strong>Swimlane</strong>';
-            echo '            <div class="wp-pq-panel-note">Group this task into a lane on the board.</div>';
-            echo '          </div>';
-            echo '          <div class="wp-pq-lane-controls">';
-            echo '            <select id="wp-pq-lane-select">';
-            echo '              <option value="0">Uncategorized</option>';
-            echo '            </select>';
-            echo '            <button class="button" type="button" id="wp-pq-save-lane">Update Lane</button>';
-            echo '          </div>';
-            echo '        </div>';
+            echo '          <label class="wp-pq-setting-field" id="wp-pq-lane-panel"><span>Swimlane</span>';
+            echo '            <select id="wp-pq-lane-select"><option value="0">Uncategorized</option></select>';
+            echo '          </label>';
         }
+        echo '          <button class="button" type="button" id="wp-pq-save-task-settings">Update</button>';
+        echo '        </div>';
         echo '      </div>';
         echo '      <div id="wp-pq-task-empty" class="wp-pq-task-empty">Select a task to open its workspace and review messages, notes, files, and approvals.</div>';
         echo '      <div id="wp-pq-task-workspace" class="wp-pq-task-workspace" hidden>';

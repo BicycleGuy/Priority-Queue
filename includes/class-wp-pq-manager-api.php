@@ -294,6 +294,12 @@ class WP_PQ_Manager_API
             ],
         ]);
 
+        register_rest_route('pq/v1', '/manager/lanes/(?P<id>\d+)/assign', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'assign_lane_tasks'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
         // ── Client Admin self-service invites ─────────────────────────
         register_rest_route('pq/v1', '/client/invites', [
             [
@@ -415,23 +421,8 @@ class WP_PQ_Manager_API
         $user = get_user_by('email', $client_email);
         $created = false;
         if (! $user) {
-            $base_login = sanitize_user((string) current(explode('@', $client_email)), true);
-            if ($base_login === '') {
-                $base_login = 'client';
-            }
-            $login = $base_login;
-            $suffix = 1;
-            while (username_exists($login)) {
-                $suffix++;
-                $login = $base_login . $suffix;
-            }
-            $user_id = wp_insert_user([
-                'user_login' => $login,
-                'user_pass' => wp_generate_password(24, true, true),
-                'user_email' => $client_email,
+            $user_id = WP_PQ_DB::create_wp_user($client_email, [
                 'display_name' => $client_name,
-                'nickname' => $client_name,
-                'role' => 'pq_client',
             ]);
             if (is_wp_error($user_id)) {
                 return new WP_REST_Response(['message' => $user_id->get_error_message()], 422);
@@ -2078,6 +2069,43 @@ class WP_PQ_Manager_API
         WP_PQ_DB::delete_lane($lane_id);
 
         return new WP_REST_Response(['ok' => true, 'message' => 'Lane deleted. Tasks moved to Uncategorized.'], 200);
+    }
+
+    /**
+     * Bulk-assign tasks to a lane. Accepts { task_ids: [1,2,3] }.
+     * Any tasks currently in this lane but NOT in the list get moved to Uncategorized.
+     */
+    public static function assign_lane_tasks(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $lane_id = (int) $request['id'];
+        $lane = WP_PQ_DB::get_lane($lane_id);
+
+        if (! $lane) {
+            return new WP_REST_Response(['message' => 'Lane not found.'], 404);
+        }
+
+        $task_ids = array_map('intval', (array) $request->get_param('task_ids'));
+        $task_ids = array_values(array_filter($task_ids, static fn($id) => $id > 0));
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+        $now = current_time('mysql', true);
+
+        // Remove tasks no longer in this lane.
+        if (! empty($task_ids)) {
+            $ids_in = implode(',', $task_ids);
+            $wpdb->query("UPDATE {$tasks_table} SET lane_id = NULL, updated_at = '{$now}' WHERE lane_id = {$lane_id} AND id NOT IN ({$ids_in})");
+        } else {
+            // All tasks removed from lane.
+            $wpdb->update($tasks_table, ['lane_id' => null, 'updated_at' => $now], ['lane_id' => $lane_id]);
+        }
+
+        // Assign selected tasks to this lane.
+        foreach ($task_ids as $tid) {
+            $wpdb->update($tasks_table, ['lane_id' => $lane_id, 'updated_at' => $now], ['id' => $tid]);
+        }
+
+        $count = count($task_ids);
+        return new WP_REST_Response(['ok' => true, 'count' => $count, 'message' => $count . ' task(s) assigned.'], 200);
     }
 
     public static function reorder_lanes(WP_REST_Request $request): WP_REST_Response

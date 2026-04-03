@@ -383,25 +383,8 @@ class WP_PQ_Admin
         $created = false;
 
         if (! $user) {
-            $base_login = sanitize_user(current(explode('@', $client_email)), true);
-            if ($base_login === '') {
-                $base_login = 'client';
-            }
-
-            $login = $base_login;
-            $suffix = 1;
-            while (username_exists($login)) {
-                $suffix++;
-                $login = $base_login . $suffix;
-            }
-
-            $user_id = wp_insert_user([
-                'user_login' => $login,
-                'user_pass' => wp_generate_password(24, true, true),
-                'user_email' => $client_email,
+            $user_id = WP_PQ_DB::create_wp_user($client_email, [
                 'display_name' => $client_name,
-                'nickname' => $client_name,
-                'role' => 'pq_client',
             ]);
 
             if (is_wp_error($user_id)) {

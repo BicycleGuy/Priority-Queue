@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Switchboard
  * Description: Client work request workflow with queue management, approvals, file exchange, scheduling, and billing.
- * Version: 0.38.0
+ * Version: 0.39.5
  * Author: Custom
  * Requires at least: 6.0
  * Requires PHP: 8.1
@@ -12,7 +12,7 @@ if (! defined('ABSPATH')) {
     exit;
 }
 
-define('WP_PQ_VERSION', '0.38.0');
+define('WP_PQ_VERSION', '0.39.5');
 define('WP_PQ_PLUGIN_FILE', __FILE__);
 define('WP_PQ_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('WP_PQ_PLUGIN_URL', plugin_dir_url(__FILE__));
@@ -21,6 +21,7 @@ require_once WP_PQ_PLUGIN_DIR . 'includes/class-wp-pq-installer.php';
 require_once WP_PQ_PLUGIN_DIR . 'includes/class-wp-pq-roles.php';
 require_once WP_PQ_PLUGIN_DIR . 'includes/class-wp-pq-db.php';
 require_once WP_PQ_PLUGIN_DIR . 'includes/class-wp-pq-workflow.php';
+require_once WP_PQ_PLUGIN_DIR . 'includes/class-wp-pq-migrations.php';
 require_once WP_PQ_PLUGIN_DIR . 'includes/class-wp-pq-housekeeping.php';
 require_once WP_PQ_PLUGIN_DIR . 'includes/class-wp-pq-api.php';
 require_once WP_PQ_PLUGIN_DIR . 'includes/class-wp-pq-manager-api.php';
