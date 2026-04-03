@@ -335,7 +335,7 @@ class WP_PQ_Admin
         }
 
         check_admin_referer('wp_pq_google_oauth_start');
-        $response = WP_PQ_API::google_oauth_url();
+        $response = WP_PQ_Google_Auth::google_oauth_url();
         $data = $response->get_data();
         $url = is_array($data) ? (string) ($data['url'] ?? '') : '';
 

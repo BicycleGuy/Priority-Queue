@@ -8,7 +8,7 @@ if (! defined('ABSPATH')) {
  * Google Drive Shared Drive integration.
  *
  * All API calls use wp_remote_* (no PHP SDK).
- * Requires a valid access token from WP_PQ_API::get_google_access_token().
+ * Requires a valid access token from WP_PQ_Google_Auth::get_google_access_token().
  */
 class WP_PQ_Drive
 {
@@ -30,7 +30,7 @@ class WP_PQ_Drive
             return self::$cached_token;
         }
 
-        $token = WP_PQ_API::get_google_access_token($user_id);
+        $token = WP_PQ_Google_Auth::get_google_access_token($user_id);
         if (! $token) {
             throw new RuntimeException('No Google access token available.');
         }

@@ -87,9 +87,9 @@
   font-size: 1.12rem;
 }
 
-.wp-pq-wrap .button,
-.wp-pq-wrap .button.button-primary {
-  border: 0 !important;
+body .wp-pq-wrap .button,
+body .wp-pq-wrap .button.button-primary {
+  border: 0;
   border-radius: 6px;
   background: var(--pq-accent);
   color: #fff;
@@ -101,17 +101,29 @@
   box-shadow: none !important;
 }
 
-.wp-pq-wrap .button:hover,
-.wp-pq-wrap .button.button-primary:hover {
+body .wp-pq-wrap .button:hover,
+body .wp-pq-wrap .button.button-primary:hover {
   background: var(--pq-accent-dark);
   color: #fff;
 }
 
-.wp-pq-wrap .button:not(.button-primary):not(.is-active) {
+body .wp-pq-wrap .button:not(.button-primary):not(.is-active) {
   background: var(--pq-ink);
 }
 
-.wp-pq-wrap .button.is-active {
+/* Reset dark background for buttons inside containers that define their own styles */
+body .wp-pq-binder .button:not(.button-primary):not(.is-active),
+body .wp-pq-view-toggle .button:not(.button-primary):not(.is-active),
+body .wp-pq-drawer-actions .button:not(.button-primary):not(.is-active),
+body .wp-pq-workspace-tabs .button:not(.button-primary):not(.is-active),
+body .wp-pq-section-heading .button:not(.button-primary):not(.is-active),
+body .wp-pq-modal .button:not(.button-primary):not(.is-active),
+body .wp-pq-compose-panel .button:not(.button-primary):not(.is-active) {
+  background: transparent;
+  color: var(--pq-ink);
+}
+
+body .wp-pq-wrap .button.is-active {
   box-shadow: none !important;
   filter: brightness(1.05);
 }
@@ -382,9 +394,9 @@
   max-width: 560px;
 }
 
-.wp-pq-secondary-action {
+body .wp-pq-wrap .wp-pq-secondary-action {
   background: var(--pq-ink);
-  border: 0 !important;
+  border: 0;
 }
 
 .wp-pq-workspace-tabs {
@@ -493,27 +505,25 @@
   margin: 0 0 12px;
 }
 
-.wp-pq-mention-chip,
-.wp-pq-wrap .wp-pq-mention-chip {
-  border: 1px solid var(--pq-border) !important;
-  border-radius: 999px !important;
-  background: var(--pq-soft) !important;
-  color: var(--pq-ink) !important;
-  padding: 5px 12px !important;
-  font-size: 12px !important;
-  font-weight: 600 !important;
-  min-height: 0 !important;
-  line-height: 1.4 !important;
+body .wp-pq-wrap .wp-pq-mention-chip {
+  border: 1px solid var(--pq-border);
+  border-radius: 999px;
+  background: var(--pq-soft);
+  color: var(--pq-ink);
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  min-height: 0;
+  line-height: 1.4;
   box-shadow: none !important;
   cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease;
 }
 
-.wp-pq-mention-chip:hover,
-.wp-pq-wrap .wp-pq-mention-chip:hover {
-  background: var(--pq-accent-soft) !important;
-  border-color: var(--pq-accent) !important;
-  color: var(--pq-accent) !important;
+body .wp-pq-wrap .wp-pq-mention-chip:hover {
+  background: var(--pq-accent-soft);
+  border-color: var(--pq-accent);
+  color: var(--pq-accent);
 }
 
 .wp-pq-mention-hint {
@@ -528,17 +538,17 @@
   align-items: flex-start;
 }
 
-.wp-pq-compose-mode {
+body .wp-pq-wrap .wp-pq-compose-mode {
   flex-shrink: 0;
-  border: 1px solid var(--pq-border) !important;
-  border-radius: 6px !important;
-  background: var(--pq-soft) !important;
-  color: var(--pq-ink) !important;
-  font-size: 12px !important;
-  font-weight: 600 !important;
-  padding: 6px 8px !important;
-  min-height: 0 !important;
-  line-height: 1.4 !important;
+  border: 1px solid var(--pq-border);
+  border-radius: 6px;
+  background: var(--pq-soft);
+  color: var(--pq-ink);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 8px;
+  min-height: 0;
+  line-height: 1.4;
   cursor: pointer;
   margin-top: 2px;
 }
@@ -814,14 +824,14 @@
   gap: 6px;
 }
 
-.wp-pq-primary-action {
+body .wp-pq-wrap .wp-pq-primary-action {
   width: 100%;
-  min-height: 44px !important;
+  min-height: 44px;
   justify-content: center;
-  font-size: 14px !important;
-  font-weight: 700 !important;
-  border-radius: 10px !important;
-  border: 0 !important;
+  font-size: 14px;
+  font-weight: 700;
+  border-radius: 10px;
+  border: 0;
   box-shadow: none !important;
 }
 
@@ -834,64 +844,64 @@
   background: var(--pq-soft);
 }
 
-.wp-pq-view-toggle .button {
+body .wp-pq-wrap .wp-pq-view-toggle .button {
   justify-content: center;
-  min-height: 32px !important;
-  border: 0 !important;
-  border-radius: 7px !important;
-  background: transparent !important;
-  color: var(--pq-muted) !important;
-  font-size: 13px !important;
-  font-weight: 600 !important;
+  min-height: 32px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--pq-muted);
+  font-size: 13px;
+  font-weight: 600;
 }
 
-.wp-pq-view-toggle .button:hover {
-  background: var(--pq-sidebar-hover) !important;
-  color: var(--pq-ink) !important;
+body .wp-pq-wrap .wp-pq-view-toggle .button:hover {
+  background: var(--pq-sidebar-hover);
+  color: var(--pq-ink);
 }
 
-.wp-pq-view-toggle .button.is-active,
-.wp-pq-view-toggle .button.button-primary {
-  background: var(--pq-surface) !important;
-  color: var(--pq-ink) !important;
+body .wp-pq-wrap .wp-pq-view-toggle .button.is-active,
+body .wp-pq-wrap .wp-pq-view-toggle .button.button-primary {
+  background: var(--pq-surface);
+  color: var(--pq-ink);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06) !important;
 }
 
-.wp-pq-binder .wp-pq-filter-nav .button {
+body .wp-pq-binder .wp-pq-filter-nav .button {
   width: 100%;
   justify-content: space-between;
-  min-height: 36px !important;
-  padding: 7px 10px !important;
-  border: 0 !important;
-  border-radius: 8px !important;
-  background: transparent !important;
-  color: var(--pq-sidebar-ink) !important;
-  font-size: 13.5px !important;
-  font-weight: 500 !important;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pq-sidebar-ink);
+  font-size: 13.5px;
+  font-weight: 500;
   text-align: left;
   box-shadow: none !important;
-  white-space: normal !important;
+  white-space: normal;
   word-break: break-word;
-  line-height: 1.3 !important;
-  height: auto !important;
+  line-height: 1.3;
+  height: auto;
 }
 
-.wp-pq-binder .wp-pq-filter-nav .button:hover {
-  background: var(--pq-sidebar-hover) !important;
-  color: var(--pq-sidebar-ink) !important;
+body .wp-pq-binder .wp-pq-filter-nav .button:hover {
+  background: var(--pq-sidebar-hover);
+  color: var(--pq-sidebar-ink);
 }
 
-.wp-pq-binder .wp-pq-filter-nav .button.is-active,
-.wp-pq-binder .wp-pq-filter-nav .button.button-primary {
-  background: var(--pq-sidebar-active) !important;
-  color: var(--pq-sidebar-active-ink) !important;
-  font-weight: 600 !important;
+body .wp-pq-binder .wp-pq-filter-nav .button.is-active,
+body .wp-pq-binder .wp-pq-filter-nav .button.button-primary {
+  background: var(--pq-sidebar-active);
+  color: var(--pq-sidebar-active-ink);
+  font-weight: 600;
   box-shadow: none !important;
 }
 
-.wp-pq-job-nav .button {
-  min-height: 42px !important;
-  font-weight: 700 !important;
+body .wp-pq-job-nav .button {
+  min-height: 42px;
+  font-weight: 700;
 }
 
 .wp-pq-row-main,
@@ -1016,18 +1026,18 @@ details.wp-pq-admin-group .wp-pq-filter-nav {
   padding-top: 14px;
 }
 
-.wp-pq-binder-section-bottom > .button {
+body .wp-pq-binder-section-bottom > .button {
   width: 100%;
   justify-content: flex-start;
-  border: 1px solid var(--pq-sidebar-border) !important;
-  border-radius: 10px !important;
-  background: transparent !important;
-  color: var(--pq-sidebar-ink) !important;
+  border: 1px solid var(--pq-sidebar-border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--pq-sidebar-ink);
 }
 
-.wp-pq-binder-section-bottom > .button:hover {
-  background: var(--pq-sidebar-hover) !important;
-  color: var(--pq-sidebar-ink) !important;
+body .wp-pq-binder-section-bottom > .button:hover {
+  background: var(--pq-sidebar-hover);
+  color: var(--pq-sidebar-ink);
 }
 
 /* ── Focal hint ────────────────────────────────────── */
@@ -1120,12 +1130,12 @@ details.wp-pq-admin-group .wp-pq-filter-nav {
   text-transform: uppercase;
 }
 
-.wp-pq-filter-list .button {
-  min-height: 34px !important;
-  padding: 6px 10px !important;
-  border-color: var(--pq-sidebar-border) !important;
-  color: var(--pq-sidebar-ink) !important;
-  font-size: 13px !important;
+body .wp-pq-filter-list .button {
+  min-height: 34px;
+  padding: 6px 10px;
+  border-color: var(--pq-sidebar-border);
+  color: var(--pq-sidebar-ink);
+  font-size: 13px;
 }
 
 .wp-pq-workspace {
@@ -1333,8 +1343,8 @@ details.wp-pq-admin-group .wp-pq-filter-nav {
   padding-top: 6px;
 }
 
-.wp-pq-create-actions .button {
-  border-radius: 5px !important;
+body .wp-pq-create-actions .button {
+  border-radius: 5px;
   min-height: 32px;
   padding: 6px 16px;
   font-size: 13px;
@@ -1436,34 +1446,34 @@ details.wp-pq-admin-group .wp-pq-filter-nav {
   -webkit-user-select: none;
 }
 
-.wp-pq-client-alpha-btn {
-  min-width: 0 !important;
-  min-height: 0 !important;
-  width: 26px !important;
-  height: 20px !important;
-  padding: 0 !important;
-  border: 0 !important;
-  border-radius: 4px !important;
-  background: transparent !important;
-  color: var(--pq-muted) !important;
-  font-size: 10px !important;
-  font-weight: 600 !important;
-  line-height: 20px !important;
-  text-align: center !important;
+body .wp-pq-wrap .wp-pq-client-alpha-btn {
+  min-width: 0;
+  min-height: 0;
+  width: 26px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--pq-muted);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
   cursor: pointer;
   box-shadow: none !important;
   transition: color 0.15s, background 0.15s;
 }
 
-.wp-pq-client-alpha-btn:hover,
-.wp-pq-client-alpha-btn:focus {
-  color: var(--pq-accent) !important;
-  background: var(--pq-accent-soft) !important;
+body .wp-pq-wrap .wp-pq-client-alpha-btn:hover,
+body .wp-pq-wrap .wp-pq-client-alpha-btn:focus {
+  color: var(--pq-accent);
+  background: var(--pq-accent-soft);
 }
 
-.wp-pq-client-alpha-btn.is-active {
-  color: var(--pq-surface) !important;
-  background: var(--pq-accent) !important;
+body .wp-pq-wrap .wp-pq-client-alpha-btn.is-active {
+  color: var(--pq-surface);
+  background: var(--pq-accent);
 }
 
 .wp-pq-client-alpha-btn.is-dim {
@@ -1499,25 +1509,25 @@ details.wp-pq-admin-group .wp-pq-filter-nav {
   font-size: 1rem;
 }
 
-button.wp-pq-manager-list-item {
+body button.wp-pq-manager-list-item {
   appearance: none;
   -webkit-appearance: none;
   display: grid;
   gap: 4px;
   width: 100%;
   padding: 12px 14px;
-  border: 0 !important;
+  border: 0;
   border-radius: 14px;
-  background: var(--pq-soft) !important;
-  color: var(--pq-ink) !important;
+  background: var(--pq-soft);
+  color: var(--pq-ink);
   text-align: left;
   cursor: pointer;
   box-shadow: var(--pq-shadow) !important;
 }
 
-button.wp-pq-manager-list-item:hover,
-button.wp-pq-manager-list-item.is-active {
-  background: var(--pq-soft-2) !important;
+body button.wp-pq-manager-list-item:hover,
+body button.wp-pq-manager-list-item.is-active {
+  background: var(--pq-soft-2);
   box-shadow: var(--pq-shadow-lg) !important;
 }
 
@@ -1526,9 +1536,9 @@ button.wp-pq-manager-list-item.is-active {
   line-height: 1.2;
 }
 
-.wp-pq-manager-list-item span,
-.wp-pq-manager-list-item small {
-  color: var(--pq-muted) !important;
+body .wp-pq-wrap .wp-pq-manager-list-item span,
+body .wp-pq-wrap .wp-pq-manager-list-item small {
+  color: var(--pq-muted);
 }
 
 .wp-pq-manager-table {
@@ -1601,28 +1611,28 @@ button.wp-pq-manager-list-item.is-active {
   border-bottom: 1px solid var(--pq-border);
 }
 
-.wp-pq-client-tab-btn {
+body .wp-pq-wrap .wp-pq-client-tab-btn {
   appearance: none;
   -webkit-appearance: none;
-  background: transparent !important;
-  border: 0 !important;
-  border-bottom: 2px solid transparent !important;
-  padding: 10px 16px !important;
-  font-size: 13px !important;
-  font-weight: 600 !important;
-  color: var(--pq-muted) !important;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--pq-muted);
   cursor: pointer;
-  border-radius: 0 !important;
+  border-radius: 0;
   box-shadow: none !important;
 }
 
-.wp-pq-client-tab-btn:hover {
-  color: var(--pq-ink) !important;
+body .wp-pq-wrap .wp-pq-client-tab-btn:hover {
+  color: var(--pq-ink);
 }
 
-.wp-pq-client-tab-btn.is-active {
-  color: var(--pq-accent) !important;
-  border-bottom-color: var(--pq-accent) !important;
+body .wp-pq-wrap .wp-pq-client-tab-btn.is-active {
+  color: var(--pq-accent);
+  border-bottom-color: var(--pq-accent);
 }
 
 .wp-pq-client-tab-body {
@@ -1925,7 +1935,7 @@ button.wp-pq-manager-list-item.is-active {
   min-width: 0;
 }
 
-.wp-pq-summary-row {
+body .wp-pq-wrap .wp-pq-summary-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1934,8 +1944,8 @@ button.wp-pq-manager-list-item.is-active {
   -webkit-appearance: none;
   border: 1px solid var(--pq-sidebar-border);
   border-radius: 10px;
-  background: var(--pq-sidebar-hover) !important;
-  color: var(--pq-sidebar-ink) !important;
+  background: var(--pq-sidebar-hover);
+  color: var(--pq-sidebar-ink);
   padding: 8px 10px;
   font-size: 13px;
   font-weight: 600;
@@ -1943,38 +1953,38 @@ button.wp-pq-manager-list-item.is-active {
   text-align: left;
 }
 
-.wp-pq-summary-row:hover {
-  background: var(--pq-soft-2) !important;
-  color: var(--pq-ink) !important;
+body .wp-pq-wrap .wp-pq-summary-row:hover {
+  background: var(--pq-soft-2);
+  color: var(--pq-ink);
 }
 
-.wp-pq-summary-row.is-active {
+body .wp-pq-wrap .wp-pq-summary-row.is-active {
   border-color: var(--pq-accent);
-  background: var(--pq-accent-soft) !important;
-  color: var(--pq-accent) !important;
+  background: var(--pq-accent-soft);
+  color: var(--pq-accent);
 }
 
-.wp-pq-summary-row.is-warning {
+body .wp-pq-wrap .wp-pq-summary-row.is-warning {
   border-color: rgba(185, 28, 28, 0.45);
-  background: var(--pq-accent) !important;
-  color: #fff !important;
+  background: var(--pq-accent);
+  color: #fff;
 }
 
-.wp-pq-summary-row.is-warning:hover {
-  background: var(--pq-accent-dark) !important;
-  color: #fff !important;
+body .wp-pq-wrap .wp-pq-summary-row.is-warning:hover {
+  background: var(--pq-accent-dark);
+  color: #fff;
 }
 
-.wp-pq-summary-row.is-warning .wp-pq-summary-row-count {
+body .wp-pq-wrap .wp-pq-summary-row.is-warning .wp-pq-summary-row-count {
   background: rgba(255, 255, 255, 0.16);
-  color: #fff !important;
+  color: #fff;
 }
 
-.wp-pq-summary-row-label {
-  color: inherit !important;
+body .wp-pq-wrap .wp-pq-summary-row-label {
+  color: inherit;
 }
 
-.wp-pq-summary-row-count {
+body .wp-pq-wrap .wp-pq-summary-row-count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1983,7 +1993,7 @@ button.wp-pq-manager-list-item.is-active {
   padding: 0 7px;
   border-radius: 8px;
   background: var(--pq-soft-2);
-  color: var(--pq-ink) !important;
+  color: var(--pq-ink);
   font-size: 11px;
   font-weight: 800;
 }
@@ -1994,19 +2004,19 @@ button.wp-pq-manager-list-item.is-active {
   margin-top: 4px;
 }
 
-.wp-pq-binder-secondary-actions .button {
+body .wp-pq-binder-secondary-actions .button {
   width: 100%;
   justify-content: flex-start;
-  min-height: 38px !important;
-  border: 0 !important;
-  border-radius: 8px !important;
-  background: transparent !important;
-  color: var(--pq-sidebar-muted) !important;
+  min-height: 38px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pq-sidebar-muted);
 }
 
-.wp-pq-binder-secondary-actions .button:hover {
-  background: var(--pq-sidebar-hover) !important;
-  color: var(--pq-sidebar-ink) !important;
+body .wp-pq-binder-secondary-actions .button:hover {
+  background: var(--pq-sidebar-hover);
+  color: var(--pq-sidebar-ink);
 }
 
 .wp-pq-board {
@@ -2100,11 +2110,11 @@ button.wp-pq-manager-list-item.is-active {
   color: var(--pq-muted);
 }
 
-.wp-pq-archive-all-btn {
-  font-size: 10px !important;
-  padding: 2px 8px !important;
-  line-height: 1.4 !important;
-  min-height: 0 !important;
+body .wp-pq-wrap .wp-pq-archive-all-btn {
+  font-size: 10px;
+  padding: 2px 8px;
+  line-height: 1.4;
+  min-height: 0;
   margin-left: auto;
   white-space: nowrap;
 }
@@ -3152,28 +3162,28 @@ button.wp-pq-manager-list-item.is-active {
   font-size: 12px;
 }
 
-.wp-pq-drawer-actions .button {
-  background: var(--pq-soft) !important;
-  color: var(--pq-ink) !important;
-  border: 1px solid var(--pq-border) !important;
+body .wp-pq-drawer-actions .button {
+  background: var(--pq-soft);
+  color: var(--pq-ink);
+  border: 1px solid var(--pq-border);
   border-radius: 8px;
 }
 
-.wp-pq-drawer-actions .button:hover {
-  background: var(--pq-accent-soft) !important;
-  color: var(--pq-accent) !important;
-  border-color: var(--pq-accent) !important;
+body .wp-pq-drawer-actions .button:hover {
+  background: var(--pq-accent-soft);
+  color: var(--pq-accent);
+  border-color: var(--pq-accent);
 }
 
-.wp-pq-drawer-actions .button.button-primary {
-  background: var(--pq-accent) !important;
-  color: #fff !important;
-  border-color: var(--pq-accent) !important;
+body .wp-pq-drawer-actions .button.button-primary {
+  background: var(--pq-accent);
+  color: #fff;
+  border-color: var(--pq-accent);
 }
 
-.wp-pq-drawer-actions .button.button-primary:hover {
-  background: var(--pq-accent-dark) !important;
-  border-color: var(--pq-accent-dark) !important;
+body .wp-pq-drawer-actions .button.button-primary:hover {
+  background: var(--pq-accent-dark);
+  border-color: var(--pq-accent-dark);
 }
 
 .wp-pq-wrap .button.wp-pq-button-danger,
@@ -3208,23 +3218,23 @@ button.wp-pq-manager-list-item.is-active {
   display: none;
 }
 
-.wp-pq-workspace-tabs .button {
+body .wp-pq-workspace-tabs .button {
   width: auto;
   flex: 0 0 auto;
   white-space: nowrap;
-  min-height: 34px !important;
-  padding: 6px 12px !important;
-  font-size: 12px !important;
-  border-radius: 8px !important;
-  background: var(--pq-soft) !important;
-  color: var(--pq-ink) !important;
-  border: 0 !important;
+  min-height: 34px;
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 8px;
+  background: var(--pq-soft);
+  color: var(--pq-ink);
+  border: 0;
 }
 
-.wp-pq-workspace-tabs .button.is-active,
-.wp-pq-workspace-tabs .button.button-primary {
-  background: var(--pq-accent-soft) !important;
-  color: var(--pq-accent) !important;
+body .wp-pq-workspace-tabs .button.is-active,
+body .wp-pq-workspace-tabs .button.button-primary {
+  background: var(--pq-accent-soft);
+  color: var(--pq-accent);
   box-shadow: none !important;
 }
 
@@ -3741,13 +3751,13 @@ body.wp-pq-drawer-open {
 
   /* ── Sidebar touch targets ── */
   .wp-pq-binder .wp-pq-filter-nav .button {
-    min-height: 44px !important;
-    padding: 10px 12px !important;
+    min-height: 44px;
+    padding: 10px 12px;
   }
 
-  .wp-pq-view-toggle .button {
-    min-height: 44px !important;
-    font-size: 14px !important;
+  body .wp-pq-view-toggle .button {
+    min-height: 44px;
+    font-size: 14px;
   }
 
   /* ── Drawer ── */
@@ -3773,10 +3783,10 @@ body.wp-pq-drawer-open {
     gap: 6px;
   }
 
-  .wp-pq-drawer-actions .button {
-    min-height: 44px !important;
-    padding: 10px 12px !important;
-    font-size: 13px !important;
+  body .wp-pq-drawer-actions .button {
+    min-height: 44px;
+    padding: 10px 12px;
+    font-size: 13px;
     flex: 1 1 auto;
     justify-content: center;
     text-align: center;
@@ -3833,11 +3843,11 @@ body.wp-pq-drawer-open {
     min-height: 100px !important;
   }
 
-  .wp-pq-create-actions .button {
-    min-height: 48px !important;
-    width: 100% !important;
-    font-size: 15px !important;
-    padding: 12px 20px !important;
+  body .wp-pq-create-actions .button {
+    min-height: 48px;
+    width: 100%;
+    font-size: 15px;
+    padding: 12px 20px;
   }
 
   /* ── Workspace tabs ── */
@@ -3847,10 +3857,10 @@ body.wp-pq-drawer-open {
     -webkit-overflow-scrolling: touch;
   }
 
-  .wp-pq-workspace-tabs .button {
-    min-height: 44px !important;
-    padding: 10px 14px !important;
-    font-size: 13px !important;
+  body .wp-pq-workspace-tabs .button {
+    min-height: 44px;
+    padding: 10px 14px;
+    font-size: 13px;
   }
 
   /* ── Modals ── */
@@ -3870,10 +3880,10 @@ body.wp-pq-drawer-open {
     gap: 8px;
   }
 
-  .wp-pq-modal-actions .button {
-    min-height: 48px !important;
-    width: 100% !important;
-    font-size: 15px !important;
+  body .wp-pq-modal-actions .button {
+    min-height: 48px;
+    width: 100%;
+    font-size: 15px;
     justify-content: center;
   }
 
@@ -4128,10 +4138,10 @@ body.wp-pq-drawer-open {
     padding-bottom: 2px;
   }
 
-  .wp-pq-workspace-tabs .button {
-    min-height: 44px !important;
-    padding: 10px 14px !important;
-    font-size: 13px !important;
+  body .wp-pq-workspace-tabs .button {
+    min-height: 44px;
+    padding: 10px 14px;
+    font-size: 13px;
     white-space: nowrap;
   }
 

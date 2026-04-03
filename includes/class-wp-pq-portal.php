@@ -691,6 +691,7 @@ class WP_PQ_Portal
         wp_register_script('wp-pq-admin', WP_PQ_PLUGIN_URL . 'assets/js/admin-queue.js', ['sortable-js', 'wp-pq-fullcalendar'], WP_PQ_VERSION, true);
         wp_register_script('wp-pq-modals', WP_PQ_PLUGIN_URL . 'assets/js/admin-queue-modals.js', ['wp-pq-admin'], WP_PQ_VERSION, true);
         wp_register_script('wp-pq-alerts', WP_PQ_PLUGIN_URL . 'assets/js/admin-queue-alerts.js', ['wp-pq-admin'], WP_PQ_VERSION, true);
+        wp_register_script('wp-pq-client-invites', WP_PQ_PLUGIN_URL . 'assets/js/admin-queue-client-invites.js', ['wp-pq-admin'], WP_PQ_VERSION, true);
         wp_register_script('wp-pq-mgr-core', WP_PQ_PLUGIN_URL . 'assets/js/admin-manager-core.js', ['wp-pq-admin', 'wp-pq-modals', 'wp-pq-alerts'], WP_PQ_VERSION, true);
         wp_register_script('wp-pq-mgr-clients', WP_PQ_PLUGIN_URL . 'assets/js/admin-manager-clients.js', ['wp-pq-mgr-core'], WP_PQ_VERSION, true);
         wp_register_script('wp-pq-mgr-reports', WP_PQ_PLUGIN_URL . 'assets/js/admin-manager-reports.js', ['wp-pq-mgr-core'], WP_PQ_VERSION, true);
@@ -730,6 +731,7 @@ class WP_PQ_Portal
         wp_enqueue_script('wp-pq-admin');
         wp_enqueue_script('wp-pq-modals');
         wp_enqueue_script('wp-pq-alerts');
+        wp_enqueue_script('wp-pq-client-invites');
 
         $is_manager = current_user_can(WP_PQ_Roles::CAP_APPROVE);
         if ($is_manager) {

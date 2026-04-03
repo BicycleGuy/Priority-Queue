@@ -75,7 +75,7 @@ class WP_PQ_API
      * response immediately so the user sees zero delay from calendar sync,
      * email delivery, etc.
      */
-    private static function defer(callable $fn): void
+    public static function defer(callable $fn): void
     {
         if (empty(self::$deferred_jobs)) {
             add_action('shutdown', [self::class, 'run_deferred_jobs'], 999);
@@ -297,12 +297,12 @@ class WP_PQ_API
         register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/files', [
             [
                 'methods' => WP_REST_Server::READABLE,
-                'callback' => [self::class, 'get_files'],
+                'callback' => [WP_PQ_Files::class, 'get_files'],
                 'permission_callback' => static fn() => is_user_logged_in(),
             ],
             [
                 'methods' => WP_REST_Server::CREATABLE,
-                'callback' => [self::class, 'attach_file'],
+                'callback' => [WP_PQ_Files::class, 'attach_file'],
                 'permission_callback' => static fn() => is_user_logged_in(),
             ],
         ]);
@@ -310,7 +310,7 @@ class WP_PQ_API
         // ── Files link (external URL per task) ──────────────────────────
         register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/files-link', [
             'methods' => WP_REST_Server::EDITABLE,
-            'callback' => [self::class, 'update_files_link'],
+            'callback' => [WP_PQ_Files::class, 'update_files_link'],
             'permission_callback' => static fn() => is_user_logged_in(),
         ]);
 
@@ -322,64 +322,64 @@ class WP_PQ_API
             ],
             [
                 'methods' => WP_REST_Server::CREATABLE,
-                'callback' => [self::class, 'create_meeting'],
+                'callback' => [WP_PQ_Calendar::class, 'create_meeting'],
                 'permission_callback' => static fn() => is_user_logged_in(),
             ],
         ]);
 
         register_rest_route('pq/v1', '/calendar/webhook', [
             'methods' => WP_REST_Server::CREATABLE,
-            'callback' => [self::class, 'calendar_webhook'],
+            'callback' => [WP_PQ_Calendar::class, 'calendar_webhook'],
             'permission_callback' => '__return_true',
         ]);
 
         register_rest_route('pq/v1', '/calendar/events', [
             'methods' => WP_REST_Server::READABLE,
-            'callback' => [self::class, 'get_calendar_events'],
+            'callback' => [WP_PQ_Calendar::class, 'get_calendar_events'],
             'permission_callback' => static fn() => is_user_logged_in(),
         ]);
 
         register_rest_route('pq/v1', '/google/oauth/callback', [
             [
                 'methods' => WP_REST_Server::READABLE,
-                'callback' => [self::class, 'google_oauth_callback'],
+                'callback' => [WP_PQ_Google_Auth::class, 'google_oauth_callback'],
                 'permission_callback' => '__return_true',
             ],
             [
                 'methods' => WP_REST_Server::CREATABLE,
-                'callback' => [self::class, 'google_oauth_callback'],
+                'callback' => [WP_PQ_Google_Auth::class, 'google_oauth_callback'],
                 'permission_callback' => '__return_true',
             ],
         ]);
 
         register_rest_route('pq/v1', '/google/oauth/url', [
             'methods' => WP_REST_Server::READABLE,
-            'callback' => [self::class, 'google_oauth_url'],
+            'callback' => [WP_PQ_Google_Auth::class, 'google_oauth_url'],
             'permission_callback' => '__return_true',
         ]);
 
         register_rest_route('pq/v1', '/google/oauth/status', [
             'methods' => WP_REST_Server::READABLE,
-            'callback' => [self::class, 'google_oauth_status'],
+            'callback' => [WP_PQ_Google_Auth::class, 'google_oauth_status'],
             'permission_callback' => static fn() => is_user_logged_in(),
         ]);
 
         // ── Relay OAuth endpoints ─────────────────────────────────────────
         register_rest_route('pq/v1', '/google/oauth/relay-receive', [
             'methods' => WP_REST_Server::CREATABLE,
-            'callback' => [self::class, 'google_oauth_relay_receive'],
+            'callback' => [WP_PQ_Google_Auth::class, 'google_oauth_relay_receive'],
             'permission_callback' => '__return_true', // Authenticated via HMAC signature
         ]);
 
         register_rest_route('pq/v1', '/google/oauth/relay-initiate', [
             'methods' => WP_REST_Server::READABLE,
-            'callback' => [self::class, 'google_oauth_relay_initiate'],
+            'callback' => [WP_PQ_Google_Auth::class, 'google_oauth_relay_initiate'],
             'permission_callback' => static fn() => is_user_logged_in(),
         ]);
 
         register_rest_route('pq/v1', '/google/oauth/disconnect', [
             'methods' => WP_REST_Server::CREATABLE,
-            'callback' => [self::class, 'google_oauth_disconnect'],
+            'callback' => [WP_PQ_Google_Auth::class, 'google_oauth_disconnect'],
             'permission_callback' => static fn() => is_user_logged_in(),
         ]);
 
@@ -510,7 +510,7 @@ class WP_PQ_API
                 WP_PQ_DB::ensure_job_member($billing_bucket_id, $submitter_id);
             }
         }
-        self::sync_task_calendar_event((array) self::get_task_row($task_id));
+        WP_PQ_Calendar::sync_task_calendar_event((array) self::get_task_row($task_id));
         self::emit_event($task_id, 'task_created');
         self::emit_assignment_event($task_id, 0, $action_owner_id);
 
@@ -948,9 +948,9 @@ class WP_PQ_API
         }
         self::perf_end('emit_events');
 
-        self::sync_task_calendar_event((array) self::get_task_row($task_id));
+        WP_PQ_Calendar::sync_task_calendar_event((array) self::get_task_row($task_id));
         if ($schedule_changed && $target_task_id > 0) {
-            self::sync_task_calendar_event((array) self::get_task_row($target_task_id));
+            WP_PQ_Calendar::sync_task_calendar_event((array) self::get_task_row($target_task_id));
         }
 
         if ($status_changed && $send_update_email) {
@@ -1003,7 +1003,7 @@ class WP_PQ_API
 
         self::insert_history_note($history, $task_id, (string) $task['status'], get_current_user_id(), 'calendar_drag:' . $when);
         self::emit_event($task_id, 'task_schedule_changed');
-        self::sync_task_calendar_event((array) self::get_task_row($task_id));
+        WP_PQ_Calendar::sync_task_calendar_event((array) self::get_task_row($task_id));
 
         return new WP_REST_Response([
             'ok' => true,
@@ -1083,7 +1083,7 @@ class WP_PQ_API
 
         self::emit_status_event($task_id, $current_status, $new_status);
         if ($new_status !== 'archived') {
-            self::sync_task_calendar_event((array) self::get_task_row($task_id));
+            WP_PQ_Calendar::sync_task_calendar_event((array) self::get_task_row($task_id));
         }
         if ($send_update_email) {
             self::send_client_status_update($task_id, $new_status);
@@ -1199,7 +1199,7 @@ class WP_PQ_API
             $wpdb->query('COMMIT');
         }
 
-        self::sync_task_calendar_event((array) $updated_task);
+        WP_PQ_Calendar::sync_task_calendar_event((array) $updated_task);
 
         return new WP_REST_Response([
             'ok' => true,
@@ -1299,7 +1299,7 @@ class WP_PQ_API
 
             self::insert_status_history($history, $task_id, $current_status, 'approved', $user_id, 'batch_approved', 'approved');
             self::emit_status_event($task_id, $current_status, 'approved');
-            self::sync_task_calendar_event((array) self::get_task_row($task_id));
+            WP_PQ_Calendar::sync_task_calendar_event((array) self::get_task_row($task_id));
             $enriched = self::get_enriched_task($task_id);
             if ($enriched) {
                 $updated[] = $enriched;
@@ -1540,412 +1540,6 @@ class WP_PQ_API
         ], 200);
     }
 
-    public static function get_files(WP_REST_Request $request): WP_REST_Response
-    {
-        global $wpdb;
-        $task_id = (int) $request->get_param('id');
-        $task = self::get_task_row($task_id);
-
-        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
-            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
-        }
-
-        $table = $wpdb->prefix . 'pq_task_files';
-        $rows = $wpdb->get_results(
-            $wpdb->prepare("SELECT * FROM {$table} WHERE task_id = %d ORDER BY file_role ASC, version_num DESC", $task_id),
-            ARRAY_A
-        );
-
-        foreach ($rows as &$row) {
-            $row = self::hydrate_file_row($row);
-        }
-
-        return new WP_REST_Response(['files' => $rows], 200);
-    }
-
-    public static function attach_file(WP_REST_Request $request): WP_REST_Response
-    {
-        global $wpdb;
-        $task_id = (int) $request->get_param('id');
-        $task = self::get_task_row($task_id);
-
-        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
-            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
-        }
-
-        $media_id = (int) $request->get_param('media_id');
-        $file_role = sanitize_key((string) $request->get_param('file_role'));
-        if (! in_array($file_role, ['input', 'deliverable'], true)) {
-            $file_role = 'input';
-        }
-
-        if ($media_id <= 0 || get_post_type($media_id) !== 'attachment') {
-            return new WP_REST_Response(['message' => 'Valid media_id is required.'], 422);
-        }
-
-        $table = $wpdb->prefix . 'pq_task_files';
-        $retention_days = (int) get_option('wp_pq_retention_days', 365);
-        $version_limit = (int) get_option('wp_pq_file_version_limit', 3);
-
-        $max_version = (int) $wpdb->get_var($wpdb->prepare(
-            "SELECT COALESCE(MAX(version_num), 0) FROM {$table} WHERE task_id = %d AND file_role = %s",
-            $task_id,
-            $file_role
-        ));
-
-        $wpdb->insert($table, [
-            'task_id' => $task_id,
-            'uploader_id' => get_current_user_id(),
-            'media_id' => $media_id,
-            'file_role' => $file_role,
-            'version_num' => $max_version + 1,
-            'storage_expires_at' => gmdate('Y-m-d H:i:s', strtotime('+' . $retention_days . ' days')),
-            'created_at' => current_time('mysql', true),
-        ]);
-
-        $overflow = $wpdb->get_results($wpdb->prepare(
-            "SELECT id, media_id
-             FROM {$table}
-             WHERE task_id = %d AND file_role = %s
-             ORDER BY version_num DESC
-             LIMIT 100 OFFSET %d",
-            $task_id,
-            $file_role,
-            $version_limit
-        ), ARRAY_A);
-
-        foreach ($overflow as $row) {
-            wp_delete_attachment((int) $row['media_id'], true);
-            $wpdb->delete($table, ['id' => (int) $row['id']]);
-        }
-
-        $file = $wpdb->get_row(
-            $wpdb->prepare("SELECT * FROM {$table} WHERE task_id = %d AND media_id = %d ORDER BY id DESC LIMIT 1", $task_id, $media_id),
-            ARRAY_A
-        );
-
-        return new WP_REST_Response([
-            'ok' => true,
-            'file' => $file ? self::hydrate_file_row($file) : null,
-            'task' => self::get_enriched_task($task_id),
-        ], 201);
-    }
-
-    /**
-     * Update the files_link URL on a task.
-     */
-    public static function update_files_link(WP_REST_Request $request): WP_REST_Response
-    {
-        global $wpdb;
-        $task_id = (int) $request->get_param('id');
-        $task = self::get_task_row($task_id);
-
-        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
-            return new WP_REST_Response(['message' => 'Task not found or access denied.'], 404);
-        }
-
-        $files_link = esc_url_raw(trim((string) $request->get_param('files_link')));
-
-        $wpdb->update(
-            $wpdb->prefix . 'pq_tasks',
-            ['files_link' => $files_link ?: null],
-            ['id' => $task_id]
-        );
-
-        return new WP_REST_Response([
-            'ok' => true,
-            'files_link' => $files_link,
-            'task' => self::get_enriched_task($task_id),
-        ], 200);
-    }
-
-    public static function get_all_documents(WP_REST_Request $request): WP_REST_Response
-    {
-        global $wpdb;
-        $files_table = $wpdb->prefix . 'pq_task_files';
-        $tasks_table = $wpdb->prefix . 'pq_tasks';
-
-        $rows = $wpdb->get_results(
-            "SELECT f.*, t.title AS task_title
-             FROM {$files_table} f
-             LEFT JOIN {$tasks_table} t ON t.id = f.task_id
-             ORDER BY f.created_at DESC
-             LIMIT 500",
-            ARRAY_A
-        );
-
-        foreach ($rows as &$row) {
-            $row = self::hydrate_file_row($row);
-            $uploader = get_userdata((int) ($row['uploader_id'] ?? 0));
-            $row['uploader_name'] = $uploader ? $uploader->display_name : 'Unknown';
-
-            // hydrate_file_row already sets filesize for Drive files.
-            // Only compute from disk for media-library files.
-            $storage_type = $row['storage_type'] ?? 'media';
-            if ($storage_type !== 'drive') {
-                $row['filesize'] = 0;
-                $media_id = (int) ($row['media_id'] ?? 0);
-                if ($media_id > 0) {
-                    $path = get_attached_file($media_id);
-                    if ($path && file_exists($path)) {
-                        $row['filesize'] = filesize($path);
-                    }
-                }
-            }
-        }
-
-        return new WP_REST_Response(['documents' => $rows], 200);
-    }
-
-    public static function register_document(WP_REST_Request $request): WP_REST_Response
-    {
-        global $wpdb;
-        $media_id = (int) $request->get_param('media_id');
-
-        if ($media_id <= 0 || get_post_type($media_id) !== 'attachment') {
-            return new WP_REST_Response(['message' => 'Valid media_id is required.'], 422);
-        }
-
-        $table = $wpdb->prefix . 'pq_task_files';
-        $retention_days = (int) get_option('wp_pq_retention_days', 365);
-
-        $wpdb->insert($table, [
-            'task_id' => 0,
-            'uploader_id' => get_current_user_id(),
-            'media_id' => $media_id,
-            'file_role' => 'input',
-            'version_num' => 1,
-            'storage_expires_at' => gmdate('Y-m-d H:i:s', strtotime('+' . $retention_days . ' days')),
-            'created_at' => current_time('mysql', true),
-        ]);
-
-        return new WP_REST_Response(['ok' => true, 'id' => $wpdb->insert_id], 201);
-    }
-
-    public static function delete_document(WP_REST_Request $request): WP_REST_Response
-    {
-        global $wpdb;
-        $file_id = (int) $request->get_param('id');
-        $table = $wpdb->prefix . 'pq_task_files';
-
-        $row = $wpdb->get_row(
-            $wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $file_id),
-            ARRAY_A
-        );
-
-        if (! $row) {
-            return new WP_REST_Response(['message' => 'File not found.'], 404);
-        }
-
-        $storage_type = $row['storage_type'] ?? 'media';
-        if ($storage_type === 'drive') {
-            $drive_file_id = $row['drive_file_id'] ?? '';
-            if ($drive_file_id !== '') {
-                WP_PQ_Drive::delete_file($drive_file_id);
-            }
-        } else {
-            $media_id = (int) ($row['media_id'] ?? 0);
-            if ($media_id > 0) {
-                wp_delete_attachment($media_id, true);
-            }
-        }
-
-        $wpdb->delete($table, ['id' => $file_id]);
-
-        return new WP_REST_Response(['ok' => true, 'deleted_id' => $file_id], 200);
-    }
-
-    // ── Google Drive file endpoints ─────────────────────────────────
-
-    public static function drive_status(WP_REST_Request $request): WP_REST_Response
-    {
-        return new WP_REST_Response([
-            'enabled' => WP_PQ_Drive::is_enabled(),
-            'has_tokens' => ! empty(get_user_meta(get_current_user_id(), 'wp_pq_google_tokens', true)),
-        ], 200);
-    }
-
-    public static function upload_file_to_drive(WP_REST_Request $request): WP_REST_Response
-    {
-        global $wpdb;
-
-        $task_id = (int) $request->get_param('id');
-        $task = self::get_task_row($task_id);
-        $user_id = get_current_user_id();
-
-        if (! $task || ! self::can_access_task($task, $user_id)) {
-            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
-        }
-
-        $files = $request->get_file_params();
-        $file = $files['file'] ?? null;
-
-        if (! $file || empty($file['tmp_name']) || $file['error'] !== UPLOAD_ERR_OK) {
-            return new WP_REST_Response(['message' => 'No file provided.'], 422);
-        }
-
-        $file_role = sanitize_key((string) $request->get_param('file_role'));
-        if (! in_array($file_role, ['input', 'deliverable'], true)) {
-            $file_role = 'input';
-        }
-
-        $client_id = (int) ($task['client_id'] ?? 0);
-        if ($client_id <= 0) {
-            return new WP_REST_Response(['message' => 'Task has no client — cannot determine Drive.'], 422);
-        }
-
-        try {
-            $task_folder_id = WP_PQ_Drive::ensure_task_folder($task_id, $client_id, $task['title'] ?? 'Untitled');
-
-            // Find the role subfolder (input/ or deliverables/).
-            $drive_id = WP_PQ_Drive::ensure_client_drive($client_id);
-            $subfolder_name = $file_role === 'deliverable' ? 'deliverables' : 'input';
-            $subfolders = WP_PQ_Drive::list_files($task_folder_id, $drive_id);
-            $target_folder = $task_folder_id;
-            foreach ($subfolders as $sf) {
-                if (($sf['name'] ?? '') === $subfolder_name && str_contains($sf['mimeType'] ?? '', 'folder')) {
-                    $target_folder = $sf['id'];
-                    break;
-                }
-            }
-
-            $contents = file_get_contents($file['tmp_name']);
-            $mime = $file['type'] ?: 'application/octet-stream';
-            $filename = sanitize_file_name($file['name'] ?: 'upload');
-
-            $result = WP_PQ_Drive::upload_file($target_folder, $drive_id, $filename, $mime, $contents);
-
-            // Record in pq_task_files.
-            $table = $wpdb->prefix . 'pq_task_files';
-            $retention_days = (int) get_option('wp_pq_retention_days', 365);
-
-            $max_version = (int) $wpdb->get_var($wpdb->prepare(
-                "SELECT COALESCE(MAX(version_num), 0) FROM {$table} WHERE task_id = %d AND file_role = %s",
-                $task_id,
-                $file_role
-            ));
-
-            $wpdb->insert($table, [
-                'task_id' => $task_id,
-                'uploader_id' => $user_id,
-                'media_id' => null,
-                'storage_type' => 'drive',
-                'drive_file_id' => $result['id'],
-                'drive_file_name' => $result['name'] ?? $filename,
-                'drive_file_url' => $result['webViewLink'] ?? '',
-                'drive_mime_type' => $result['mimeType'] ?? $mime,
-                'drive_file_size' => (int) ($result['size'] ?? 0),
-                'file_role' => $file_role,
-                'version_num' => $max_version + 1,
-                'storage_expires_at' => gmdate('Y-m-d H:i:s', strtotime('+' . $retention_days . ' days')),
-                'created_at' => current_time('mysql', true),
-            ]);
-
-            $file_row = $wpdb->get_row(
-                $wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $wpdb->insert_id),
-                ARRAY_A
-            );
-
-            return new WP_REST_Response([
-                'ok' => true,
-                'file' => $file_row ? self::hydrate_file_row($file_row) : null,
-                'task' => self::get_enriched_task($task_id),
-            ], 201);
-        } catch (RuntimeException $e) {
-            return new WP_REST_Response(['message' => $e->getMessage()], 500);
-        }
-    }
-
-    public static function upload_document_to_drive(WP_REST_Request $request): WP_REST_Response
-    {
-        global $wpdb;
-
-        $files = $request->get_file_params();
-        $file = $files['file'] ?? null;
-
-        if (! $file || empty($file['tmp_name']) || $file['error'] !== UPLOAD_ERR_OK) {
-            return new WP_REST_Response(['message' => 'No file provided.'], 422);
-        }
-
-        $client_id = (int) $request->get_param('client_id');
-        if ($client_id <= 0) {
-            return new WP_REST_Response(['message' => 'client_id is required for Drive uploads.'], 422);
-        }
-
-        try {
-            $folder_id = WP_PQ_Drive::ensure_unattached_folder($client_id);
-            $drive_id = WP_PQ_Drive::ensure_client_drive($client_id);
-
-            $contents = file_get_contents($file['tmp_name']);
-            $mime = $file['type'] ?: 'application/octet-stream';
-            $filename = sanitize_file_name($file['name'] ?: 'upload');
-
-            $result = WP_PQ_Drive::upload_file($folder_id, $drive_id, $filename, $mime, $contents);
-
-            $table = $wpdb->prefix . 'pq_task_files';
-            $retention_days = (int) get_option('wp_pq_retention_days', 365);
-
-            $wpdb->insert($table, [
-                'task_id' => 0,
-                'uploader_id' => get_current_user_id(),
-                'media_id' => null,
-                'storage_type' => 'drive',
-                'drive_file_id' => $result['id'],
-                'drive_file_name' => $result['name'] ?? $filename,
-                'drive_file_url' => $result['webViewLink'] ?? '',
-                'drive_mime_type' => $result['mimeType'] ?? $mime,
-                'drive_file_size' => (int) ($result['size'] ?? 0),
-                'file_role' => 'input',
-                'version_num' => 1,
-                'storage_expires_at' => gmdate('Y-m-d H:i:s', strtotime('+' . $retention_days . ' days')),
-                'created_at' => current_time('mysql', true),
-            ]);
-
-            return new WP_REST_Response(['ok' => true, 'id' => $wpdb->insert_id], 201);
-        } catch (RuntimeException $e) {
-            return new WP_REST_Response(['message' => $e->getMessage()], 500);
-        }
-    }
-
-    public static function drive_download_proxy(WP_REST_Request $request): WP_REST_Response
-    {
-        $drive_file_id = sanitize_text_field($request->get_param('file_id'));
-
-        // Verify the user has access to a task that owns this file.
-        global $wpdb;
-        $table = $wpdb->prefix . 'pq_task_files';
-        $row = $wpdb->get_row(
-            $wpdb->prepare("SELECT * FROM {$table} WHERE drive_file_id = %s LIMIT 1", $drive_file_id),
-            ARRAY_A
-        );
-
-        if (! $row) {
-            return new WP_REST_Response(['message' => 'File not found.'], 404);
-        }
-
-        $task_id = (int) ($row['task_id'] ?? 0);
-        if ($task_id > 0) {
-            $task = self::get_task_row($task_id);
-            if (! $task || ! self::can_access_task($task, get_current_user_id())) {
-                return new WP_REST_Response(['message' => 'Forbidden.'], 403);
-            }
-        } elseif (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
-            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
-        }
-
-        try {
-            $download = WP_PQ_Drive::download_file($drive_file_id);
-
-            header('Content-Type: ' . $download['mime_type']);
-            header('Content-Disposition: attachment; filename="' . sanitize_file_name($download['filename']) . '"');
-            header('Content-Length: ' . strlen($download['content']));
-            echo $download['content'];
-            exit;
-        } catch (RuntimeException $e) {
-            return new WP_REST_Response(['message' => $e->getMessage()], 500);
-        }
-    }
-
     public static function get_meetings(WP_REST_Request $request): WP_REST_Response
     {
         global $wpdb;
@@ -1962,150 +1556,9 @@ class WP_PQ_API
         return new WP_REST_Response(['meetings' => $rows], 200);
     }
 
-    public static function create_meeting(WP_REST_Request $request): WP_REST_Response
-    {
-        global $wpdb;
-        $task_id = (int) $request->get_param('id');
-        $task = self::get_task_row($task_id);
+    // Calendar REST handlers moved to WP_PQ_Calendar.
 
-        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
-            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
-        }
-
-        $starts_at = self::sanitize_datetime($request->get_param('starts_at'));
-        $ends_at = self::sanitize_datetime($request->get_param('ends_at'));
-        $event_id = sanitize_text_field((string) $request->get_param('event_id'));
-        $meeting_url = esc_url_raw((string) $request->get_param('meeting_url'));
-
-        if ($event_id === '' && $starts_at && $ends_at) {
-            try {
-                $google_event = self::create_google_calendar_event($task, $starts_at, $ends_at);
-            } catch (\Throwable $e) {
-                error_log('PQ Meeting Error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
-                return new WP_REST_Response(['message' => 'Google Calendar error: ' . $e->getMessage()], 500);
-            }
-            if (is_wp_error($google_event)) {
-                error_log('PQ Meeting WP_Error: ' . $google_event->get_error_message());
-                return new WP_REST_Response(['message' => $google_event->get_error_message()], 500);
-            }
-            $event_id = sanitize_text_field((string) ($google_event['id'] ?? ''));
-            $meeting_url = esc_url_raw((string) ($google_event['hangoutLink'] ?? ''));
-        }
-
-        $table = $wpdb->prefix . 'pq_task_meetings';
-        $wpdb->insert($table, [
-            'task_id' => $task_id,
-            'provider' => 'google',
-            'event_id' => $event_id,
-            'meeting_url' => $meeting_url,
-            'starts_at' => $starts_at,
-            'ends_at' => $ends_at,
-            'sync_direction' => 'two_way',
-            'created_at' => current_time('mysql', true),
-            'updated_at' => current_time('mysql', true),
-        ]);
-
-        $meeting = $wpdb->get_row(
-            $wpdb->prepare("SELECT * FROM {$table} WHERE task_id = %d ORDER BY id DESC LIMIT 1", $task_id),
-            ARRAY_A
-        );
-
-        return new WP_REST_Response([
-            'ok' => true,
-            'event_id' => $event_id,
-            'meeting_url' => $meeting_url,
-            'meeting' => $meeting,
-            'task' => self::get_enriched_task($task_id),
-        ], 201);
-    }
-
-    public static function calendar_webhook(WP_REST_Request $request): WP_REST_Response
-    {
-        $payload = $request->get_json_params();
-        do_action('wp_pq_calendar_webhook_received', $payload);
-
-        return new WP_REST_Response(['ok' => true], 200);
-    }
-
-    public static function get_calendar_events(WP_REST_Request $request): WP_REST_Response
-    {
-        global $wpdb;
-
-        $tasks_table = $wpdb->prefix . 'pq_tasks';
-        $meetings_table = $wpdb->prefix . 'pq_task_meetings';
-        $user_id = get_current_user_id();
-
-        $tasks = self::get_visible_tasks_for_request($request, $user_id, true);
-
-        self::backfill_task_calendar_events($tasks);
-
-        $events = [];
-        $visible_task_ids = [];
-
-        foreach ($tasks as $task) {
-            $visible_task_ids[] = (int) $task['id'];
-            $dt = $task['requested_deadline'] ?: $task['due_at'];
-            if (! $dt) {
-                continue;
-            }
-
-            $events[] = [
-                'id' => 'task_' . (int) $task['id'],
-                'title' => '[Task] ' . (string) $task['title'],
-                'start' => gmdate('c', strtotime((string) $dt . ' UTC')),
-                'allDay' => false,
-                'backgroundColor' => '#be123c',
-                'borderColor' => '#be123c',
-                'extendedProps' => [
-                    'source' => 'task',
-                    'taskId' => (int) $task['id'],
-                    'status' => (string) $task['status'],
-                    'priority' => (string) $task['priority'],
-                    'description' => (string) $task['description'],
-                    'needsMeeting' => ! empty($task['needs_meeting']),
-                    'requestedDeadline' => (string) $task['requested_deadline'],
-                    'dueAt' => (string) $task['due_at'],
-                ],
-            ];
-        }
-
-        if (! empty($visible_task_ids)) {
-            $ids_in = implode(',', array_map('intval', $visible_task_ids));
-            $meetings = $wpdb->get_results("SELECT * FROM {$meetings_table} WHERE task_id IN ({$ids_in}) ORDER BY id DESC", ARRAY_A);
-
-            foreach ($meetings as $meeting) {
-                if (! empty($meeting['starts_at'])) {
-                    $events[] = [
-                        'id' => 'meeting_' . (int) $meeting['id'],
-                        'title' => '[Meet] Task #' . (int) $meeting['task_id'],
-                        'start' => gmdate('c', strtotime((string) $meeting['starts_at'] . ' UTC')),
-                        'end' => ! empty($meeting['ends_at']) ? gmdate('c', strtotime((string) $meeting['ends_at'] . ' UTC')) : null,
-                        'allDay' => false,
-                        'backgroundColor' => '#1d4ed8',
-                        'borderColor' => '#1d4ed8',
-                        'url' => ! empty($meeting['meeting_url']) ? $meeting['meeting_url'] : null,
-                        'extendedProps' => [
-                            'source' => 'meeting',
-                            'taskId' => (int) $meeting['task_id'],
-                            'eventId' => (string) $meeting['event_id'],
-                            'meetingUrl' => (string) $meeting['meeting_url'],
-                        ],
-                    ];
-                }
-            }
-        }
-
-        $google_events = self::fetch_google_calendar_events();
-        if (is_array($google_events)) {
-            foreach ($google_events as $google_event) {
-                $events[] = $google_event;
-            }
-        }
-
-        return new WP_REST_Response(['events' => $events], 200);
-    }
-
-    private static function get_visible_tasks_for_request(?WP_REST_Request $request, int $user_id, bool $calendar_order = false): array
+    public static function get_visible_tasks_for_request(?WP_REST_Request $request, int $user_id, bool $calendar_order = false): array
     {
         global $wpdb;
 
@@ -2419,313 +1872,6 @@ class WP_PQ_API
         }
 
         return 0;
-    }
-
-    public static function google_oauth_callback(WP_REST_Request $request): WP_REST_Response
-    {
-        $code = sanitize_text_field((string) $request->get_param('code'));
-        $state = sanitize_text_field((string) $request->get_param('state'));
-        $error = sanitize_text_field((string) $request->get_param('error'));
-        $as_json = sanitize_text_field((string) $request->get_param('format')) === 'json';
-
-        if ($error !== '') {
-            if ($as_json) {
-                return new WP_REST_Response([
-                    'ok' => false,
-                    'message' => 'Google OAuth failed: ' . $error,
-                ], 400);
-            }
-
-            self::render_oauth_result_page(false, 'Google authorization was not completed (' . $error . ').');
-        }
-
-        if ($code === '') {
-            if ($as_json) {
-                return new WP_REST_Response([
-                    'ok' => false,
-                    'message' => 'Missing OAuth code.',
-                ], 400);
-            }
-
-            self::render_oauth_result_page(false, 'Google authorization code is missing.');
-        }
-
-        $client_id = (string) get_option('wp_pq_google_client_id', '');
-        $client_secret = (string) get_option('wp_pq_google_client_secret', '');
-        $redirect_uri = self::google_redirect_uri();
-        if ($client_id === '' || $client_secret === '') {
-            if ($as_json) {
-                return new WP_REST_Response([
-                    'ok' => false,
-                    'message' => 'Google client credentials are not configured.',
-                ], 500);
-            }
-
-            self::render_oauth_result_page(false, 'Google client credentials are not configured in WordPress.');
-        }
-
-        $resp = wp_remote_post('https://oauth2.googleapis.com/token', [
-            'timeout' => 20,
-            'body' => [
-                'code' => $code,
-                'client_id' => $client_id,
-                'client_secret' => $client_secret,
-                'redirect_uri' => $redirect_uri,
-                'grant_type' => 'authorization_code',
-            ],
-        ]);
-
-        if (is_wp_error($resp)) {
-            if ($as_json) {
-                return new WP_REST_Response([
-                    'ok' => false,
-                    'message' => 'OAuth token exchange failed: ' . $resp->get_error_message(),
-                ], 500);
-            }
-
-            self::render_oauth_result_page(false, 'OAuth token exchange failed: ' . $resp->get_error_message());
-            return null;
-        }
-
-        $status = (int) wp_remote_retrieve_response_code($resp);
-        $body = json_decode((string) wp_remote_retrieve_body($resp), true);
-        if ($status >= 300 || ! is_array($body) || empty($body['access_token'])) {
-            if ($as_json) {
-                return new WP_REST_Response([
-                    'ok' => false,
-                    'message' => 'OAuth token exchange failed.',
-                    'details' => $body,
-                ], 500);
-            }
-
-            self::render_oauth_result_page(false, 'OAuth token exchange failed. Please retry connection.');
-            return null;
-        }
-
-        // Debug: log whether Google returned a refresh_token.
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('PQ OAuth token exchange keys: ' . implode(', ', array_keys($body)));
-            error_log('PQ OAuth has refresh_token: ' . (isset($body['refresh_token']) ? 'YES' : 'NO'));
-        }
-
-        self::store_google_tokens($body);
-
-        if (! $as_json) {
-            self::render_oauth_result_page(true, 'Google Calendar connected successfully.');
-        }
-
-        return new WP_REST_Response([
-            'ok' => true,
-            'message' => 'Google Calendar connected successfully.',
-            'state' => $state,
-        ], 200);
-    }
-
-    public static function google_oauth_url(): WP_REST_Response
-    {
-        $client_id = (string) get_option('wp_pq_google_client_id', '');
-        if ($client_id === '') {
-            return new WP_REST_Response(['message' => 'Google client ID is not configured.'], 422);
-        }
-
-        $state = wp_generate_password(20, false, false);
-        update_option('wp_pq_google_oauth_state', $state, false);
-
-        $params = [
-            'client_id' => $client_id,
-            'redirect_uri' => self::google_redirect_uri(),
-            'response_type' => 'code',
-            'access_type' => 'offline',
-            'prompt' => 'consent',
-            'scope' => self::google_scopes(),
-            'state' => $state,
-            'include_granted_scopes' => 'true',
-        ];
-
-        return new WP_REST_Response([
-            'url' => 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query($params, '', '&', PHP_QUERY_RFC3986),
-        ], 200);
-    }
-
-    public static function google_oauth_status(): WP_REST_Response
-    {
-        $user_id = get_current_user_id();
-        $tokens = self::get_user_google_tokens($user_id);
-        $relay_url = trim((string) get_option('wp_pq_relay_url', ''));
-        $using_relay = $relay_url !== '';
-
-        // Either token format indicates a connection.
-        $connected = ! empty($tokens['encrypted_refresh_token']) || ! empty($tokens['refresh_token']);
-
-        return new WP_REST_Response([
-            'connected'         => $connected,
-            'has_refresh_token'  => $connected,
-            'expires_at'        => isset($tokens['expires_at']) ? (int) $tokens['expires_at'] : null,
-            'redirect_uri'      => self::google_redirect_uri(),
-            'using_relay'       => $using_relay,
-            'connected_email'   => (string) ($tokens['connected_email'] ?? ''),
-        ], 200);
-    }
-
-    /**
-     * Relay-receive — called by the OAuth relay after Google consent.
-     *
-     * POST /wp-json/pq/v1/google/oauth/relay-receive
-     * Body: { nonce, access_token, expires_in, encrypted_refresh_token, connected_email }
-     * Header: X-Relay-Signature (HMAC-SHA256 of body)
-     */
-    public static function google_oauth_relay_receive(WP_REST_Request $request): WP_REST_Response
-    {
-        $debug = defined('WP_DEBUG') && WP_DEBUG;
-
-        if ($debug) {
-            error_log('PQ Relay-Receive: endpoint hit');
-        }
-
-        // ── Verify HMAC signature ──────────────────────────────────────────
-        $relay_key = trim((string) get_option('wp_pq_relay_encryption_key', ''));
-        if ($relay_key === '') {
-            if ($debug) { error_log('PQ Relay-Receive: FAILED — relay encryption key is empty'); }
-            return new WP_REST_Response(['error' => 'Relay encryption key is not configured.'], 500);
-        }
-
-        $raw_body  = (string) $request->get_body();
-        $signature = (string) $request->get_header('X-Relay-Signature');
-
-        if ($debug) {
-            error_log('PQ Relay-Receive: signature present=' . ($signature !== '' ? 'yes' : 'no') . ' body_length=' . strlen($raw_body));
-        }
-
-        if ($signature === '' || ! hash_equals(hash_hmac('sha256', $raw_body, hex2bin($relay_key)), $signature)) {
-            if ($debug) { error_log('PQ Relay-Receive: FAILED — signature mismatch'); }
-            return new WP_REST_Response(['error' => 'Invalid signature.'], 403);
-        }
-
-        // ── Parse body ─────────────────────────────────────────────────────
-        $body = json_decode($raw_body, true);
-        if (! is_array($body)) {
-            if ($debug) { error_log('PQ Relay-Receive: FAILED — invalid JSON body'); }
-            return new WP_REST_Response(['error' => 'Invalid JSON body.'], 400);
-        }
-
-        $nonce                   = sanitize_text_field((string) ($body['nonce'] ?? ''));
-        $user_id                 = (int) ($body['user_id'] ?? 0);
-        $access_token            = sanitize_text_field((string) ($body['access_token'] ?? ''));
-        $expires_in              = (int) ($body['expires_in'] ?? 3600);
-        $encrypted_refresh_token = (string) ($body['encrypted_refresh_token'] ?? '');
-        $connected_email         = sanitize_email((string) ($body['connected_email'] ?? ''));
-        $granted_scope           = sanitize_text_field((string) ($body['granted_scope'] ?? ''));
-
-        // ── Recover user_id from nonce if relay didn't forward it ──────────
-        // Nonce format: "user_id:random_string"
-        if ($user_id <= 0 && $nonce !== '' && str_contains($nonce, ':')) {
-            $nonce_user_id = (int) explode(':', $nonce, 2)[0];
-            if ($nonce_user_id > 0) {
-                $user_id = $nonce_user_id;
-                if ($debug) { error_log('PQ Relay-Receive: recovered user_id=' . $user_id . ' from nonce'); }
-            }
-        }
-
-        if ($debug) {
-            error_log('PQ Relay-Receive: user_id=' . $user_id . ' email=' . $connected_email . ' has_nonce=' . ($nonce !== '' ? 'yes' : 'no') . ' has_access=' . ($access_token !== '' ? 'yes' : 'no') . ' has_refresh=' . ($encrypted_refresh_token !== '' ? 'yes' : 'no'));
-        }
-
-        if ($nonce === '' || $access_token === '' || $encrypted_refresh_token === '') {
-            if ($debug) { error_log('PQ Relay-Receive: FAILED — missing required fields (nonce=' . ($nonce !== '' ? 'yes' : 'no') . ' access=' . ($access_token !== '' ? 'yes' : 'no') . ' refresh=' . ($encrypted_refresh_token !== '' ? 'yes' : 'no') . ')'); }
-            return new WP_REST_Response(['error' => 'Missing required fields.'], 400);
-        }
-
-        if ($user_id <= 0 || ! get_userdata($user_id)) {
-            if ($debug) { error_log('PQ Relay-Receive: FAILED — invalid user_id ' . $user_id); }
-            return new WP_REST_Response(['error' => 'Invalid user_id.'], 400);
-        }
-
-        // ── Verify nonce (per-user) ────────────────────────────────────────
-        $stored_nonce = (string) get_user_meta($user_id, 'wp_pq_relay_oauth_nonce', true);
-        if ($debug) {
-            error_log('PQ Relay-Receive: stored_nonce=' . ($stored_nonce !== '' ? 'present(' . strlen($stored_nonce) . 'chars)' : 'EMPTY') . ' received_nonce_length=' . strlen($nonce));
-        }
-        if ($stored_nonce === '' || ! hash_equals($stored_nonce, $nonce)) {
-            if ($debug) { error_log('PQ Relay-Receive: FAILED — nonce mismatch (stored_empty=' . ($stored_nonce === '' ? 'yes' : 'no') . ')'); }
-            return new WP_REST_Response(['error' => 'Nonce mismatch.'], 403);
-        }
-
-        // Clear the nonce (single-use).
-        delete_user_meta($user_id, 'wp_pq_relay_oauth_nonce');
-
-        // ── Store tokens on the user ───────────────────────────────────────
-        $tokens = [
-            'access_token'            => $access_token,
-            'encrypted_refresh_token' => $encrypted_refresh_token,
-            'token_type'              => 'Bearer',
-            'expires_at'              => time() + max(60, $expires_in - 30),
-            'connected_email'         => $connected_email,
-            'granted_scope'           => $granted_scope,
-            'connected_at'            => gmdate('Y-m-d H:i:s'),
-        ];
-
-        update_user_meta($user_id, 'wp_pq_google_tokens', $tokens);
-
-        if ($debug) {
-            error_log('PQ Relay-Receive: SUCCESS — tokens stored for user ' . $user_id . ' (' . $connected_email . ')');
-        }
-
-        return new WP_REST_Response(['ok' => true], 200);
-    }
-
-    /**
-     * Relay-initiate — redirects the user to the relay to start OAuth.
-     *
-     * GET /wp-json/pq/v1/google/oauth/relay-initiate
-     * Returns { url: "..." } that the portal JS navigates to.
-     */
-    public static function google_oauth_relay_initiate(): WP_REST_Response
-    {
-        $relay_url = trim((string) get_option('wp_pq_relay_url', ''));
-        if ($relay_url === '') {
-            return new WP_REST_Response(['error' => 'OAuth relay URL is not configured.'], 422);
-        }
-
-        $user_id = get_current_user_id();
-
-        // Generate a per-user one-time nonce so relay-receive can verify.
-        // Prefix with user_id so relay-receive can recover the user even if
-        // the relay service doesn't forward user_id in its POST body.
-        $random = wp_generate_password(32, false, false);
-        $nonce  = $user_id . ':' . $random;
-        update_user_meta($user_id, 'wp_pq_relay_oauth_nonce', $nonce);
-
-        $scopes = trim((string) get_option('wp_pq_google_scopes', ''));
-        if ($scopes === '') {
-            $scopes = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/drive';
-        }
-
-        $params = http_build_query([
-            'site_url'   => home_url(),
-            'nonce'      => $nonce,
-            'return_url' => home_url('/portal?section=preferences'),
-            'user_id'    => $user_id,
-            'scopes'     => $scopes,
-        ], '', '&', PHP_QUERY_RFC3986);
-
-        $url = rtrim($relay_url, '/') . '/initiate.php?' . $params;
-
-        return new WP_REST_Response(['url' => $url], 200);
-    }
-
-    /**
-     * Disconnect Google — wipe the current user's stored tokens.
-     */
-    public static function google_oauth_disconnect(): WP_REST_Response
-    {
-        $user_id = get_current_user_id();
-        delete_user_meta($user_id, 'wp_pq_google_tokens');
-
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('PQ: Google disconnected by user ' . $user_id);
-        }
-
-        return new WP_REST_Response(['ok' => true, 'message' => 'Google disconnected.'], 200);
     }
 
     public static function get_notification_prefs(): WP_REST_Response
@@ -3402,7 +2548,7 @@ class WP_PQ_API
             self::defer(static function () use ($deferred_emails, $sender_id): void {
                 foreach ($deferred_emails as $mail) {
                     try {
-                        self::send_gmail($sender_id, $mail['to'], $mail['subject'], $mail['body']);
+                        WP_PQ_Mail::send_gmail($sender_id, $mail['to'], $mail['subject'], $mail['body']);
                     } catch (\Throwable $e) {
                         // Mail failure must not block operations
                     }
@@ -3448,7 +2594,7 @@ class WP_PQ_API
             $sender_id = get_current_user_id();
             self::defer(static function () use ($email, $subject, $email_body, $sender_id): void {
                 try {
-                    self::send_gmail($sender_id, $email, $subject, $email_body);
+                    WP_PQ_Mail::send_gmail($sender_id, $email, $subject, $email_body);
                 } catch (\Throwable $e) {
                     // Mail failure must not block operations.
                 }
@@ -3517,7 +2663,7 @@ class WP_PQ_API
             self::defer(static function () use ($deferred_emails, $sender_id): void {
                 foreach ($deferred_emails as $mail) {
                     try {
-                        self::send_gmail($sender_id, $mail['to'], $mail['subject'], $mail['body']);
+                        WP_PQ_Mail::send_gmail($sender_id, $mail['to'], $mail['subject'], $mail['body']);
                     } catch (\Throwable $e) {
                         // Mail failure must not block operations.
                     }
@@ -3695,7 +2841,7 @@ class WP_PQ_API
                 }
 
                 if ($debug) { error_log('PQ Status Email: sending to ' . $user->user_email . ' from user ' . $sender_id); }
-                self::send_gmail(
+                WP_PQ_Mail::send_gmail(
                     $sender_id,
                     $user->user_email,
                     'Switchboard update: ' . self::task_title($task),
@@ -3981,7 +3127,7 @@ class WP_PQ_API
         return $rows;
     }
 
-    private static function get_enriched_task(int $task_id): ?array
+    public static function get_enriched_task(int $task_id): ?array
     {
         $task = self::get_task_row($task_id);
         if (! $task) {
@@ -3992,7 +3138,7 @@ class WP_PQ_API
         return $rows[0] ?? null;
     }
 
-    private static function task_title(array $task): string
+    public static function task_title(array $task): string
     {
         $title = trim((string) ($task['title'] ?? ''));
         return $title !== '' ? $title : 'Untitled task';
@@ -4036,7 +3182,7 @@ class WP_PQ_API
         return rtrim(substr($value, 0, max(0, $limit - 1))) . '…';
     }
 
-    private static function get_task_row(int $task_id): ?array
+    public static function get_task_row(int $task_id): ?array
     {
         global $wpdb;
         $table = $wpdb->prefix . 'pq_tasks';
@@ -4056,7 +3202,7 @@ class WP_PQ_API
 
         $event_id = sanitize_text_field((string) ($task['google_event_id'] ?? ''));
         if ($event_id !== '') {
-            self::delete_google_calendar_event($event_id);
+            WP_PQ_Calendar::delete_google_calendar_event($event_id);
         }
 
         $file_rows = $wpdb->get_results(
@@ -4077,7 +3223,7 @@ class WP_PQ_API
         foreach ((array) $meeting_rows as $meeting_row) {
             $meeting_event_id = sanitize_text_field((string) ($meeting_row['event_id'] ?? ''));
             if ($meeting_event_id !== '') {
-                self::delete_google_calendar_event($meeting_event_id);
+                WP_PQ_Calendar::delete_google_calendar_event($meeting_event_id);
             }
         }
 
@@ -5280,24 +4426,6 @@ class WP_PQ_API
         return 3;
     }
 
-    private static function hydrate_file_row(array $row): array
-    {
-        $storage_type = $row['storage_type'] ?? 'media';
-
-        if ($storage_type === 'drive') {
-            $row['media_url'] = $row['drive_file_url'] ?? '';
-            $row['filename'] = $row['drive_file_name'] ?? '';
-            $row['download_url'] = rest_url('pq/v1/drive/files/' . ($row['drive_file_id'] ?? '') . '/download');
-            $row['filesize'] = (int) ($row['drive_file_size'] ?? 0);
-        } else {
-            $media_id = (int) ($row['media_id'] ?? 0);
-            $row['media_url'] = $media_id > 0 ? wp_get_attachment_url($media_id) : '';
-            $row['filename'] = $media_id > 0 ? wp_basename((string) get_attached_file($media_id)) : '';
-        }
-
-        return $row;
-    }
-
     private static function task_deadline_timestamp(array $task): int
     {
         $deadline = self::task_primary_deadline($task);
@@ -5459,545 +4587,17 @@ class WP_PQ_API
         return in_array(strtolower(trim((string) $value)), ['1', 'true', 'yes', 'on'], true);
     }
 
-    private static function google_redirect_uri(): string
-    {
-        $uri = trim((string) get_option('wp_pq_google_redirect_uri', ''));
-        if ($uri === '') {
-            $uri = home_url('/wp-json/pq/v1/google/oauth/callback');
-        }
-
-        return $uri;
-    }
-
-    private static function google_scopes(): string
-    {
-        $scopes = trim((string) get_option('wp_pq_google_scopes', ''));
-        if ($scopes === '') {
-            $scopes = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/drive';
-        }
-
-        return $scopes;
-    }
-
-    /**
-     * Get a user's stored Google tokens from user_meta.
-     * Falls back to the legacy site-wide wp_options token during migration.
-     */
-    private static function get_user_google_tokens(int $user_id): array
-    {
-        $tokens = (array) get_user_meta($user_id, 'wp_pq_google_tokens', true);
-        if (! empty($tokens['access_token']) || ! empty($tokens['encrypted_refresh_token']) || ! empty($tokens['refresh_token'])) {
-            return $tokens;
-        }
-        return [];
-    }
-
-    /**
-     * Store Google tokens. Used only for direct-mode (non-relay) token refresh.
-     */
-    private static function store_google_tokens(array $token_payload, int $user_id = 0): void
-    {
-        if ($user_id <= 0) {
-            $user_id = get_current_user_id();
-        }
-
-        $existing = self::get_user_google_tokens($user_id);
-        $expires_in = isset($token_payload['expires_in']) ? (int) $token_payload['expires_in'] : 3600;
-
-        $tokens = [
-            'access_token' => (string) ($token_payload['access_token'] ?? ($existing['access_token'] ?? '')),
-            'refresh_token' => (string) ($token_payload['refresh_token'] ?? ($existing['refresh_token'] ?? '')),
-            'token_type' => (string) ($token_payload['token_type'] ?? ($existing['token_type'] ?? 'Bearer')),
-            'expires_at' => time() + max(60, $expires_in - 30),
-            'connected_email' => (string) ($existing['connected_email'] ?? ''),
-            'granted_scope' => (string) ($existing['granted_scope'] ?? ''),
-        ];
-
-        update_user_meta($user_id, 'wp_pq_google_tokens', $tokens);
-    }
-
-    /**
-     * Get a valid Google access token for a user.
-     *
-     * @param int $user_id WordPress user ID. 0 = current user.
-     */
-    public static function get_google_access_token(int $user_id = 0): string
-    {
-        if ($user_id <= 0) {
-            $user_id = get_current_user_id();
-        }
-        if ($user_id <= 0) {
-            return '';
-        }
-
-        $tokens = self::get_user_google_tokens($user_id);
-        $access_token = (string) ($tokens['access_token'] ?? '');
-        $expires_at = (int) ($tokens['expires_at'] ?? 0);
-        if ($access_token !== '' && $expires_at > (time() + 30)) {
-            return $access_token;
-        }
-
-        // ── Relay mode: call the relay's /refresh.php endpoint ────────────
-        $relay_url = trim((string) get_option('wp_pq_relay_url', ''));
-        if ($relay_url !== '') {
-            return self::refresh_via_relay($tokens, $relay_url, $user_id);
-        }
-
-        // ── Direct mode: refresh directly with Google ─────────────────────
-        $refresh_token = (string) ($tokens['refresh_token'] ?? '');
-        if ($refresh_token === '') {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('PQ Google: no refresh_token for user ' . $user_id);
-            }
-            return '';
-        }
-
-        $client_id = (string) get_option('wp_pq_google_client_id', '');
-        $client_secret = (string) get_option('wp_pq_google_client_secret', '');
-
-        if ($client_id === '' || $client_secret === '') {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('PQ Google: client_id or client_secret missing');
-            }
-            return '';
-        }
-
-        $resp = wp_remote_post('https://oauth2.googleapis.com/token', [
-            'timeout' => 20,
-            'body' => [
-                'client_id' => $client_id,
-                'client_secret' => $client_secret,
-                'refresh_token' => $refresh_token,
-                'grant_type' => 'refresh_token',
-            ],
-        ]);
-        if (is_wp_error($resp)) {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('PQ Google refresh WP_Error: ' . $resp->get_error_message());
-            }
-            return '';
-        }
-
-        $status = (int) wp_remote_retrieve_response_code($resp);
-        $body = json_decode((string) wp_remote_retrieve_body($resp), true);
-        if ($status >= 300 || ! is_array($body) || empty($body['access_token'])) {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('PQ Google refresh failed: HTTP ' . $status . ' — ' . wp_remote_retrieve_body($resp));
-            }
-            return '';
-        }
-
-        self::store_google_tokens($body, $user_id);
-        return (string) ($body['access_token'] ?? '');
-    }
-
-    /**
-     * Refresh access token via the OAuth relay server.
-     * Sends the encrypted_refresh_token to the relay, which decrypts it,
-     * calls Google, and returns a fresh access_token.
-     */
-    private static function refresh_via_relay(array $tokens, string $relay_url, int $user_id): string
-    {
-        $encrypted_refresh = (string) ($tokens['encrypted_refresh_token'] ?? '');
-        if ($encrypted_refresh === '') {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('PQ Relay: no encrypted_refresh_token for user ' . $user_id);
-            }
-            return '';
-        }
-
-        $payload = wp_json_encode(['encrypted_refresh_token' => $encrypted_refresh]);
-        $url = rtrim($relay_url, '/') . '/refresh.php';
-
-        $resp = wp_remote_post($url, [
-            'timeout' => 20,
-            'headers' => ['Content-Type' => 'application/json'],
-            'body'    => $payload,
-        ]);
-
-        if (is_wp_error($resp)) {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('PQ Relay refresh WP_Error: ' . $resp->get_error_message());
-            }
-            return '';
-        }
-
-        $status = (int) wp_remote_retrieve_response_code($resp);
-        $body = json_decode((string) wp_remote_retrieve_body($resp), true);
-
-        if ($status >= 300 || ! is_array($body) || empty($body['access_token'])) {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('PQ Relay refresh failed: HTTP ' . $status . ' — ' . wp_remote_retrieve_body($resp));
-            }
-            return '';
-        }
-
-        // Update stored access token and expiry on the user, keep encrypted_refresh_token intact.
-        $tokens['access_token'] = (string) $body['access_token'];
-        $tokens['expires_at']   = time() + max(60, ((int) ($body['expires_in'] ?? 3600)) - 30);
-
-        update_user_meta($user_id, 'wp_pq_google_tokens', $tokens);
-
-        return (string) $body['access_token'];
-    }
-
-    private static function create_google_calendar_event(array $task, string $starts_at, string $ends_at)
-    {
-        // Use the acting user's token — the person scheduling the meeting.
-        $token = self::get_google_access_token(get_current_user_id());
-        if ($token === '') {
-            return new WP_Error('google_not_connected', 'Google is not connected. Complete OAuth first.');
-        }
-
-        $description = (string) ($task['description'] ?? '');
-        $summary = 'Priority Task #' . (int) $task['id'] . ': ' . (string) ($task['title'] ?? 'Meeting');
-        $request_id = 'pq_' . wp_generate_uuid4();
-        $attendees = self::meeting_attendees($task);
-        $body = [
-            'summary' => $summary,
-            'description' => $description,
-            'start' => [
-                'dateTime' => gmdate('c', strtotime($starts_at . ' UTC')),
-                'timeZone' => 'UTC',
-            ],
-            'end' => [
-                'dateTime' => gmdate('c', strtotime($ends_at . ' UTC')),
-                'timeZone' => 'UTC',
-            ],
-            'conferenceData' => [
-                'createRequest' => [
-                    'requestId' => $request_id,
-                    'conferenceSolutionKey' => [
-                        'type' => 'hangoutsMeet',
-                    ],
-                ],
-            ],
-            'guestsCanModify' => false,
-            'guestsCanInviteOthers' => true,
-        ];
-        if (! empty($attendees)) {
-            $body['attendees'] = $attendees;
-        }
-
-        $resp = wp_remote_post('https://www.googleapis.com/calendar/v3/calendars/primary/events?conferenceDataVersion=1&sendUpdates=all', [
-            'timeout' => 25,
-            'headers' => [
-                'Authorization' => 'Bearer ' . $token,
-                'Content-Type' => 'application/json',
-            ],
-            'body' => wp_json_encode($body),
-        ]);
-        if (is_wp_error($resp)) {
-            return new WP_Error('google_event_error', $resp->get_error_message());
-        }
-
-        $status = (int) wp_remote_retrieve_response_code($resp);
-        $data = json_decode((string) wp_remote_retrieve_body($resp), true);
-        if ($status >= 300 || ! is_array($data) || empty($data['id'])) {
-            return new WP_Error('google_event_error', 'Failed to create Google Calendar event.');
-        }
-
-        return $data;
-    }
-
-    private static function meeting_attendees(array $task): array
-    {
-        $emails = [];
-
-        $submitter = isset($task['submitter_id']) ? self::get_cached_user((int) $task['submitter_id']) : null;
-        if ($submitter && is_email($submitter->user_email)) {
-            $emails[] = (string) $submitter->user_email;
-        }
-
-        $emails = array_values(array_unique(array_filter($emails, 'is_email')));
-
-        return array_map(static fn($email) => ['email' => $email], $emails);
-    }
-
-    /**
-     * Defer calendar sync to after the HTTP response is sent.
-     * This eliminates the 3-20 second Google API delay from user-facing actions.
-     */
-    private static function sync_task_calendar_event(array $task): void
-    {
-        self::defer(static function () use ($task): void {
-            try {
-                self::sync_task_calendar_event_inner($task);
-            } catch (\Throwable $e) {
-                if (defined('WP_DEBUG') && WP_DEBUG) {
-                    error_log('PQ calendar sync failed: ' . $e->getMessage());
-                }
-            }
-        });
-    }
-
-    private static function sync_task_calendar_event_inner(array $task): void
-    {
-        global $wpdb;
-
-        if (empty($task) || empty($task['id'])) {
-            return;
-        }
-
-        $table = $wpdb->prefix . 'pq_tasks';
-        $event_id = (string) ($task['google_event_id'] ?? '');
-        $starts_at = (string) ($task['requested_deadline'] ?: $task['due_at'] ?: '');
-
-        if ($starts_at === '') {
-            if ($event_id !== '') {
-                $del_user_id = (int) ($task['action_owner_id'] ?? 0) ?: get_current_user_id();
-                self::delete_google_calendar_event($event_id, $del_user_id);
-                $wpdb->update($table, [
-                    'google_event_id' => null,
-                    'google_event_url' => null,
-                    'google_event_synced_at' => current_time('mysql', true),
-                    'updated_at' => current_time('mysql', true),
-                ], ['id' => (int) $task['id']]);
-            }
-            return;
-        }
-
-        // Use the action owner's token so the event appears on their calendar.
-        // Fall back to the current user if no action owner is set.
-        $cal_user_id = (int) ($task['action_owner_id'] ?? 0);
-        if ($cal_user_id <= 0) {
-            $cal_user_id = get_current_user_id();
-        }
-        $token = self::get_google_access_token($cal_user_id);
-        if ($token === '') {
-            return;
-        }
-
-        $start_ts = strtotime($starts_at . ' UTC');
-        if (! $start_ts) {
-            return;
-        }
-
-        $ends_at = gmdate('Y-m-d H:i:s', $start_ts + HOUR_IN_SECONDS);
-        $summary = 'Priority Task #' . (int) $task['id'] . ': ' . self::task_title($task);
-        $description = trim((string) ($task['description'] ?? ''));
-        $body = [
-            'summary' => $summary,
-            'description' => $description,
-            'start' => [
-                'dateTime' => gmdate('c', $start_ts),
-                'timeZone' => 'UTC',
-            ],
-            'end' => [
-                'dateTime' => gmdate('c', strtotime($ends_at . ' UTC')),
-                'timeZone' => 'UTC',
-            ],
-            'extendedProperties' => [
-                'private' => [
-                    'wp_pq_task_id' => (string) (int) $task['id'],
-                ],
-            ],
-        ];
-
-        $url = $event_id !== ''
-            ? 'https://www.googleapis.com/calendar/v3/calendars/primary/events/' . rawurlencode($event_id) . '?sendUpdates=none'
-            : 'https://www.googleapis.com/calendar/v3/calendars/primary/events?sendUpdates=none';
-        $method = $event_id !== '' ? 'PUT' : 'POST';
-
-        $resp = wp_remote_request($url, [
-            'method' => $method,
-            'timeout' => 3,
-            'headers' => [
-                'Authorization' => 'Bearer ' . $token,
-                'Content-Type' => 'application/json',
-            ],
-            'body' => wp_json_encode($body),
-        ]);
-
-        if (is_wp_error($resp)) {
-            return;
-        }
-
-        $status = (int) wp_remote_retrieve_response_code($resp);
-        $data = json_decode((string) wp_remote_retrieve_body($resp), true);
-        if ($status >= 300 || ! is_array($data) || empty($data['id'])) {
-            return;
-        }
-
-        $wpdb->update($table, [
-            'google_event_id' => sanitize_text_field((string) $data['id']),
-            'google_event_url' => esc_url_raw((string) ($data['htmlLink'] ?? '')),
-            'google_event_synced_at' => current_time('mysql', true),
-            'updated_at' => current_time('mysql', true),
-        ], ['id' => (int) $task['id']]);
-    }
-
-    private static function backfill_task_calendar_events(array $tasks): void
-    {
-        if (empty($tasks) || self::get_google_access_token() === '') {
-            return;
-        }
-
-        foreach ($tasks as $task) {
-            $starts_at = (string) ($task['requested_deadline'] ?: $task['due_at'] ?: '');
-            if ($starts_at === '') {
-                continue;
-            }
-
-            $event_id = (string) ($task['google_event_id'] ?? '');
-            if ($event_id !== '') {
-                continue;
-            }
-
-            self::sync_task_calendar_event((array) $task);
-        }
-    }
-
-    private static function delete_google_calendar_event(string $event_id, int $user_id = 0): void
-    {
-        $token = self::get_google_access_token($user_id ?: get_current_user_id());
-        if ($token === '' || $event_id === '') {
-            return;
-        }
-
-        wp_remote_request('https://www.googleapis.com/calendar/v3/calendars/primary/events/' . rawurlencode($event_id) . '?sendUpdates=none', [
-            'method' => 'DELETE',
-            'timeout' => 20,
-            'headers' => [
-                'Authorization' => 'Bearer ' . $token,
-            ],
-        ]);
-    }
+    // Calendar helper methods moved to WP_PQ_Calendar.
 
     /**
      * Send an email via Gmail API using the sender's Google token.
      * Falls back to wp_mail() if the user has no Google connection.
      *
-     * @param int    $sender_user_id  WordPress user whose Gmail token to use.
-     * @param string $to              Recipient email address.
-     * @param string $subject         Email subject.
-     * @param string $body            Email body (plain text or HTML).
-     * @param bool   $is_html         Whether $body is HTML. Default false.
-     * @return bool  True on success, false on failure.
+     * @deprecated Use WP_PQ_Mail::send_gmail() directly.
      */
     public static function send_gmail(int $sender_user_id, string $to, string $subject, string $body, bool $is_html = false): bool
     {
-        $access_token = self::get_google_access_token($sender_user_id);
-        if ($access_token === '') {
-            // Fallback to wp_mail() if user hasn't connected Google.
-            $headers = $is_html ? ['Content-Type: text/html; charset=UTF-8'] : [];
-            return wp_mail($to, $subject, $body, $headers);
-        }
-
-        $tokens = self::get_user_google_tokens($sender_user_id);
-        $from_email = (string) ($tokens['connected_email'] ?? '');
-        if ($from_email === '') {
-            return wp_mail($to, $subject, $body, $is_html ? ['Content-Type: text/html; charset=UTF-8'] : []);
-        }
-
-        // Build RFC 2822 message.
-        $content_type = $is_html ? 'text/html' : 'text/plain';
-        $mime = "From: {$from_email}\r\n"
-              . "To: {$to}\r\n"
-              . "Subject: {$subject}\r\n"
-              . "MIME-Version: 1.0\r\n"
-              . "Content-Type: {$content_type}; charset=UTF-8\r\n"
-              . "\r\n"
-              . $body;
-
-        $encoded = rtrim(strtr(base64_encode($mime), '+/', '-_'), '=');
-
-        $resp = wp_remote_post('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', [
-            'timeout' => 15,
-            'headers' => [
-                'Authorization' => 'Bearer ' . $access_token,
-                'Content-Type'  => 'application/json',
-            ],
-            'body' => wp_json_encode(['raw' => $encoded]),
-        ]);
-
-        if (is_wp_error($resp)) {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('PQ Gmail send failed: ' . $resp->get_error_message());
-            }
-            // Fallback to wp_mail on network failure.
-            return wp_mail($to, $subject, $body, $is_html ? ['Content-Type: text/html; charset=UTF-8'] : []);
-        }
-
-        $code = (int) wp_remote_retrieve_response_code($resp);
-        if ($code < 200 || $code >= 300) {
-            if (defined('WP_DEBUG') && WP_DEBUG) {
-                error_log('PQ Gmail send HTTP ' . $code . ': ' . wp_remote_retrieve_body($resp));
-            }
-            // Fallback to wp_mail on API error.
-            return wp_mail($to, $subject, $body, $is_html ? ['Content-Type: text/html; charset=UTF-8'] : []);
-        }
-
-        return true;
-    }
-
-    private static function fetch_google_calendar_events(): array
-    {
-        $token = self::get_google_access_token(get_current_user_id());
-        if ($token === '') {
-            return [];
-        }
-
-        $time_min = rawurlencode(gmdate('c', strtotime('-30 days')));
-        $time_max = rawurlencode(gmdate('c', strtotime('+90 days')));
-        $url = 'https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=100&timeMin=' . $time_min . '&timeMax=' . $time_max;
-
-        $resp = wp_remote_get($url, [
-            'timeout' => 20,
-            'headers' => [
-                'Authorization' => 'Bearer ' . $token,
-                'Accept' => 'application/json',
-            ],
-        ]);
-        if (is_wp_error($resp)) {
-            return [];
-        }
-
-        $status = (int) wp_remote_retrieve_response_code($resp);
-        $data = json_decode((string) wp_remote_retrieve_body($resp), true);
-        if ($status >= 300 || ! is_array($data) || empty($data['items']) || ! is_array($data['items'])) {
-            return [];
-        }
-
-        $events = [];
-        foreach ($data['items'] as $item) {
-            if (! empty($item['extendedProperties']['private']['wp_pq_task_id'])) {
-                continue;
-            }
-
-            $start = '';
-            $end = '';
-            $all_day = false;
-
-            if (! empty($item['start']['dateTime'])) {
-                $start = (string) $item['start']['dateTime'];
-                $end = ! empty($item['end']['dateTime']) ? (string) $item['end']['dateTime'] : '';
-            } elseif (! empty($item['start']['date'])) {
-                $start = (string) $item['start']['date'];
-                $end = ! empty($item['end']['date']) ? (string) $item['end']['date'] : '';
-                $all_day = true;
-            }
-
-            if ($start === '') {
-                continue;
-            }
-
-            $events[] = [
-                'id' => 'gcal_' . sanitize_text_field((string) ($item['id'] ?? wp_generate_uuid4())),
-                'title' => '[GCal] ' . sanitize_text_field((string) ($item['summary'] ?? 'Google Event')),
-                'start' => $start,
-                'end' => $end ?: null,
-                'allDay' => $all_day,
-                'backgroundColor' => '#0f766e',
-                'borderColor' => '#0f766e',
-                'url' => ! empty($item['htmlLink']) ? esc_url_raw((string) $item['htmlLink']) : null,
-                'extendedProps' => [
-                    'source' => 'google',
-                ],
-            ];
-        }
-
-        return $events;
+        return WP_PQ_Mail::send_gmail($sender_user_id, $to, $subject, $body, $is_html);
     }
 
     private static function sanitize_priority(string $priority): string
@@ -6014,7 +4614,7 @@ class WP_PQ_API
         return in_array($direction, ['keep', 'up', 'down'], true) ? $direction : 'keep';
     }
 
-    private static function sanitize_datetime($value): ?string
+    public static function sanitize_datetime($value): ?string
     {
         if (! $value) {
             return null;
@@ -6028,30 +4628,5 @@ class WP_PQ_API
         }
 
         return $dt->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s');
-    }
-
-    private static function render_oauth_result_page(bool $ok, string $message): void
-    {
-        status_header($ok ? 200 : 400);
-        nocache_headers();
-
-        $title = $ok ? 'Google Connected' : 'Google Connection Failed';
-        $color = $ok ? '#166534' : '#991b1b';
-        $bg = $ok ? '#ecfdf5' : '#fef2f2';
-        $portal_url = home_url('/portal');
-
-        echo '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
-        echo '<title>' . esc_html($title) . '</title>';
-        echo '<style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;padding:32px;background:#f3f4f6}';
-        echo '.card{max-width:640px;margin:40px auto;background:#fff;border:1px solid #d1d5db;border-radius:14px;padding:24px}';
-        echo '.state{display:inline-block;padding:6px 10px;border-radius:999px;font-size:12px;font-weight:600;margin-bottom:12px}';
-        echo '.btn{display:inline-block;margin-top:16px;background:#be123c;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600}';
-        echo '</style></head><body><div class="card">';
-        echo '<span class="state" style="background:' . esc_attr($bg) . ';color:' . esc_attr($color) . ';">' . esc_html($title) . '</span>';
-        echo '<h1 style="margin:8px 0 10px">' . esc_html($title) . '</h1>';
-        echo '<p style="font-size:16px;line-height:1.5;color:#374151">' . esc_html($message) . '</p>';
-        echo '<a class="btn" href="' . esc_url($portal_url) . '">Return to Switchboard</a>';
-        echo '</div></body></html>';
-        exit;
     }
 }
