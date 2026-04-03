@@ -10,7 +10,9 @@ class WP_PQ_Admin
     {
         add_action('admin_menu', [self::class, 'register_menu']);
         add_action('admin_init', [self::class, 'register_settings']);
+        add_action('admin_init', [self::class, 'maybe_redirect_to_setup']);
         add_action('admin_init', [self::class, 'redirect_retired_admin_pages']);
+        add_action('admin_post_wp_pq_setup_wizard', [self::class, 'handle_setup_wizard']);
         add_action('admin_post_wp_pq_google_oauth_start', [self::class, 'handle_google_oauth_start']);
         add_action('admin_post_wp_pq_google_disconnect', [self::class, 'handle_google_disconnect']);
         add_action('admin_post_wp_pq_create_client', [self::class, 'handle_create_client']);
@@ -52,6 +54,16 @@ class WP_PQ_Admin
             [self::class, 'render_settings_page'],
             'dashicons-list-view',
             26
+        );
+
+        // Hidden setup wizard page (no menu item, accessed via redirect).
+        add_submenu_page(
+            null,
+            'Switchboard Setup',
+            'Setup',
+            'manage_options',
+            'wp-pq-setup',
+            [self::class, 'render_setup_page']
         );
     }
 
@@ -108,6 +120,138 @@ class WP_PQ_Admin
         exit;
     }
 
+    // ── Setup Wizard ────────────────────────────────────────────────────
+
+    /**
+     * Redirect to setup wizard on first visit after activation,
+     * but only if setup is needed and we're not already on the setup page.
+     */
+    public static function maybe_redirect_to_setup(): void
+    {
+        if (! current_user_can('manage_options')) {
+            return;
+        }
+
+        if (! WP_PQ_Installer::needs_setup()) {
+            return;
+        }
+
+        // Don't redirect if already on the setup page or processing the form.
+        $page = sanitize_text_field($_GET['page'] ?? '');
+        $action = sanitize_text_field($_POST['action'] ?? '');
+        if ($page === 'wp-pq-setup' || $action === 'wp_pq_setup_wizard') {
+            return;
+        }
+
+        // Don't redirect on AJAX, REST, or cron.
+        if (wp_doing_ajax() || defined('REST_REQUEST') || wp_doing_cron()) {
+            return;
+        }
+
+        // Only redirect from Switchboard pages.
+        if (strpos($page, 'wp-pq-') !== 0) {
+            return;
+        }
+
+        wp_safe_redirect(admin_url('admin.php?page=wp-pq-setup'));
+        exit;
+    }
+
+    public static function render_setup_page(): void
+    {
+        if (! current_user_can('manage_options')) {
+            wp_die('Forbidden');
+        }
+
+        $error = sanitize_text_field($_GET['setup_error'] ?? '');
+        $callback_url = sanitize_text_field($_GET['callback_url'] ?? '');
+        $step = sanitize_text_field($_GET['step'] ?? '');
+
+        echo '<div class="wrap">';
+        echo '<h1>Switchboard Setup</h1>';
+
+        if ($step === 'done') {
+            echo '<div class="notice notice-success"><p>Switchboard is configured and ready to use.</p></div>';
+            if ($callback_url !== '') {
+                echo '<div class="notice notice-warning"><p><strong>Important:</strong> Add this redirect URI in your '
+                    . '<a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console</a> '
+                    . '(APIs &amp; Services &rarr; Credentials &rarr; your OAuth client &rarr; Authorized redirect URIs):</p>'
+                    . '<p><code>' . esc_html($callback_url) . '</code></p></div>';
+            }
+            echo '<p><a class="button button-primary" href="' . esc_url(home_url('/portal')) . '">Open Switchboard Portal</a> ';
+            echo '<a class="button" href="' . esc_url(admin_url('admin.php?page=wp-pq-settings')) . '">Go to Settings</a></p>';
+            echo '</div>';
+            return;
+        }
+
+        if ($error !== '') {
+            echo '<div class="notice notice-error"><p>' . esc_html($error) . '</p></div>';
+        }
+
+        echo '<p>Switchboard needs a Google Cloud project to enable Calendar, Meet, and Gmail features for your team. '
+            . 'You only need to do this once.</p>';
+
+        echo '<div style="max-width:600px;">';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        wp_nonce_field('wp_pq_setup_wizard');
+        echo '<input type="hidden" name="action" value="wp_pq_setup_wizard">';
+
+        echo '<h2>Step 1: Google Cloud Credentials</h2>';
+        echo '<p>Create an OAuth 2.0 Client ID in <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console</a>, '
+            . 'then paste the credentials here.</p>';
+
+        echo '<table class="form-table"><tbody>';
+        echo '<tr><th><label for="google_client_id">Google Client ID</label></th>';
+        echo '<td><input type="text" id="google_client_id" name="google_client_id" class="regular-text" '
+            . 'value="' . esc_attr((string) get_option('wp_pq_google_client_id', '')) . '" required></td></tr>';
+        echo '<tr><th><label for="google_client_secret">Google Client Secret</label></th>';
+        echo '<td><input type="text" id="google_client_secret" name="google_client_secret" class="regular-text" '
+            . 'value="' . esc_attr((string) get_option('wp_pq_google_client_secret', '')) . '" required></td></tr>';
+        echo '</tbody></table>';
+
+        echo '<h2>Step 2: OpenAI (Optional)</h2>';
+        echo '<p>An API key lets Switchboard parse pasted task lists and documents into draft tasks using AI.</p>';
+        echo '<table class="form-table"><tbody>';
+        echo '<tr><th><label for="openai_key">OpenAI API Key</label></th>';
+        echo '<td><input type="password" id="openai_key" name="openai_key" class="regular-text" '
+            . 'value="' . esc_attr((string) get_option('wp_pq_openai_api_key', '')) . '" autocomplete="off"></td></tr>';
+        echo '</tbody></table>';
+
+        echo '<p class="submit"><button type="submit" class="button button-primary button-hero">Complete Setup</button></p>';
+        echo '</form>';
+        echo '</div>';
+        echo '</div>';
+    }
+
+    public static function handle_setup_wizard(): void
+    {
+        if (! current_user_can('manage_options')) {
+            wp_die('Forbidden');
+        }
+        check_admin_referer('wp_pq_setup_wizard');
+
+        $google_id = sanitize_text_field($_POST['google_client_id'] ?? '');
+        $google_secret = sanitize_text_field($_POST['google_client_secret'] ?? '');
+        $openai_key = sanitize_text_field($_POST['openai_key'] ?? '');
+
+        $result = WP_PQ_Installer::save_setup($google_id, $google_secret, $openai_key);
+
+        if (! $result['ok']) {
+            $error = implode(' ', $result['errors']);
+            wp_safe_redirect(admin_url('admin.php?page=wp-pq-setup&setup_error=' . urlencode($error)));
+            exit;
+        }
+
+        $redirect = admin_url('admin.php?page=wp-pq-setup&step=done');
+        if (! empty($result['callback_url'])) {
+            $redirect .= '&callback_url=' . urlencode($result['callback_url']);
+        }
+        wp_safe_redirect($redirect);
+        exit;
+    }
+
+    // ── Settings Page ─────────────────────────────────────────────────
+
     public static function render_settings_page(): void
     {
         if (! current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
@@ -143,7 +287,7 @@ class WP_PQ_Admin
         echo '      <label>Google Client ID <input type="text" name="wp_pq_google_client_id" value="' . esc_attr((string) get_option('wp_pq_google_client_id', '')) . '"></label>';
         echo '      <label>Google Client Secret <input type="text" name="wp_pq_google_client_secret" value="' . esc_attr((string) get_option('wp_pq_google_client_secret', '')) . '"></label>';
         echo '      <label>Authorized Redirect URI <input type="text" name="wp_pq_google_redirect_uri" value="' . esc_attr($redirect_uri) . '"></label>';
-        echo '      <label>Scopes <input type="text" name="wp_pq_google_scopes" value="' . esc_attr((string) get_option('wp_pq_google_scopes', 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly')) . '"></label>';
+        echo '      <label>Scopes <input type="text" name="wp_pq_google_scopes" value="' . esc_attr((string) get_option('wp_pq_google_scopes', 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.send')) . '"></label>';
         echo '      <div class="wp-pq-create-actions">';
         echo '        <button class="button button-primary" type="submit">Save Google Settings</button>';
         echo '      </div>';
@@ -3376,7 +3520,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         $body = self::build_welcome_email_html($display_name, $reset_url, $portal_url, $site_name);
 
-        $sent = WP_PQ_API::send_gmail($email, $subject, $body, get_current_user_id(), 'text/html');
+        $sent = WP_PQ_API::send_gmail(get_current_user_id(), $email, $subject, $body, true);
         if (! $sent && defined('WP_DEBUG') && WP_DEBUG) {
             error_log('Switchboard: welcome email failed for user ' . $user_id . ' (' . $email . ')');
         }

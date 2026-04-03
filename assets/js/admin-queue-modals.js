@@ -177,6 +177,21 @@
 
   // --- Move modal ---
 
+  var statusOrder = {
+    pending_approval: 0,
+    needs_clarification: 1,
+    approved: 2,
+    in_progress: 3,
+    needs_review: 4,
+    delivered: 5,
+  };
+
+  function isDemotion(sourceStatus, targetStatus) {
+    var from = statusOrder[normalizeStatus(sourceStatus)];
+    var to = statusOrder[normalizeStatus(targetStatus)];
+    return from !== undefined && to !== undefined && to < from;
+  }
+
   function shouldPromptForMoveDecision(sourceStatus, targetStatus) {
     const effectiveStatus = normalizeStatus(targetStatus || sourceStatus);
     return ['pending_approval', 'needs_clarification', 'approved', 'in_progress', 'needs_review', 'delivered'].includes(effectiveStatus);
@@ -235,15 +250,19 @@
     };
   }
 
+  var moveDateSwapOption = document.getElementById('wp-pq-move-date-swap-option');
+  var moveDateSwapHint = document.getElementById('wp-pq-move-date-swap-hint');
+
   function openMoveModal() {
     if (!moveModal || !moveModalBackdrop || (!pendingMove && !pendingStatusAction)) return;
 
     const action = pendingMove || pendingStatusAction;
     const movedTask = bridge.getTaskById(action.taskId);
     const targetTask = pendingMove ? bridge.getTaskById(pendingMove.targetTaskId) : null;
+    const sourceStatus = normalizeStatus(pendingMove ? pendingMove.sourceStatus : (movedTask ? movedTask.status : ''));
     const targetStatus = normalizeStatus(pendingMove ? pendingMove.targetStatus : pendingStatusAction.status);
     const config = moveDecisionConfig({
-      sourceStatus: normalizeStatus(pendingMove ? pendingMove.sourceStatus : (movedTask ? movedTask.status : '')),
+      sourceStatus: sourceStatus,
       targetStatus: targetStatus,
     });
     if (moveTitleEl) moveTitleEl.textContent = config.title;
@@ -268,9 +287,25 @@
     const keepPriority = moveForm ? moveForm.querySelector('input[name="priority_direction"][value="keep"]') : null;
     const requestMeeting = moveForm ? moveForm.querySelector('input[name="request_meeting"]') : null;
     const sendUpdateEmail = moveForm ? moveForm.querySelector('input[name="send_update_email"]') : null;
+    const swapDueDates = moveForm ? moveForm.querySelector('input[name="swap_due_dates"]') : null;
     if (keepPriority) keepPriority.checked = true;
     if (requestMeeting) requestMeeting.checked = false;
     if (sendUpdateEmail) sendUpdateEmail.checked = !!window.wpPqConfig.canViewAll;
+    if (swapDueDates) swapDueDates.checked = false;
+
+    // Show date-swap option only on demotion when both tasks have dates.
+    var showDateSwap = false;
+    if (moveDateSwapOption && pendingMove && targetTask && movedTask) {
+      var demoted = isDemotion(sourceStatus, targetStatus);
+      var movedHasDate = !!(movedTask.due_at || movedTask.requested_deadline);
+      var targetHasDate = !!(targetTask.due_at || targetTask.requested_deadline);
+      showDateSwap = demoted && (movedHasDate || targetHasDate);
+      if (showDateSwap && moveDateSwapHint) {
+        moveDateSwapHint.textContent = 'Swap deadlines between \u201c' + (movedTask.title || 'this task') + '\u201d and \u201c' + (targetTask.title || 'the displaced task') + '\u201d so dates follow priority order.';
+      }
+    }
+    if (moveDateSwapOption) moveDateSwapOption.hidden = !showDateSwap;
+
     if (moveMeetingOption) {
       moveMeetingOption.hidden = targetStatus !== 'needs_clarification';
     }
@@ -322,6 +357,7 @@
       const priorityDirection = (formData.get('priority_direction') || 'keep').toString();
       const requestMeeting = formData.get('request_meeting') === '1';
       const sendUpdateEmail = formData.get('send_update_email') === '1';
+      const swapDueDates = formData.get('swap_due_dates') === '1';
 
       if (applyMoveBtn) applyMoveBtn.disabled = true;
       try {
@@ -337,6 +373,7 @@
               position: pendingMove.position,
               target_status: pendingMove.targetStatus,
               priority_direction: priorityDirection,
+              swap_due_dates: swapDueDates,
               needs_meeting: requestMeeting,
               send_update_email: sendUpdateEmail,
             }),

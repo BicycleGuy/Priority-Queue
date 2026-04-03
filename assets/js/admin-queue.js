@@ -87,8 +87,10 @@
   const meetingEndInput = meetingForm ? meetingForm.querySelector('input[name="ends_at"]') : null;
   const messageList = document.getElementById('wp-pq-message-list');
   const messageForm = document.getElementById('wp-pq-message-form');
-  const noteList = document.getElementById('wp-pq-note-list');
-  const noteForm = document.getElementById('wp-pq-note-form');
+  const composeMode = document.getElementById('wp-pq-compose-mode');
+  const composeSubmit = document.getElementById('wp-pq-compose-submit');
+  const noteList = null; // unified into messageList
+  const noteForm = null; // unified into messageForm
   const mentionList = document.getElementById('wp-pq-mention-list');
   const fileList = document.getElementById('wp-pq-file-list');
   const boardViewBtn = document.getElementById('wp-pq-view-board');
@@ -99,11 +101,11 @@
   const uppyTarget = document.getElementById('wp-pq-uppy');
   const tabMessagesBtn = document.getElementById('wp-pq-tab-messages');
   const tabMeetingsBtn = document.getElementById('wp-pq-tab-meetings');
-  const tabNotesBtn = document.getElementById('wp-pq-tab-notes');
+  const tabNotesBtn = null; // unified into conversation tab
   const tabFilesBtn = document.getElementById('wp-pq-tab-files');
   const panelMessages = document.getElementById('wp-pq-panel-messages');
   const panelMeetings = document.getElementById('wp-pq-panel-meetings');
-  const panelNotes = document.getElementById('wp-pq-panel-notes');
+  const panelNotes = null; // unified into panelMessages
   const panelFiles = document.getElementById('wp-pq-panel-files');
   const appShellEl = document.querySelector('.wp-pq-app-shell');
   const drawerEl = document.getElementById('wp-pq-task-drawer');
@@ -418,15 +420,15 @@
     reorderTasksCache(orderedIds);
   }
 
-  function messageItemHtml(msg) {
-    return '<div class="msg-author">' + escapeHtml(msg.author_name || 'Collaborator') + ' · ' + escapeHtml(formatDateTime(msg.created_at)) + '</div>' +
-      '<div>' + escapeHtml(msg.body || '') + '</div>';
+  function conversationItemHtml(item) {
+    var badge = item.type === 'note' ? '<span class="wp-pq-note-badge">\uD83D\uDCCC Note</span> ' : '';
+    return '<div class="msg-author">' + badge + escapeHtml(item.author_name || 'Collaborator') + ' \u00B7 ' + escapeHtml(formatDateTime(item.created_at)) + '</div>' +
+      '<div>' + escapeHtml(item.body || '') + '</div>';
   }
 
-  function noteItemHtml(note) {
-    return '<div class="msg-author">' + escapeHtml(note.author_name || 'Collaborator') + ' · ' + escapeHtml(formatDateTime(note.created_at)) + '</div>' +
-      '<div>' + escapeHtml(note.body || '') + '</div>';
-  }
+  // Legacy aliases for backward compatibility.
+  function messageItemHtml(msg) { return conversationItemHtml(Object.assign({ type: 'message' }, msg)); }
+  function noteItemHtml(note) { return conversationItemHtml(Object.assign({ type: 'note' }, note)); }
 
   function meetingItemHtml(meeting, invitee) {
     const start = formatDateTime(meeting.starts_at);
@@ -648,21 +650,95 @@
     return tasks;
   }
 
+  // Deterministic color palette for client avatars — offset from job hues.
+  function clientAvatarColor(clientId) {
+    var hues = [10, 160, 270, 50, 210, 340, 130, 300, 30, 190, 80, 230];
+    var idx = (parseInt(clientId, 10) || 0) % hues.length;
+    return 'hsl(' + hues[idx] + ', 55%, 45%)';
+  }
+  function clientAvatarHtml(name, clientId) {
+    var letter = (name || 'C').charAt(0).toUpperCase();
+    var bg = clientAvatarColor(clientId);
+    return '<span class="wp-pq-job-avatar" style="background:' + bg + '">' + escapeHtml(letter) + '</span>';
+  }
+
   function updateBinderUi(scopedTasks, visibleTasks) {
-    const selectedClient = (filterOptions.clients || []).find((client) => parseInt(client.id, 10) === filterState.clientUserId);
-    const selectedBucket = (filterOptions.buckets || []).find((bucket) => parseInt(bucket.id, 10) === filterState.billingBucketId);
-    if (binderClientContext) {
+    var canViewAll = !!window.wpPqConfig.canViewAll;
+    var allClients = Array.isArray(filterOptions.clients) ? filterOptions.clients : [];
+    var allBuckets = visibleBuckets();
+
+    /* ── Client axis ─────────────────────────────────── */
+    if (binderClientContext && canViewAll) {
+      var clientBtns = [
+        '<button class="button' + (filterState.clientUserId === 0 ? ' is-active' : '') + '" type="button" data-client-id="0">' +
+          '<span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><span class="wp-pq-job-avatar wp-pq-job-avatar--all">✱</span></span><span>All clients</span></span>' +
+        '</button>'
+      ];
+      allClients.forEach(function (c) {
+        var cid = parseInt(c.id, 10) || 0;
+        var name = c.name || c.label || 'Client';
+        clientBtns.push(
+          '<button class="button' + (cid === filterState.clientUserId ? ' is-active' : '') + '" type="button" data-client-id="' + escapeHtml(cid) + '">' +
+            '<span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">' + clientAvatarHtml(name, cid) + '</span><span>' + escapeHtml(name) + '</span></span>' +
+          '</button>'
+        );
+      });
+      binderClientContext.innerHTML = '<div class="wp-pq-filter-nav">' + clientBtns.join('') + '</div>';
+
+      if (!binderClientContext._pqBound) {
+        binderClientContext._pqBound = true;
+        binderClientContext.addEventListener('click', async function (e) {
+          var btn = e.target.closest('[data-client-id]');
+          if (!btn) return;
+          e.preventDefault();
+          taskFilter = { mode: 'all', value: 'all' };
+          setFilterState({ clientUserId: parseInt(btn.dataset.clientId || '0', 10) || 0, billingBucketId: 0 });
+          syncFilterControls();
+          selectedTaskId = null;
+          await loadTasks();
+        });
+      }
+    } else if (binderClientContext) {
+      var selectedClient = (filterOptions.clients || []).find(function (c) { return parseInt(c.id, 10) === filterState.clientUserId; });
       var clientLabel = selectedClient
         ? (selectedClient.name || selectedClient.label || 'Selected client')
-        : (window.wpPqConfig.canViewAll ? 'All clients' : 'Your client workspace');
-      binderClientContext.innerHTML = '<strong>Client</strong>' + escapeHtml(clientLabel);
+        : 'Your workspace';
+      binderClientContext.innerHTML = '<div class="wp-pq-filter-nav"><button class="button is-active" type="button" disabled><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">' + clientAvatarHtml(clientLabel, filterState.clientUserId) + '</span><span>' + escapeHtml(clientLabel) + '</span></span></button></div>';
     }
+
+    /* ── Job axis ────────────────────────────────────── */
     if (binderJobContext) {
-      var countLabel = (visibleTasks || []).length + ' visible tasks';
-      var jobLabel = selectedBucket
-        ? ((selectedBucket.label || selectedBucket.bucket_name || 'Selected job') + ' · ' + countLabel)
-        : ('All jobs · ' + countLabel);
-      binderJobContext.innerHTML = '<strong>Job</strong>' + escapeHtml(jobLabel);
+      var jobBtns = [
+        '<button class="button' + (filterState.billingBucketId === 0 ? ' is-active' : '') + '" type="button" data-job-id="0">' +
+          '<span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><span class="wp-pq-job-avatar wp-pq-job-avatar--all">✱</span></span><span>All jobs</span></span>' +
+        '</button>'
+      ];
+      allBuckets.forEach(function (b) {
+        var bid = parseInt(b.id, 10) || 0;
+        var name = b.label || b.bucket_name || 'Job';
+        jobBtns.push(
+          '<button class="button' + (bid === filterState.billingBucketId ? ' is-active' : '') + '" type="button" data-job-id="' + escapeHtml(bid) + '">' +
+            '<span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">' + jobAvatarHtml(name, b.client_id) + '</span><span>' + escapeHtml(name) + '</span></span>' +
+          '</button>'
+        );
+      });
+      binderJobContext.innerHTML = '<div class="wp-pq-filter-nav">' + jobBtns.join('') + '</div>';
+
+      if (!binderJobContext._pqBound) {
+        binderJobContext._pqBound = true;
+        binderJobContext.addEventListener('click', async function (e) {
+          var btn = e.target.closest('[data-job-id]');
+          if (!btn) return;
+          e.preventDefault();
+          taskFilter = { mode: 'all', value: 'all' };
+          setFilterState({
+            clientUserId: filterState.clientUserId,
+            billingBucketId: parseInt(btn.dataset.jobId || '0', 10) || 0,
+          });
+          syncFilterControls();
+          await loadTasks();
+        });
+      }
     }
     renderUnifiedFilters(scopedTasks || []);
   }
@@ -736,35 +812,23 @@
     filterListEl.innerHTML = html;
   }
 
+  // Deterministic color palette for job avatars — seeded by client_id.
+  var jobAvatarHues = [210, 340, 160, 30, 270, 190, 10, 130, 50, 300, 80, 230];
+  function jobAvatarColor(clientId) {
+    var idx = (parseInt(clientId, 10) || 0) % jobAvatarHues.length;
+    return 'hsl(' + jobAvatarHues[idx] + ', 55%, 45%)';
+  }
+  function jobAvatarHtml(name, clientId) {
+    var letter = (name || 'J').charAt(0).toUpperCase();
+    var bg = jobAvatarColor(clientId);
+    return '<span class="wp-pq-job-avatar" style="background:' + bg + '">' + escapeHtml(letter) + '</span>';
+  }
+
   function renderJobNav() {
-    if (!jobNavWrap || !jobNavEl) return;
-
-    const bucketOptions = visibleBuckets();
-    const canViewAll = !!filterOptions.canViewAll;
-    const shouldShow = bucketOptions.length > 0 && (!canViewAll || filterState.clientUserId > 0 || bucketOptions.length > 1);
-    jobNavWrap.hidden = !shouldShow;
-
-    if (!shouldShow) {
-      jobNavEl.innerHTML = '';
-      return;
-    }
-
-    const buttons = [
-      '<button class="button ' + (filterState.billingBucketId === 0 ? 'is-active' : '') + '" type="button" data-job-id="0">' +
-        '<span class="wp-pq-job-row-main"><span class="wp-pq-row-icon" aria-hidden="true">' + binderIcons.jobs + '</span><span>All jobs</span></span>' +
-      '</button>',
-    ];
-
-    bucketOptions.forEach((bucket) => {
-      const bucketId = parseInt(bucket.id, 10) || 0;
-      buttons.push(
-        '<button class="button ' + (bucketId === filterState.billingBucketId ? 'is-active' : '') + '" type="button" data-job-id="' + escapeHtml(bucketId) + '">' +
-          '<span class="wp-pq-job-row-main"><span class="wp-pq-row-icon" aria-hidden="true">' + binderIcons.jobs + '</span><span>' + escapeHtml(bucket.label || bucket.bucket_name || 'Job') + '</span></span>' +
-        '</button>'
-      );
-    });
-
-    jobNavEl.innerHTML = buttons.join('');
+    // Job nav is now rendered inline inside the binder Scope section.
+    // Keep the old wrapper hidden.
+    if (jobNavWrap) jobNavWrap.hidden = true;
+    if (jobNavEl) jobNavEl.innerHTML = '';
   }
 
   async function syncTaskWorkspace(options) {
@@ -1075,6 +1139,9 @@
       metaBits.push('<span>Invoice Draft ' + escapeHtml(task.statement_code) + '</span>');
     }
 
+    if (task.files_link) {
+      cardActions.push('<span class="wp-pq-link-flag" data-tooltip="Has linked files" aria-label="Has linked files">&#128279;</span>');
+    }
     if (task.note_count > 0) {
       cardActions.push('<span class="wp-pq-note-flag" data-tooltip="' + escapeHtml((task.latest_note_preview || (task.note_count + ' sticky notes'))) + '"></span>');
     }
@@ -1263,6 +1330,7 @@
     boardSortInstances = [];
 
     boardEl.querySelectorAll('.wp-pq-board-column-list').forEach((columnEl) => {
+      const isNarrow = window.innerWidth <= 640;
       const sortable = Sortable.create(columnEl, {
         group: 'wp-pq-board',
         animation: 80,
@@ -1271,8 +1339,10 @@
         fallbackOnBody: true,
         fallbackTolerance: 3,
         fallbackClass: 'wp-pq-sortable-fallback',
+        disabled: isNarrow,
+        delay: isNarrow ? 999 : 0,
         delayOnTouchOnly: true,
-        touchStartThreshold: 3,
+        touchStartThreshold: isNarrow ? 50 : 3,
         emptyInsertThreshold: 60,
         scroll: true,
         scrollSensitivity: 120,
@@ -1598,6 +1668,11 @@
         alert('Name the first job for this client before submitting the task.');
         return;
       }
+      const requestedDeadlineVal = (formData.get('requested_deadline') || '').toString().trim();
+      if (!requestedDeadlineVal) {
+        alert('Please set a requested deadline before submitting.');
+        return;
+      }
       const needsMeeting = formData.get('needs_meeting') === 'on';
       const meetingStart = (formData.get('meeting_starts_at') || '').toString();
       const meetingEnd = (formData.get('meeting_ends_at') || '').toString();
@@ -1607,7 +1682,7 @@
         description: formData.get('description') || '',
         priority: formData.get('priority') || 'normal',
         due_at: formData.get('due_at') || null,
-        requested_deadline: formData.get('requested_deadline') || null,
+        requested_deadline: requestedDeadlineVal,
         needs_meeting: needsMeeting,
         is_billable: !window.wpPqConfig.canApprove || formData.get('is_billable') === 'on',
         owner_ids: parseOwnerIds(formData.get('owner_ids')),
@@ -1746,7 +1821,7 @@
   async function loadMessages(options) {
     if (!messageList) return;
     if (!selectedTaskId) {
-      renderEmptyStream(messageList, 'Open a task to see its messages.');
+      renderEmptyStream(messageList, 'Open a task to see its conversation.');
       return;
     }
 
@@ -1754,57 +1829,47 @@
     if (taskPanelState.messages && !(options && options.force)) {
       return;
     }
-    const data = await api('tasks/' + selectedTaskId + '/messages', { method: 'GET' });
+    const data = await api('tasks/' + selectedTaskId + '/conversation', { method: 'GET' });
     messageList.innerHTML = '';
     taskPanelState.messages = true;
+    taskPanelState.notes = true;
 
-    if (!(data.messages || []).length) {
+    var items = data.items || [];
+    if (!items.length) {
       renderEmptyStream(messageList, 'No messages yet for this task.');
       return;
     }
 
-    var msgs = data.messages || [];
-    msgs.forEach((msg) => {
+    items.forEach(function (item) {
       const li = document.createElement('li');
-      li.className = msg.author_id === window.wpPqConfig.currentUserId ? 'mine' : 'theirs';
-      li.innerHTML = messageItemHtml(msg);
+      li.className = (item.author_id === window.wpPqConfig.currentUserId ? 'mine' : 'theirs') +
+        (item.type === 'note' ? ' is-note' : '');
+      li.innerHTML = conversationItemHtml(item);
       messageList.appendChild(li);
     });
-    // Update badge count
+
     var badge = document.getElementById('wp-pq-badge-messages');
-    if (badge) badge.textContent = msgs.length > 0 ? String(msgs.length) : '';
+    if (badge) badge.textContent = items.length > 0 ? String(items.length) : '';
   }
 
   async function loadNotes(options) {
-    if (!noteList) return;
-    if (!selectedTaskId) {
-      renderEmptyStream(noteList, 'Open a task to see its sticky notes.');
-      return;
-    }
-
-    ensureTaskPanelState(selectedTaskId);
-    if (taskPanelState.notes && !(options && options.force)) {
-      return;
-    }
-    const data = await api('tasks/' + selectedTaskId + '/notes', { method: 'GET' });
-    noteList.innerHTML = '';
-    taskPanelState.notes = true;
-
-    if (!(data.notes || []).length) {
-      renderEmptyStream(noteList, 'No sticky notes yet for this task.');
-      return;
-    }
-
-    (data.notes || []).forEach((note) => {
-      const li = document.createElement('li');
-      li.className = note.author_id === window.wpPqConfig.currentUserId ? 'mine' : 'theirs';
-      li.innerHTML = noteItemHtml(note);
-      noteList.appendChild(li);
-    });
+    // Notes are now loaded as part of the unified conversation stream.
+    return loadMessages(options);
   }
 
   function wireMessages() {
     if (!messageForm) return;
+
+    // Compose mode toggle: update button label and placeholder.
+    if (composeMode) {
+      composeMode.addEventListener('change', function () {
+        var isNote = composeMode.value === 'note';
+        if (composeSubmit) composeSubmit.textContent = isNote ? 'Add Note' : 'Send Message';
+        var textarea = messageForm.querySelector('textarea[name="body"]');
+        if (textarea) textarea.placeholder = isNote ? 'Write a note (no notifications)\u2026' : 'Write a message\u2026';
+      });
+    }
+
     messageForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       if (!selectedTaskId) return alert('Select a task first.');
@@ -1813,23 +1878,41 @@
       const body = (formData.get('body') || '').toString().trim();
       if (!body) return;
 
+      var mode = composeMode ? composeMode.value : 'message';
+      var endpoint = mode === 'note'
+        ? 'tasks/' + selectedTaskId + '/notes'
+        : 'tasks/' + selectedTaskId + '/messages';
+
       try {
-        const result = await api('tasks/' + selectedTaskId + '/messages', { method: 'POST', body: JSON.stringify({ body: body }) });
+        const result = await api(endpoint, { method: 'POST', body: JSON.stringify({ body: body }) });
         messageForm.reset();
+        // Reset compose mode to message after sending.
+        if (composeMode) {
+          composeMode.value = 'message';
+          if (composeSubmit) composeSubmit.textContent = 'Send Message';
+          var textarea = messageForm.querySelector('textarea[name="body"]');
+          if (textarea) textarea.placeholder = 'Write a message\u2026';
+        }
         if (result.task) {
           upsertTask(result.task);
           await refreshFromCache({ reloadActivePane: false, refreshCalendar: false, renderCollections: false });
         }
-        if (result.message && messageList) {
+
+        // Append item to unified stream.
+        var newItem = result.message || result.note;
+        var itemType = result.message ? 'message' : 'note';
+        if (newItem && messageList) {
           const emptyState = messageList.querySelector('.wp-pq-stream-empty');
           if (emptyState) {
             messageList.innerHTML = '';
           }
           const li = document.createElement('li');
-          li.className = result.message.author_id === window.wpPqConfig.currentUserId ? 'mine' : 'theirs';
-          li.innerHTML = messageItemHtml(result.message);
+          li.className = (newItem.author_id === window.wpPqConfig.currentUserId ? 'mine' : 'theirs') +
+            (itemType === 'note' ? ' is-note' : '');
+          li.innerHTML = conversationItemHtml(Object.assign({ type: itemType }, newItem));
           messageList.appendChild(li);
           taskPanelState.messages = true;
+          taskPanelState.notes = true;
         } else {
           await loadMessages({ force: true });
         }
@@ -1840,39 +1923,7 @@
   }
 
   function wireNotes() {
-    if (!noteForm) return;
-    noteForm.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      if (!selectedTaskId) return alert('Select a task first.');
-
-      const formData = new FormData(noteForm);
-      const body = (formData.get('body') || '').toString().trim();
-      if (!body) return;
-
-      try {
-        const result = await api('tasks/' + selectedTaskId + '/notes', { method: 'POST', body: JSON.stringify({ body: body }) });
-        noteForm.reset();
-        if (result.task) {
-          upsertTask(result.task);
-        }
-        await refreshFromCache({ reloadActivePane: false, refreshCalendar: false });
-        if (result.note && noteList) {
-          const emptyState = noteList.querySelector('.wp-pq-stream-empty');
-          if (emptyState) {
-            noteList.innerHTML = '';
-          }
-          const li = document.createElement('li');
-          li.className = result.note.author_id === window.wpPqConfig.currentUserId ? 'mine' : 'theirs';
-          li.innerHTML = noteItemHtml(result.note);
-          noteList.prepend(li);
-          taskPanelState.notes = true;
-        } else {
-          await loadNotes({ force: true });
-        }
-      } catch (err) {
-        alert(err.message);
-      }
-    });
+    // Notes are now part of the unified conversation compose form.
   }
 
   // uploadToMedia removed — file exchange replaced by link field.
@@ -1916,10 +1967,10 @@
           body: JSON.stringify({ files_link: filesLink }),
         });
         if (result.task) upsertTask(result.task);
-        toast('Files link saved.');
+        alert('Files link saved.', 'success');
         await loadFiles({ force: true });
       } catch (err) {
-        toast(err.message || 'Failed to save link.', true);
+        alert(err.message || 'Failed to save link.', 'error');
       }
     });
   }
@@ -2180,42 +2231,39 @@
   }
 
   async function activateWorkspaceTab(tab) {
-    if (!panelMessages || !panelNotes || !panelFiles) return;
+    if (!panelMessages || !panelFiles) return;
+
+    // Map legacy 'notes' tab to 'messages' (unified conversation).
+    if (tab === 'notes') tab = 'messages';
 
     const showMessages = tab === 'messages';
     const showMeetings = tab === 'meetings';
-    const showNotes = tab === 'notes';
     const showFiles = tab === 'files';
 
     panelMessages.hidden = !showMessages;
     if (panelMeetings) panelMeetings.hidden = !showMeetings;
-    panelNotes.hidden = !showNotes;
     panelFiles.hidden = !showFiles;
 
     if (tabMessagesBtn) tabMessagesBtn.classList.toggle('button-primary', showMessages);
     if (tabMessagesBtn) tabMessagesBtn.classList.toggle('is-active', showMessages);
     if (tabMeetingsBtn) tabMeetingsBtn.classList.toggle('button-primary', showMeetings);
     if (tabMeetingsBtn) tabMeetingsBtn.classList.toggle('is-active', showMeetings);
-    if (tabNotesBtn) tabNotesBtn.classList.toggle('button-primary', showNotes);
-    if (tabNotesBtn) tabNotesBtn.classList.toggle('is-active', showNotes);
     if (tabFilesBtn) tabFilesBtn.classList.toggle('button-primary', showFiles);
     if (tabFilesBtn) tabFilesBtn.classList.toggle('is-active', showFiles);
 
     if (!selectedTaskId) return;
     if (showMessages && !taskPanelState.messages) await loadMessages();
     if (showMeetings && !taskPanelState.meetings) await loadMeetings();
-    if (showNotes && !taskPanelState.notes) await loadNotes();
     if (showFiles && !taskPanelState.files) await loadFiles();
   }
 
   function initWorkspaceTabs() {
-    if (!tabMessagesBtn || !tabNotesBtn || !tabFilesBtn || !panelMessages || !panelNotes || !panelFiles) return;
+    if (!tabMessagesBtn || !tabFilesBtn || !panelMessages || !panelFiles) return;
 
     tabMessagesBtn.addEventListener('click', () => activateWorkspaceTab('messages').catch(console.error));
     if (tabMeetingsBtn && panelMeetings) {
       tabMeetingsBtn.addEventListener('click', () => activateWorkspaceTab('meetings').catch(console.error));
     }
-    tabNotesBtn.addEventListener('click', () => activateWorkspaceTab('notes').catch(console.error));
     tabFilesBtn.addEventListener('click', () => activateWorkspaceTab('files').catch(console.error));
     activateWorkspaceTab('messages').catch(console.error);
   }
@@ -2518,6 +2566,33 @@
   setActiveView(true);
   resetTaskSummary();
 
+  /* ── Deep-link: ?task=ID opens the task drawer ──── */
+  (function initDeepLink() {
+    var params = new URLSearchParams(window.location.search);
+    var deepTaskId = parseInt(params.get('task') || params.get('task_id') || '0', 10);
+    if (!deepTaskId) return;
+
+    // Tasks load async — poll briefly until the task appears in cache.
+    var attempts = 0;
+    var interval = setInterval(function () {
+      attempts++;
+      var task = getTaskById(deepTaskId);
+      if (task) {
+        clearInterval(interval);
+        selectTask(deepTaskId, true);
+      } else if (attempts > 20) {
+        clearInterval(interval);
+        // Task might be in a different filter scope — try loading it directly.
+        api('tasks/' + deepTaskId, { method: 'GET' }).then(function (data) {
+          if (data && data.task) {
+            upsertTask(data.task);
+            selectTask(deepTaskId, true);
+          }
+        }).catch(function () {});
+      }
+    }, 250);
+  })();
+
   /* ── Dark-mode toggle ──────────────────────────────── */
   (function initDarkMode() {
     const wrap = document.querySelector('.wp-pq-wrap');
@@ -2601,6 +2676,251 @@
     wrap.addEventListener('mouseover', show);
     wrap.addEventListener('mouseout', function (e) {
       if (e.target.closest('[data-tooltip]')) hide();
+    });
+  })();
+
+  // ── Client Admin Invites ──────────────────────────────────────────
+  (function initClientAdminInvites() {
+    var cfg = window.wpPqConfig;
+    if (!cfg || !cfg.isClientAdmin || cfg.isManager) return;
+
+    var clientAdminNav = document.getElementById('wp-pq-client-admin-nav');
+    if (!clientAdminNav) return;
+
+    var workspace = document.querySelector('.wp-pq-workspace');
+    if (!workspace) return;
+
+    // Create the panel element once
+    var panel = document.createElement('section');
+    panel.className = 'wp-pq-panel';
+    panel.id = 'wp-pq-client-invites-panel';
+    panel.hidden = true;
+    workspace.appendChild(panel);
+
+    // Elements we may want to hide/show
+    var boardPanel = document.getElementById('wp-pq-board-panel') || document.getElementById('wp-pq-queue-panel');
+    var createPanel = document.getElementById('wp-pq-create-panel');
+    var queueBinderSections = document.getElementById('wp-pq-queue-binder-sections');
+    var queueNavBtn = document.getElementById('wp-pq-nav-queue');
+
+    function showClientInvites() {
+      // Hide queue and compose panels
+      if (boardPanel) boardPanel.hidden = true;
+      if (createPanel) createPanel.hidden = true;
+      if (queueBinderSections) queueBinderSections.hidden = true;
+      // Hide any existing manager sections
+      document.querySelectorAll('.wp-pq-manager-section').forEach(function (s) { s.hidden = true; });
+      // Deactivate queue nav
+      if (queueNavBtn) queueNavBtn.classList.remove('is-active');
+      // Activate client admin nav
+      clientAdminNav.querySelectorAll('.button').forEach(function (b) { b.classList.remove('is-active'); });
+      var activeBtn = clientAdminNav.querySelector('[data-pq-section="client-invites"]');
+      if (activeBtn) activeBtn.classList.add('is-active');
+      // Show panel
+      panel.hidden = false;
+      loadClientInvites();
+    }
+
+    function returnToQueue() {
+      panel.hidden = true;
+      if (boardPanel) boardPanel.hidden = false;
+      if (queueBinderSections) queueBinderSections.hidden = false;
+      if (queueNavBtn) queueNavBtn.classList.add('is-active');
+      clientAdminNav.querySelectorAll('.button').forEach(function (b) { b.classList.remove('is-active'); });
+    }
+
+    // Nav click
+    clientAdminNav.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-pq-section]');
+      if (!btn) return;
+      if (btn.dataset.pqSection === 'client-invites') {
+        showClientInvites();
+      }
+    });
+
+    // Queue nav click should return from client invites
+    if (queueNavBtn) {
+      queueNavBtn.addEventListener('click', function () {
+        returnToQueue();
+      });
+    }
+
+    var adminClients = cfg.clientAdminClients || [];
+
+    function clientSelectHtml() {
+      if (adminClients.length <= 1) return '';
+      return '<label>Client <select name="client_id" id="wp-pq-ca-invite-client" required>' +
+        adminClients.map(function (c) {
+          return '<option value="' + c.id + '">' + escapeHtml(c.name || 'Client #' + c.id) + '</option>';
+        }).join('') +
+        '</select></label>';
+    }
+
+    async function loadClientInvites() {
+      panel.innerHTML = '<div class="wp-pq-empty-state">Loading invites...</div>';
+      try {
+        var data = await api('client/invites');
+        var invites = data.invites || [];
+        renderClientInvitePanel(invites);
+      } catch (err) {
+        panel.innerHTML = '<div class="wp-pq-empty-state">Failed to load invites: ' + escapeHtml(err.message) + '</div>';
+      }
+    }
+
+    function renderClientInvitePanel(invites) {
+      var formHtml =
+        '<div class="wp-pq-section-heading"><div><h3>Team Invites</h3>' +
+        '<p class="wp-pq-panel-note">Invite new team members to your client account.</p></div>' +
+        '<div><button class="button button-primary" type="button" id="wp-pq-ca-toggle-invite-form">Send Invite</button></div></div>' +
+        '<div id="wp-pq-ca-invite-form-wrap" class="wp-pq-panel wp-pq-manager-card" hidden>' +
+        '<form id="wp-pq-ca-invite-form">' +
+        '<h3 style="margin:0 0 12px">New Invite</h3>' +
+        '<div class="wp-pq-manager-form-grid">' +
+        '<label>First Name <input type="text" name="first_name" required></label>' +
+        '<label>Last Name <input type="text" name="last_name" required></label>' +
+        '<label>Email <input type="email" name="email" required></label>' +
+        '<label>Role <select name="client_role">' +
+        '<option value="client_contributor">Contributor</option>' +
+        '<option value="client_viewer">Viewer</option>' +
+        '</select></label>' +
+        clientSelectHtml() +
+        '</div>' +
+        '<div style="margin-top:12px;display:flex;gap:8px">' +
+        '<button class="button button-primary" type="submit">Send Invite</button>' +
+        '<button class="button" type="button" id="wp-pq-ca-cancel-invite">Cancel</button>' +
+        '</div>' +
+        '</form></div>';
+
+      var tableHtml = '';
+      if (invites.length) {
+        tableHtml = '<section class="wp-pq-panel wp-pq-manager-card">' +
+          '<table class="wp-pq-admin-table wp-pq-manager-table">' +
+          '<thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Delivery</th><th>Sent</th><th></th></tr></thead>' +
+          '<tbody>' +
+          invites.map(function (inv) {
+            var statusClass = inv.status === 'accepted' ? 'wp-pq-status-done'
+              : inv.status === 'pending' ? 'wp-pq-status-pending'
+              : 'wp-pq-status-muted';
+            var deliveryIcon = inv.delivery_status === 'sent' ? '<span title="Email sent" style="color:#16a34a">&#10003;</span>'
+              : inv.delivery_status === 'failed' ? '<span title="Email failed" style="color:#dc2626">&#10007;</span>'
+              : '<span title="Unknown" style="color:#9ca3af">&mdash;</span>';
+            var roleLabel = (inv.client_role || 'contributor').replace('client_', '');
+            roleLabel = roleLabel.charAt(0).toUpperCase() + roleLabel.slice(1);
+            var fullName = [inv.first_name || '', inv.last_name || ''].join(' ').trim();
+            var actions = '';
+            if (inv.status === 'pending' || inv.status === 'expired') {
+              actions += '<button class="button wp-pq-small-action" type="button" data-ca-action="resend" data-invite-id="' + inv.id + '">Resend</button> ';
+            }
+            if (inv.status === 'pending') {
+              actions += '<button class="button wp-pq-small-action" type="button" data-ca-action="copy-link" data-invite-token="' + escapeHtml(inv.token || '') + '">Copy Link</button> ';
+              actions += '<button class="button wp-pq-small-action" type="button" data-ca-action="revoke" data-invite-id="' + inv.id + '">Revoke</button>';
+            }
+            return '<tr>' +
+              '<td>' + escapeHtml(fullName || '\u2014') + '</td>' +
+              '<td>' + escapeHtml(inv.email) + '</td>' +
+              '<td>' + escapeHtml(roleLabel) + '</td>' +
+              '<td><span class="' + statusClass + '">' + escapeHtml(inv.status) + '</span></td>' +
+              '<td style="text-align:center">' + deliveryIcon + '</td>' +
+              '<td>' + escapeHtml(String(inv.created_at || '').slice(0, 10)) + '</td>' +
+              '<td class="wp-pq-invite-actions">' + actions + '</td>' +
+            '</tr>';
+          }).join('') +
+          '</tbody></table></section>';
+      } else {
+        tableHtml = '<div class="wp-pq-empty-state">No invites sent yet.</div>';
+      }
+
+      panel.innerHTML = formHtml + tableHtml;
+
+      // Wire up toggle / cancel
+      var toggleBtn = document.getElementById('wp-pq-ca-toggle-invite-form');
+      var formWrap = document.getElementById('wp-pq-ca-invite-form-wrap');
+      var cancelBtn = document.getElementById('wp-pq-ca-cancel-invite');
+      if (toggleBtn && formWrap) {
+        toggleBtn.addEventListener('click', function () { formWrap.hidden = !formWrap.hidden; });
+      }
+      if (cancelBtn && formWrap) {
+        cancelBtn.addEventListener('click', function () { formWrap.hidden = true; });
+      }
+
+      // Form submit
+      var form = document.getElementById('wp-pq-ca-invite-form');
+      if (form) {
+        form.addEventListener('submit', async function (e) {
+          e.preventDefault();
+          var fd = Object.fromEntries(new FormData(form).entries());
+          // Auto-set client_id if only one client
+          if (!fd.client_id && adminClients.length === 1) {
+            fd.client_id = adminClients[0].id;
+          }
+          var submitBtn = form.querySelector('[type="submit"]');
+          if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Sending...'; }
+          try {
+            var result = await api('client/invites', {
+              method: 'POST',
+              body: JSON.stringify(fd),
+            });
+            alert(result.message || 'Invite sent.', 'success', { duration: 3200 });
+            form.reset();
+            if (formWrap) formWrap.hidden = true;
+            await loadClientInvites();
+          } catch (err) {
+            alert(err.message || 'Failed to send invite.', 'error', { duration: 4000 });
+          } finally {
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Send Invite'; }
+          }
+        });
+      }
+    }
+
+    // Delegated action handler for table actions
+    panel.addEventListener('click', async function (e) {
+      var btn = e.target.closest('[data-ca-action]');
+      if (!btn) return;
+      var action = btn.dataset.caAction;
+
+      if (action === 'revoke') {
+        var inviteId = btn.dataset.inviteId;
+        if (!inviteId || !confirm('Revoke this invite?')) return;
+        try {
+          await api('client/invites/' + inviteId, { method: 'DELETE' });
+          alert('Invite revoked.', 'success', { duration: 3200 });
+          await loadClientInvites();
+        } catch (err) {
+          alert(err.message || 'Failed to revoke invite.', 'error', { duration: 4000 });
+        }
+        return;
+      }
+
+      if (action === 'resend') {
+        var inviteId2 = btn.dataset.inviteId;
+        if (!inviteId2) return;
+        btn.disabled = true;
+        btn.textContent = 'Sending...';
+        try {
+          var result = await api('client/invites/' + inviteId2 + '/resend', { method: 'POST' });
+          alert(result.message || 'Invite resent.', 'success', { duration: 3200 });
+          await loadClientInvites();
+        } catch (err) {
+          alert(err.message || 'Failed to resend invite.', 'error', { duration: 4000 });
+          btn.disabled = false;
+          btn.textContent = 'Resend';
+        }
+        return;
+      }
+
+      if (action === 'copy-link') {
+        var token = btn.dataset.inviteToken;
+        if (!token) return;
+        var link = window.location.origin + '/portal/invite/' + token;
+        try {
+          await navigator.clipboard.writeText(link);
+          alert('Invite link copied to clipboard.', 'success', { duration: 3200 });
+        } catch (copyErr) {
+          window.prompt('Copy this invite link:', link);
+        }
+        return;
+      }
     });
   })();
 

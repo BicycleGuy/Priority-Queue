@@ -124,6 +124,18 @@
   font-size: 13px;
 }
 
+.wp-pq-invite-actions {
+  white-space: nowrap;
+}
+.wp-pq-invite-actions .button {
+  display: inline-block;
+  min-height: 0;
+  padding: 3px 10px;
+  font-size: 12px;
+  border-radius: 4px;
+  margin: 2px 2px;
+}
+
 .wp-pq-wrap input[type='text'],
 .wp-pq-wrap input[type='number'],
 .wp-pq-wrap input[type='datetime-local'],
@@ -515,27 +527,75 @@
   margin: 0 0 12px;
 }
 
-.wp-pq-mention-chip {
-  border: 1px solid var(--pq-border);
-  border-radius: 999px;
-  background: var(--pq-soft);
-  color: var(--pq-ink);
-  padding: 5px 12px;
-  font-size: 12px;
-  font-weight: 600;
+.wp-pq-mention-chip,
+.wp-pq-wrap .wp-pq-mention-chip {
+  border: 1px solid var(--pq-border) !important;
+  border-radius: 999px !important;
+  background: var(--pq-soft) !important;
+  color: var(--pq-ink) !important;
+  padding: 5px 12px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  min-height: 0 !important;
+  line-height: 1.4 !important;
+  box-shadow: none !important;
   cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease;
 }
 
-.wp-pq-mention-chip:hover {
-  background: var(--pq-accent-soft);
-  border-color: var(--pq-accent);
-  color: var(--pq-accent);
+.wp-pq-mention-chip:hover,
+.wp-pq-wrap .wp-pq-mention-chip:hover {
+  background: var(--pq-accent-soft) !important;
+  border-color: var(--pq-accent) !important;
+  color: var(--pq-accent) !important;
 }
 
 .wp-pq-mention-hint {
   color: var(--pq-muted);
   font-size: 12px;
+}
+
+/* Unified conversation compose bar */
+.wp-pq-compose-bar {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.wp-pq-compose-mode {
+  flex-shrink: 0;
+  border: 1px solid var(--pq-border) !important;
+  border-radius: 6px !important;
+  background: var(--pq-soft) !important;
+  color: var(--pq-ink) !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  padding: 6px 8px !important;
+  min-height: 0 !important;
+  line-height: 1.4 !important;
+  cursor: pointer;
+  margin-top: 2px;
+}
+
+.wp-pq-compose-bar textarea {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Note badge in conversation stream */
+.wp-pq-note-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--pq-muted);
+  letter-spacing: 0.02em;
+  margin-right: 4px;
+}
+
+/* Note items get a subtle left border */
+.wp-pq-stream li.is-note {
+  border-left: 3px solid var(--pq-border);
+  padding-left: 10px;
 }
 
 .wp-pq-pref-list {
@@ -746,22 +806,20 @@
 }
 
 .wp-pq-binder-context {
-  padding: 10px 12px;
+  padding: 0;
   color: var(--pq-sidebar-muted);
   font-size: 13px;
   font-weight: 500;
   line-height: 1.45;
-  background: var(--pq-soft);
-  border-radius: 10px;
+  background: none;
+  border-radius: 0;
 }
 
 .wp-pq-binder-context strong {
-  display: block;
-  color: var(--pq-sidebar-ink);
-  font-size: 12px;
-  font-weight: 700;
-  margin-bottom: 2px;
+  display: none;
 }
+
+/* Scope lists reuse .wp-pq-filter-nav .button styles from the admin section */
 
 .wp-pq-binder .wp-pq-board-filters {
   gap: 10px;
@@ -896,6 +954,29 @@
   height: 100%;
 }
 
+/* Job avatar: colored circle with first letter */
+.wp-pq-job-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #64748b;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
+  flex-shrink: 0;
+}
+
+.wp-pq-job-avatar--all {
+  border-radius: 3px;
+  background: #8b2d2d;
+  font-size: 12px;
+}
+
 .wp-pq-filter-list {
   gap: 14px;
 }
@@ -934,8 +1015,8 @@ details.wp-pq-admin-group > summary {
 .wp-pq-scope-inner {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-top: 8px;
+  gap: 0;
+  padding-top: 4px;
   padding-bottom: 4px;
 }
 
@@ -2214,6 +2295,19 @@ button.wp-pq-manager-list-item.is-active {
   margin-left: auto;
 }
 
+.wp-pq-link-flag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.55;
+  cursor: default;
+}
+
+.wp-pq-link-flag:hover {
+  opacity: 0.85;
+}
+
 .wp-pq-task-id {
   display: inline-flex;
   align-items: center;
@@ -3284,22 +3378,776 @@ body.wp-pq-drawer-open {
 }
 
 @media (max-width: 640px) {
+  /* ── Generic buttons: base touch targets (specific rules below override) ── */
+  .wp-pq-wrap .button,
+  .wp-pq-wrap .button.button-primary {
+    min-height: 36px;
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+
   .wp-pq-wrap h2 {
-    font-size: clamp(2rem, 12vw, 3rem);
+    font-size: 1.55rem;
+  }
+
+  .wp-pq-wrap.wp-pq-portal {
+    padding: 6px 8px 24px;
   }
 
   .wp-pq-panel {
-    padding: 15px;
-    border-radius: 18px;
+    padding: 14px;
+    border-radius: 14px;
   }
 
+  .wp-pq-workspace {
+    padding: 10px 6px;
+  }
+
+  /* ── Section headings ── */
+  .wp-pq-section-heading .button {
+    min-height: 40px;
+    padding: 8px 16px;
+    font-size: 13px;
+  }
+
+  /* ── Board: snap-scroll one column at a time ── */
+  .wp-pq-board {
+    gap: 14px;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 10px;
+  }
+
+  .wp-pq-board-column {
+    flex: 0 0 calc(100vw - 48px);
+    scroll-snap-align: start;
+  }
+
+  .wp-pq-board-column.is-collapsed {
+    flex-basis: 34px;
+    scroll-snap-align: none;
+  }
+
+  .wp-pq-board-column-head h4 {
+    font-size: 0.82rem;
+  }
+
+  /* ── Task cards ── */
+  .wp-pq-task-card {
+    padding: 12px 10px;
+  }
+
+  .wp-pq-task-card h4 {
+    font-size: 0.92rem;
+  }
+
+  /* ── Filter chips ── */
+  .wp-pq-board-filter-bar {
+    padding: 10px;
+    gap: 6px;
+  }
+
+  .wp-pq-filter-check {
+    padding: 8px 12px;
+    min-height: 36px;
+  }
+
+  /* ── Focal hint (Next step) ── */
+  .wp-pq-focal-hint {
+    max-width: none;
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+
+  .wp-pq-focal-hint strong {
+    font-size: 14px;
+  }
+
+  /* ── Mobile bar touch targets ── */
+  .wp-pq-mobile-bar .button {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 8px 14px;
+    font-size: 14px;
+  }
+
+  /* ── Sidebar overlay ── */
+  .wp-pq-binder.is-open {
+    inset: 48px 0 0;
+    border-radius: 0;
+  }
+
+  /* ── Sidebar touch targets ── */
+  .wp-pq-binder .wp-pq-filter-nav .button {
+    min-height: 44px !important;
+    padding: 10px 12px !important;
+  }
+
+  .wp-pq-view-toggle .button {
+    min-height: 44px !important;
+    font-size: 14px !important;
+  }
+
+  /* ── Drawer ── */
   .wp-pq-drawer {
     width: 100vw;
-    padding: 18px;
+    padding: 14px 12px 24px;
+    top: 0;
   }
 
+  .wp-pq-drawer-close {
+    width: 44px;
+    height: 44px;
+    font-size: 20px;
+  }
+
+  .wp-pq-drawer-topline h3 {
+    font-size: 1.1rem;
+    line-height: 1.25;
+  }
+
+  .wp-pq-drawer-actions {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .wp-pq-drawer-actions .button {
+    min-height: 44px !important;
+    padding: 10px 12px !important;
+    font-size: 13px !important;
+    flex: 1 1 auto;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .wp-pq-drawer-facts,
+  .wp-pq-responsibility-facts {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .wp-pq-priority-controls select,
+  .wp-pq-assignment-controls select {
+    min-height: 44px;
+    font-size: 14px;
+  }
+
+  .wp-pq-priority-controls .button,
+  .wp-pq-assignment-controls .button,
+  .wp-pq-drawer .wp-pq-subpanel .button {
+    min-height: 44px;
+    padding: 10px 16px;
+    font-size: 14px;
+  }
+
+  /* ── Compose ── */
+  .wp-pq-compose-panel textarea {
+    min-height: 80px;
+    font-size: 14px;
+  }
+
+  .wp-pq-compose-panel .button {
+    min-height: 44px;
+    padding: 10px 16px;
+    font-size: 14px;
+  }
+
+  /* ── Create / new request form ── */
+  .wp-pq-create-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .wp-pq-create-meeting-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .wp-pq-create-grid input,
+  .wp-pq-create-grid select,
+  .wp-pq-create-grid textarea {
+    min-height: 44px !important;
+    font-size: 14px !important;
+    padding: 10px !important;
+  }
+
+  .wp-pq-create-grid textarea {
+    min-height: 100px !important;
+  }
+
+  .wp-pq-create-actions .button {
+    min-height: 48px !important;
+    width: 100% !important;
+    font-size: 15px !important;
+    padding: 12px 20px !important;
+  }
+
+  /* ── Workspace tabs ── */
+  .wp-pq-workspace-tabs {
+    gap: 4px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .wp-pq-workspace-tabs .button {
+    min-height: 44px !important;
+    padding: 10px 14px !important;
+    font-size: 13px !important;
+  }
+
+  /* ── Modals ── */
+  .wp-pq-modal-card {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 48px);
+    padding: 20px 16px;
+    font-size: 15px;
+  }
+
+  .wp-pq-modal-card-compact {
+    width: calc(100vw - 24px);
+  }
+
+  .wp-pq-modal-actions {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .wp-pq-modal-actions .button {
+    min-height: 48px !important;
+    width: 100% !important;
+    font-size: 15px !important;
+    justify-content: center;
+  }
+
+  .wp-pq-modal-body {
+    padding: 18px 14px;
+    gap: 12px;
+  }
+
+  .wp-pq-modal-dialog {
+    width: calc(100vw - 24px);
+    max-width: none;
+  }
+
+  /* ── Onboarding overlay ── */
+  .wp-pq-onboarding-card {
+    padding: 28px 20px;
+    width: calc(100vw - 24px);
+    max-width: none;
+  }
+
+  .wp-pq-onboarding-card h2 {
+    font-size: 1.25rem;
+  }
+
+  .wp-pq-onboarding-card .button-primary {
+    min-height: 48px;
+    width: 100%;
+    font-size: 1rem;
+    padding: 12px 24px;
+  }
+
+  /* ── Settings / Preferences ── */
+  .wp-pq-settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .wp-pq-settings-panel {
+    padding: 18px 14px;
+  }
+
+  /* ── Google Calendar status ── */
+  .wp-pq-gcal-status {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  /* ── Calendar ── */
   #wp-pq-calendar {
-    padding: 4px;
+    padding: 2px;
+    font-size: 12px;
+  }
+
+  /* ── Files link form ── */
+  .wp-pq-files-link-form {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .wp-pq-files-link-form input[type="url"] {
+    min-height: 44px;
+    font-size: 14px;
+  }
+
+  /* ── Prevent body horizontal overflow ── */
+  .wp-pq-wrap,
+  .wp-pq-wrap.wp-pq-portal {
+    overflow-x: hidden;
+  }
+
+  .wp-pq-board-shell {
+    overflow: hidden;
+  }
+
+  /* ── Alert stack ── */
+  .wp-pq-alert-stack {
+    right: 8px;
+    left: 8px;
+    top: 8px;
+  }
+
+  /* ── Subpanel spacing ── */
+  .wp-pq-subpanel {
+    padding: 14px 10px;
+  }
+}
+
+/* ── Phone-optimised (375px target) ────────────────────────────────── */
+@media (max-width: 480px) {
+
+  /* ── Generic buttons: base touch targets (specific rules below override) ── */
+  .wp-pq-wrap .button,
+  .wp-pq-wrap .button.button-primary {
+    min-height: 36px;
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+
+  /* ── Shell & wrap ── */
+  .wp-pq-wrap.wp-pq-portal {
+    padding: 6px 8px 24px;
+  }
+
+  .wp-pq-wrap h2 {
+    font-size: 1.55rem;
+  }
+
+  .wp-pq-wrap > p {
+    font-size: 0.95rem;
+  }
+
+  .wp-pq-workspace {
+    padding: 10px 6px;
+  }
+
+  /* ── Mobile bar ── */
+  .wp-pq-mobile-bar {
+    padding: 8px 10px;
+    gap: 8px;
+  }
+
+  .wp-pq-mobile-bar .button {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 8px 14px;
+    font-size: 14px;
+  }
+
+  /* ── Sidebar overlay ── */
+  .wp-pq-binder.is-open {
+    inset: 48px 0 0;
+    border-radius: 0;
+  }
+
+  /* ── Board columns: snap-scroll one column at a time ── */
+  .wp-pq-board {
+    gap: 14px;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 10px;
+  }
+
+  .wp-pq-board-column {
+    flex: 0 0 calc(100vw - 40px);
+    scroll-snap-align: start;
+  }
+
+  .wp-pq-board-column.is-collapsed {
+    flex-basis: 34px;
+    scroll-snap-align: none;
+  }
+
+  .wp-pq-board-column-head h4 {
+    font-size: 0.82rem;
+  }
+
+  /* ── Task cards ── */
+  .wp-pq-task-card {
+    padding: 12px 10px;
+  }
+
+  .wp-pq-task-card h4 {
+    font-size: 0.92rem;
+  }
+
+  .wp-pq-task-card-top {
+    gap: 4px;
+  }
+
+  .wp-pq-task-card-identity {
+    font-size: 11px;
+  }
+
+  .wp-pq-task-card-actions .button,
+  .wp-pq-task-card-actions button {
+    min-width: 32px;
+    min-height: 32px;
+  }
+
+  /* ── Filter chips ── */
+  .wp-pq-board-filter-bar {
+    padding: 10px;
+    gap: 6px;
+  }
+
+  .wp-pq-filter-check {
+    font-size: 12px;
+    padding: 8px 12px;
+    min-height: 36px;
+  }
+
+  /* ── Focal hint (Next step) ── */
+  .wp-pq-focal-hint {
+    max-width: none;
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+
+  /* ── Section headings ── */
+  .wp-pq-section-heading {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .wp-pq-section-heading h3 {
+    font-size: 0.95rem;
+  }
+
+  .wp-pq-section-heading .button {
+    min-height: 40px;
+    padding: 8px 16px;
+    font-size: 13px;
+  }
+
+  .wp-pq-panel-note {
+    font-size: 13px;
+  }
+
+  /* ── Board toolbar / summary ── */
+  .wp-pq-board-toolbar {
+    gap: 8px;
+  }
+
+  .wp-pq-board-summary {
+    gap: 6px;
+  }
+
+  .wp-pq-board-head-actions {
+    gap: 6px;
+  }
+
+  .wp-pq-board-head-actions .button {
+    min-height: 44px;
+    padding: 10px 14px;
+    font-size: 13px;
+  }
+
+  /* ── Drawer (task detail) ── */
+  .wp-pq-drawer {
+    width: 100vw;
+    padding: 14px 12px 24px;
+    top: 0;
+  }
+
+  .wp-pq-drawer-header {
+    margin-bottom: 10px;
+  }
+
+  .wp-pq-drawer-close {
+    width: 44px;
+    height: 44px;
+    font-size: 20px;
+  }
+
+  .wp-pq-drawer-kicker {
+    font-size: 11px;
+  }
+
+  .wp-pq-drawer-topline h3 {
+    font-size: 1.1rem;
+    line-height: 1.25;
+  }
+
+  .wp-pq-drawer-context {
+    font-size: 13px;
+  }
+
+  .wp-pq-drawer-description {
+    font-size: 14px;
+  }
+
+  .wp-pq-drawer-actions {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .wp-pq-drawer-actions .button {
+    min-height: 44px !important;
+    padding: 10px 12px !important;
+    font-size: 13px !important;
+    flex: 1 1 auto;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .wp-pq-drawer-facts,
+  .wp-pq-responsibility-facts {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .wp-pq-drawer-facts dt,
+  .wp-pq-responsibility-facts dt {
+    font-size: 11px;
+  }
+
+  .wp-pq-drawer-facts dd,
+  .wp-pq-responsibility-facts dd {
+    font-size: 14px;
+  }
+
+  .wp-pq-priority-controls,
+  .wp-pq-assignment-controls {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .wp-pq-priority-controls select,
+  .wp-pq-assignment-controls select {
+    min-height: 44px;
+    font-size: 14px;
+  }
+
+  /* ── Conversation / compose ── */
+  .wp-pq-compose-panel textarea {
+    min-height: 80px;
+    font-size: 14px;
+  }
+
+  .wp-pq-compose-panel .button {
+    min-height: 44px;
+    padding: 10px 16px;
+    font-size: 14px;
+  }
+
+  /* ── Create / new request form ── */
+  .wp-pq-create-grid {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .wp-pq-create-meeting-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .wp-pq-create-grid label {
+    font-size: 13px;
+  }
+
+  .wp-pq-create-grid input,
+  .wp-pq-create-grid select,
+  .wp-pq-create-grid textarea {
+    min-height: 44px !important;
+    font-size: 14px !important;
+    padding: 10px !important;
+  }
+
+  .wp-pq-create-grid textarea {
+    min-height: 100px !important;
+  }
+
+  .wp-pq-create-actions {
+    padding-top: 8px;
+  }
+
+  .wp-pq-create-actions .button {
+    min-height: 48px !important;
+    width: 100% !important;
+    font-size: 15px !important;
+    padding: 12px 20px !important;
+  }
+
+  /* ── Workspace tabs ── */
+  .wp-pq-workspace-tabs {
+    gap: 4px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 2px;
+  }
+
+  .wp-pq-workspace-tabs .button {
+    min-height: 44px !important;
+    padding: 10px 14px !important;
+    font-size: 13px !important;
+    white-space: nowrap;
+  }
+
+  /* ── View toggle ── */
+  .wp-pq-view-toggle .button {
+    min-height: 40px;
+    min-width: 40px;
+  }
+
+  /* ── Modals ── */
+  .wp-pq-modal-card {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 48px);
+    padding: 20px 16px;
+    border-radius: var(--pq-radius);
+    font-size: 15px;
+  }
+
+  .wp-pq-modal-card-compact {
+    width: calc(100vw - 24px);
+  }
+
+  .wp-pq-modal-card h3 {
+    font-size: 1.1rem;
+  }
+
+  .wp-pq-modal-actions {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .wp-pq-modal-actions .button {
+    min-height: 48px;
+    width: 100%;
+    font-size: 15px;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .wp-pq-modal-body {
+    padding: 18px 14px;
+    gap: 12px;
+  }
+
+  .wp-pq-modal-dialog {
+    width: calc(100vw - 24px);
+    max-width: none;
+  }
+
+  .wp-pq-modal-dialog .wp-pq-modal-body {
+    padding: 18px 14px;
+  }
+
+  /* ── Onboarding overlay ── */
+  .wp-pq-onboarding-card {
+    padding: 28px 20px;
+    width: calc(100vw - 24px);
+    max-width: none;
+  }
+
+  .wp-pq-onboarding-card h2 {
+    font-size: 1.25rem;
+  }
+
+  .wp-pq-onboarding-card p {
+    font-size: 0.9rem;
+  }
+
+  .wp-pq-onboarding-card .button-primary {
+    min-height: 48px;
+    width: 100%;
+    font-size: 1rem;
+    padding: 12px 24px;
+  }
+
+  /* ── Preferences / Settings panel ── */
+  .wp-pq-settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .wp-pq-settings-panel {
+    padding: 18px 14px;
+  }
+
+  .wp-pq-settings-panel h2 {
+    font-size: 1.3rem;
+  }
+
+  /* ── Google Calendar status ── */
+  .wp-pq-gcal-status {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .wp-pq-gcal-badge {
+    font-size: 0.85rem;
+    padding: 8px 14px;
+  }
+
+  /* ── Calendar ── */
+  #wp-pq-calendar {
+    padding: 2px;
+    font-size: 12px;
+  }
+
+  /* ── Panel (generic) ── */
+  .wp-pq-panel {
+    padding: 12px;
+    border-radius: 14px;
+  }
+
+  /* ── Alert stack ── */
+  .wp-pq-alert-stack {
+    right: 8px;
+    left: 8px;
+    top: 8px;
+  }
+
+  /* ── Files link form ── */
+  .wp-pq-files-link-form {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .wp-pq-files-link-form input[type="url"] {
+    min-height: 44px;
+    font-size: 14px;
+  }
+
+  /* ── Billing grid ── */
+  .wp-pq-billing-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* ── Prevent body horizontal overflow ── */
+  .wp-pq-wrap,
+  .wp-pq-wrap.wp-pq-portal {
+    overflow-x: hidden;
+  }
+
+  .wp-pq-board-shell {
+    overflow: hidden;
+  }
+
+  /* ── Manager browser (admin) ── */
+  .wp-pq-manager-browser-layout {
+    grid-template-columns: 1fr;
+  }
+
+  /* ── Subpanel spacing ── */
+  .wp-pq-subpanel {
+    padding: 14px 10px;
+  }
+
+  /* ── Span-2 override ── */
+  .wp-pq-span-2 {
+    grid-column: auto;
   }
 }
 

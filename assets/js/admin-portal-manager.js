@@ -71,6 +71,14 @@
       title: 'Documents',
       note: 'Upload, browse, and manage files across all tasks.',
     },
+    files: {
+      title: 'Files & Links',
+      note: 'Browse external file links attached to tasks, filterable by client and job.',
+    },
+    invites: {
+      title: 'Invites',
+      note: 'Send magic-link invitations and track who has joined.',
+    },
   };
 
   function esc(value) {
@@ -425,9 +433,9 @@
             </label>
             <label>
               <select name="client_role">
-                <option value="client_contributor">Client contributor</option>
-                <option value="client_admin">Client admin</option>
-                <option value="client_viewer">Client viewer</option>
+                <option value="client_contributor">Client Contributor</option>
+                <option value="client_admin">Client Admin</option>
+                <option value="client_viewer">Client Viewer</option>
               </select>
             </label>
             <button class="button" type="submit">Add Member</button>
@@ -579,6 +587,155 @@
         </table>
       </section>
     `).join('') || '<div class="wp-pq-empty-state">No completed work in this period.</div>';
+  }
+
+  async function renderFiles() {
+    renderManagerFrame('files');
+    managerContent.innerHTML = '<div class="wp-pq-empty-state">Loading files…</div>';
+    await ensureClients();
+    const params = new URLSearchParams(window.location.search);
+    const clientId = params.get('client_id') || '0';
+    const bucketId = params.get('bucket_id') || '0';
+    const queryParts = [];
+    if (Number(clientId)) queryParts.push(`client_id=${encodeURIComponent(clientId)}`);
+    if (Number(bucketId)) queryParts.push(`bucket_id=${encodeURIComponent(bucketId)}`);
+    const data = await api('files' + (queryParts.length ? '?' + queryParts.join('&') : ''));
+    const items = data.items || data.files || [];
+
+    managerToolbar.innerHTML = `
+      <form id="wp-pq-files-filter-form" class="wp-pq-period-form">
+        <label>Client
+          <select name="client_id">${clientOptions(clientId, true)}</select>
+        </label>
+        <label>Job
+          <select name="bucket_id" id="wp-pq-files-job-filter">${Number(clientId || 0) > 0 ? clientJobOptions(clientId, bucketId, true) : '<option value="0">All jobs</option>'}</select>
+        </label>
+      </form>
+    `;
+
+    if (!items.length) {
+      managerContent.innerHTML = '<div class="wp-pq-empty-state">No tasks with linked files match those filters.</div>';
+      return;
+    }
+
+    managerContent.innerHTML = `
+      <section class="wp-pq-panel wp-pq-manager-card">
+        <table class="wp-pq-admin-table wp-pq-manager-table">
+          <thead><tr><th>Task</th><th>Client</th><th>Job</th><th>Status</th><th>Link</th><th>Updated</th></tr></thead>
+          <tbody>
+            ${items.map((item) => {
+              const linkUrl = esc(item.files_link || '');
+              const linkLabel = linkUrl.length > 60 ? linkUrl.slice(0, 57) + '…' : linkUrl;
+              return `
+              <tr>
+                <td><strong>${esc(item.title || 'Untitled')}</strong></td>
+                <td>${esc(item.client_name || '—')}</td>
+                <td>${esc(item.bucket_name || '—')}</td>
+                <td>${esc(item.status || '')}</td>
+                <td><a href="${linkUrl}" target="_blank" rel="noopener noreferrer">${linkLabel}</a></td>
+                <td>${esc(String(item.updated_at || '').slice(0, 10))}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </section>
+    `;
+  }
+
+  async function renderInvites() {
+    renderManagerFrame('invites');
+    managerContent.innerHTML = '<div class="wp-pq-empty-state">Loading invites…</div>';
+    await ensureClients();
+    const data = await api('manager/invites');
+    const invites = data.invites || [];
+
+    managerToolbar.innerHTML = `
+      <div class="wp-pq-manager-toolbar-actions">
+        <button class="button button-primary" type="button" id="wp-pq-toggle-invite-form">Send Invite</button>
+      </div>
+      <div id="wp-pq-invite-form-wrap" class="wp-pq-panel wp-pq-manager-card" hidden>
+        <form id="wp-pq-invite-form">
+          <h3 style="margin:0 0 12px">New Invite</h3>
+          <div class="wp-pq-manager-form-grid">
+            <label>First Name <input type="text" name="first_name" required></label>
+            <label>Last Name <input type="text" name="last_name" required></label>
+            <label>Email <input type="email" name="email" required></label>
+            <label>Role
+              <select name="role">
+                <option value="pq_client">Client user</option>
+                <option value="pq_worker">Team member</option>
+              </select>
+            </label>
+            <label>Client
+              <select name="client_id"><option value="">Choose client</option>${clientOptions(0, false)}</select>
+            </label>
+            <label>Client role
+              <select name="client_role">
+                <option value="client_contributor">Client Contributor</option>
+                <option value="client_admin">Client Admin</option>
+                <option value="client_viewer">Client Viewer</option>
+              </select>
+            </label>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:8px">
+            <button class="button button-primary" type="submit">Send Invite</button>
+            <button class="button" type="button" id="wp-pq-cancel-invite">Cancel</button>
+          </div>
+        </form>
+      </div>
+    `;
+    const toggleBtn = document.getElementById('wp-pq-toggle-invite-form');
+    const formWrap = document.getElementById('wp-pq-invite-form-wrap');
+    const cancelBtn = document.getElementById('wp-pq-cancel-invite');
+    if (toggleBtn && formWrap) {
+      toggleBtn.addEventListener('click', () => { formWrap.hidden = !formWrap.hidden; });
+    }
+    if (cancelBtn && formWrap) {
+      cancelBtn.addEventListener('click', () => { formWrap.hidden = true; });
+    }
+
+    if (!invites.length) {
+      managerContent.innerHTML = '<div class="wp-pq-empty-state">No invites sent yet.</div>';
+      return;
+    }
+
+    managerContent.innerHTML = `
+      <section class="wp-pq-panel wp-pq-manager-card">
+        <table class="wp-pq-admin-table wp-pq-manager-table">
+          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Client</th><th>Status</th><th>Delivery</th><th>Sent</th><th></th></tr></thead>
+          <tbody>
+            ${invites.map((inv) => {
+              const statusClass = inv.status === 'accepted' ? 'wp-pq-status-done'
+                : inv.status === 'pending' ? 'wp-pq-status-pending'
+                : 'wp-pq-status-muted';
+              const deliveryIcon = inv.delivery_status === 'sent' ? '<span title="Email sent" style="color:#16a34a">&#10003;</span>'
+                : inv.delivery_status === 'failed' ? '<span title="Email failed" style="color:#dc2626">&#10007;</span>'
+                : '<span title="Unknown" style="color:#9ca3af">&mdash;</span>';
+              const roleLabel = inv.role === 'pq_worker' ? 'Team member' : 'Client ' + (inv.client_role || 'contributor').replace('client_', '').replace(/^\w/, c => c.toUpperCase());
+              const fullName = [inv.first_name || '', inv.last_name || ''].join(' ').trim();
+              var actions = '';
+              if (inv.status === 'pending' || inv.status === 'expired') {
+                actions += '<button class="button wp-pq-small-action" type="button" data-action="resend-invite" data-invite-id="' + inv.id + '">Resend</button> ';
+              }
+              if (inv.status === 'pending') {
+                actions += '<button class="button wp-pq-small-action" type="button" data-action="copy-invite-link" data-invite-token="' + esc(inv.token || '') + '">Copy Link</button> ';
+                actions += '<button class="button wp-pq-small-action" type="button" data-action="revoke-invite" data-invite-id="' + inv.id + '">Revoke</button>';
+              }
+              return '<tr>' +
+                '<td>' + esc(fullName || '—') + '</td>' +
+                '<td>' + esc(inv.email) + '</td>' +
+                '<td>' + esc(roleLabel) + '</td>' +
+                '<td>' + esc(inv.client_name || '—') + '</td>' +
+                '<td><span class="' + statusClass + '">' + esc(inv.status) + '</span></td>' +
+                '<td style="text-align:center">' + deliveryIcon + '</td>' +
+                '<td>' + esc(String(inv.created_at || '').slice(0, 10)) + '</td>' +
+                '<td class="wp-pq-invite-actions">' + actions + '</td>' +
+              '</tr>';
+            }).join('')}
+          </tbody>
+        </table>
+      </section>
+    `;
   }
 
   function monthlyStatementCsv(groups) {
@@ -1268,6 +1425,10 @@
         await renderInvoiceDrafts(Number(params.get('statement_id') || 0));
       } else if (state.section === 'ai-import') {
         await renderAiImport();
+      } else if (state.section === 'files') {
+        await renderFiles();
+      } else if (state.section === 'invites') {
+        await renderInvites();
       }
     } catch (error) {
       managerToolbar.innerHTML = '';
@@ -1340,6 +1501,7 @@
         if (dialog) dialog.showModal();
         return;
       }
+      // invite form is now inline toggle, no dialog needed
       if (action === 'open-link-client-modal') {
         const dialog = document.getElementById('wp-pq-link-client-dialog');
         if (dialog) dialog.showModal();
@@ -1385,6 +1547,14 @@
         toast('Existing user linked as client.', false);
         return;
       }
+      if (form.id === 'wp-pq-invite-form') {
+        const formData = Object.fromEntries(new FormData(form).entries());
+        await api('manager/invites', { method: 'POST', body: JSON.stringify(formData) });
+        toast('Invite sent.', false);
+        form.closest('dialog')?.close();
+        await renderInvites();
+        return;
+      }
       if (form.id === 'wp-pq-rollup-filter-form') {
         const data = Object.fromEntries(new FormData(form).entries());
         replaceSectionUrl('billing-rollup', data);
@@ -1395,6 +1565,12 @@
         const data = Object.fromEntries(new FormData(form).entries());
         replaceSectionUrl('monthly-statements', data);
         await renderMonthlyStatements();
+        return;
+      }
+      if (form.id === 'wp-pq-files-filter-form') {
+        const data = Object.fromEntries(new FormData(form).entries());
+        replaceSectionUrl('files', data);
+        await renderFiles();
         return;
       }
       // wp-pq-work-log-filter-form handled inline in renderWorkStatements
@@ -1463,6 +1639,20 @@
         await renderMonthlyStatements();
         return;
       }
+      if (form.id === 'wp-pq-files-filter-form') {
+        if (target.name === 'client_id') {
+          const jobFilter = form.querySelector('select[name="bucket_id"]');
+          if (jobFilter) {
+            jobFilter.innerHTML = Number(target.value || 0) > 0
+              ? clientJobOptions(target.value, 0, true)
+              : '<option value="0">All jobs</option>';
+          }
+        }
+        const data = Object.fromEntries(new FormData(form).entries());
+        replaceSectionUrl('files', data);
+        await renderFiles();
+        return;
+      }
       // wp-pq-work-log-filter-form handled inline in renderWorkStatements
       if (form.id === 'wp-pq-statement-period-form') {
         const data = Object.fromEntries(new FormData(form).entries());
@@ -1516,6 +1706,36 @@
         state.clients = null;
         await renderClients();
         toast('Job deleted.', false);
+        return;
+      }
+      if (action === 'revoke-invite') {
+        const inviteId = button.dataset.inviteId;
+        if (!inviteId || !confirm('Revoke this invite?')) return;
+        await api('manager/invites/' + inviteId, { method: 'DELETE' });
+        toast('Invite revoked.', false);
+        await renderInvites();
+        return;
+      }
+      if (action === 'resend-invite') {
+        const inviteId = button.dataset.inviteId;
+        if (!inviteId) return;
+        button.disabled = true;
+        button.textContent = 'Sending…';
+        var result = await api('manager/invites/' + inviteId + '/resend', { method: 'POST', headers });
+        toast(result.message || 'Invite resent.', false);
+        await renderInvites();
+        return;
+      }
+      if (action === 'copy-invite-link') {
+        var token = button.dataset.inviteToken;
+        if (!token) return;
+        var link = window.location.origin + '/portal/invite/' + token;
+        try {
+          await navigator.clipboard.writeText(link);
+          toast('Invite link copied to clipboard.', false);
+        } catch (e) {
+          window.prompt('Copy this invite link:', link);
+        }
         return;
       }
       if (action === 'assign-rollup-job') {

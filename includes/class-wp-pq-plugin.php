@@ -37,6 +37,8 @@ final class WP_PQ_Plugin
         WP_PQ_DB::migrate_drive_storage_model();
         WP_PQ_DB::migrate_files_link();
         WP_PQ_DB::migrate_per_user_google_tokens();
+        WP_PQ_DB::migrate_google_tokens_to_user();
+        WP_PQ_DB::migrate_invite_tracking_columns();
         WP_PQ_Housekeeping::init();
         WP_PQ_Admin::init();
         WP_PQ_API::init();
@@ -51,7 +53,7 @@ final class WP_PQ_Plugin
         add_filter('login_headertext', [self::class, 'login_header_text']);
         add_filter('login_title', [self::class, 'login_title']);
 
-        // Redirect non-admin users to the portal after login.
+        // Redirect non-admin users to /portal after login.
         add_filter('login_redirect', [self::class, 'login_redirect'], 10, 3);
     }
 
@@ -110,16 +112,18 @@ final class WP_PQ_Plugin
             }
             .login h1 a {
                 background-image: none !important;
-                font-size: 26px;
-                font-weight: 700;
-                color: #1e293b;
-                text-indent: 0;
-                width: auto;
-                height: auto;
+                font-size: 26px !important;
+                font-weight: 700 !important;
+                color: #1e293b !important;
+                text-indent: 0 !important;
+                overflow: visible !important;
+                width: auto !important;
+                height: auto !important;
                 letter-spacing: .3px;
-                text-decoration: none;
-                padding: 0;
-                margin-bottom: 20px;
+                text-decoration: none !important;
+                padding: 0 !important;
+                margin-bottom: 20px !important;
+                line-height: 1.3 !important;
             }
             .login h1 a:hover,
             .login h1 a:focus {
@@ -174,7 +178,7 @@ final class WP_PQ_Plugin
 
     public static function login_title(): string
     {
-        return 'Sign In — Switchboard';
+        return 'Sign In \u2014 Switchboard';
     }
 
     /**

@@ -12,6 +12,63 @@ class WP_PQ_API
     /** @var callable[] Closures to run after the HTTP response is sent. */
     private static array $deferred_jobs = [];
 
+    /** @var array<string, float> Timing spans for performance profiling. */
+    private static array $perf_spans = [];
+
+    /** @var float|null Start time for the current request. */
+    private static ?float $perf_request_start = null;
+
+    /**
+     * Start a named timing span.
+     */
+    private static function perf_start(string $label): void
+    {
+        if (self::$perf_request_start === null) {
+            self::$perf_request_start = microtime(true);
+        }
+        self::$perf_spans['_start:' . $label] = microtime(true);
+    }
+
+    /**
+     * End a named timing span and record elapsed ms.
+     */
+    private static function perf_end(string $label): void
+    {
+        $start_key = '_start:' . $label;
+        if (! isset(self::$perf_spans[$start_key])) {
+            return;
+        }
+        self::$perf_spans[$label] = round((microtime(true) - self::$perf_spans[$start_key]) * 1000, 2);
+        unset(self::$perf_spans[$start_key]);
+    }
+
+    /**
+     * Log all collected timing spans for a request.
+     */
+    private static function perf_log(string $handler, int $entity_id = 0): void
+    {
+        $total = self::$perf_request_start !== null
+            ? round((microtime(true) - self::$perf_request_start) * 1000, 2)
+            : 0;
+
+        $spans = array_filter(self::$perf_spans, static fn($k) => ! str_starts_with($k, '_start:'), ARRAY_FILTER_USE_KEY);
+
+        $parts = [
+            "PQ_PERF {$handler}",
+            $entity_id > 0 ? "id={$entity_id}" : '',
+            "total={$total}ms",
+        ];
+        foreach ($spans as $label => $ms) {
+            $parts[] = "{$label}={$ms}ms";
+        }
+
+        error_log(implode(' | ', array_filter($parts)));
+
+        // Reset for next request.
+        self::$perf_spans = [];
+        self::$perf_request_start = null;
+    }
+
     /**
      * Queue a job to run after the response is sent (via shutdown hook).
      * On PHP-FPM servers (Cloudways), fastcgi_finish_request() sends the
@@ -217,6 +274,12 @@ class WP_PQ_API
                 'callback' => [self::class, 'create_note'],
                 'permission_callback' => static fn() => is_user_logged_in(),
             ],
+        ]);
+
+        register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/conversation', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [self::class, 'get_conversation'],
+            'permission_callback' => static fn() => is_user_logged_in(),
         ]);
 
         register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/participants', [
@@ -573,6 +636,7 @@ class WP_PQ_API
 
     public static function move_task(WP_REST_Request $request): WP_REST_Response
     {
+        self::perf_start('move_task_total');
         global $wpdb;
         $tasks_table = $wpdb->prefix . 'pq_tasks';
         $history_table = $wpdb->prefix . 'pq_task_status_history';
@@ -644,13 +708,17 @@ class WP_PQ_API
             return new WP_REST_Response(['message' => 'That status move is not allowed.'], 422);
         }
 
+        self::perf_start('visible_query');
         $visible_rows = current_user_can(WP_PQ_Roles::CAP_VIEW_ALL)
             ? $wpdb->get_results("SELECT * FROM {$tasks_table} WHERE status NOT IN ('done','archived') ORDER BY queue_position ASC, id DESC", ARRAY_A)
             : $wpdb->get_results(
                 $wpdb->prepare("SELECT * FROM {$tasks_table} WHERE submitter_id = %d AND status NOT IN ('done','archived') ORDER BY queue_position ASC, id DESC", $user_id),
                 ARRAY_A
             );
+        self::perf_end('visible_query');
+        self::perf_start('sort');
         $visible_rows = self::sort_task_rows($visible_rows);
+        self::perf_end('sort');
 
         $ordered_ids = array_map(static fn($row) => (int) $row['id'], $visible_rows);
         if (! in_array($task_id, $ordered_ids, true) || ($target_task_id > 0 && ! in_array($target_task_id, $ordered_ids, true))) {
@@ -670,12 +738,15 @@ class WP_PQ_API
         }
         array_splice($ordered_ids, $insert_at, 0, [$task_id]);
 
+        self::perf_start('reorder_updates');
         foreach ($ordered_ids as $index => $ordered_id) {
             $wpdb->update($tasks_table, [
                 'queue_position' => $index + 1,
                 'updated_at' => current_time('mysql', true),
             ], ['id' => $ordered_id]);
         }
+        self::perf_end('reorder_updates');
+        self::$perf_spans['reorder_count'] = count($ordered_ids);
 
         $priority_changed = false;
         $schedule_changed = false;
@@ -683,9 +754,11 @@ class WP_PQ_API
         $meeting_requested = (bool) $request->get_param('needs_meeting');
         $change_note = trim((string) $request->get_param('note'));
         $message_body = trim((string) $request->get_param('message_body'));
-        $send_update_email = self::request_truthy($request->get_param('send_update_email'));
+        $raw_send_email = $request->get_param('send_update_email');
+        $send_update_email = $raw_send_email === null ? true : self::request_truthy($raw_send_email);
         $notes = ['board_move'];
 
+        self::perf_start('status_change');
         if ($resolved_target_status !== $current_status) {
             $reason_code = self::transition_reason_code($current_status, $resolved_target_status);
             $timestamp_updates = self::status_timestamp_updates($resolved_target_status);
@@ -774,14 +847,18 @@ class WP_PQ_API
             self::insert_history_note($history_table, $task_id, (string) $task['status'], $user_id, implode(';', $notes));
         }
 
+        self::perf_start('store_message');
         if ($message_body !== '') {
             self::store_task_message($task_id, $user_id, $message_body, $task);
         }
+        self::perf_end('store_message');
+        self::perf_end('status_change');
 
         if ($schedule_changed && $target_task_id > 0) {
             self::insert_history_note($history_table, $target_task_id, (string) $target_task['status'], $user_id, 'date_swap_with:' . $task_id);
         }
 
+        self::perf_start('emit_events');
         if ($priority_changed) {
             self::emit_event($task_id, 'task_reprioritized');
         }
@@ -792,6 +869,7 @@ class WP_PQ_API
                 self::emit_event($target_task_id, 'task_schedule_changed');
             }
         }
+        self::perf_end('emit_events');
 
         self::sync_task_calendar_event((array) self::get_task_row($task_id));
         if ($schedule_changed && $target_task_id > 0) {
@@ -802,11 +880,18 @@ class WP_PQ_API
             self::send_client_status_update($task_id, $resolved_target_status);
         }
 
-        return new WP_REST_Response([
+        self::perf_start('enrich_response');
+        $response = new WP_REST_Response([
             'ok' => true,
             'task' => self::get_enriched_task($task_id),
             'target_task' => $target_task_id > 0 ? self::get_enriched_task($target_task_id) : null,
         ], 200);
+        self::perf_end('enrich_response');
+
+        self::perf_end('move_task_total');
+        self::perf_log('move_task', $task_id);
+
+        return $response;
     }
 
     public static function update_schedule(WP_REST_Request $request): WP_REST_Response
@@ -912,7 +997,9 @@ class WP_PQ_API
         );
 
         $message_body = trim((string) $request->get_param('message_body'));
-        $send_update_email = self::request_truthy($request->get_param('send_update_email'));
+        $send_update_email = $request->get_param('send_update_email');
+        // Default to true — status changes should notify clients unless explicitly suppressed.
+        $send_update_email = $send_update_email === null ? true : self::request_truthy($send_update_email);
         if ($message_body !== '') {
             self::store_task_message($task_id, $user_id, $message_body, $task);
         }
@@ -1329,6 +1416,37 @@ class WP_PQ_API
             'note' => $note ? self::attach_author_names([$note])[0] : null,
             'task' => self::get_enriched_task($task_id),
         ], 201);
+    }
+
+    /**
+     * Unified conversation stream: messages + notes merged chronologically.
+     */
+    public static function get_conversation(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $task_id = (int) $request->get_param('id');
+        $task = self::get_task_row($task_id);
+
+        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
+            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        }
+
+        $messages_table = $wpdb->prefix . 'pq_task_messages';
+        $comments_table = $wpdb->prefix . 'pq_task_comments';
+
+        // UNION ALL both tables with a type discriminator, sorted chronologically.
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT id, task_id, author_id, body, created_at, 'message' AS type FROM {$messages_table} WHERE task_id = %d
+             UNION ALL
+             SELECT id, task_id, author_id, body, created_at, 'note' AS type FROM {$comments_table} WHERE task_id = %d
+             ORDER BY created_at ASC, id ASC",
+            $task_id,
+            $task_id
+        ), ARRAY_A);
+
+        $rows = self::attach_author_names($rows);
+
+        return new WP_REST_Response(['items' => $rows], 200);
     }
 
     public static function get_task_participants(WP_REST_Request $request): WP_REST_Response
@@ -2381,22 +2499,35 @@ class WP_PQ_API
      */
     public static function google_oauth_relay_receive(WP_REST_Request $request): WP_REST_Response
     {
+        $debug = defined('WP_DEBUG') && WP_DEBUG;
+
+        if ($debug) {
+            error_log('PQ Relay-Receive: endpoint hit');
+        }
+
         // ── Verify HMAC signature ──────────────────────────────────────────
         $relay_key = trim((string) get_option('wp_pq_relay_encryption_key', ''));
         if ($relay_key === '') {
+            if ($debug) { error_log('PQ Relay-Receive: FAILED — relay encryption key is empty'); }
             return new WP_REST_Response(['error' => 'Relay encryption key is not configured.'], 500);
         }
 
         $raw_body  = (string) $request->get_body();
         $signature = (string) $request->get_header('X-Relay-Signature');
 
+        if ($debug) {
+            error_log('PQ Relay-Receive: signature present=' . ($signature !== '' ? 'yes' : 'no') . ' body_length=' . strlen($raw_body));
+        }
+
         if ($signature === '' || ! hash_equals(hash_hmac('sha256', $raw_body, hex2bin($relay_key)), $signature)) {
+            if ($debug) { error_log('PQ Relay-Receive: FAILED — signature mismatch'); }
             return new WP_REST_Response(['error' => 'Invalid signature.'], 403);
         }
 
         // ── Parse body ─────────────────────────────────────────────────────
         $body = json_decode($raw_body, true);
         if (! is_array($body)) {
+            if ($debug) { error_log('PQ Relay-Receive: FAILED — invalid JSON body'); }
             return new WP_REST_Response(['error' => 'Invalid JSON body.'], 400);
         }
 
@@ -2408,17 +2539,37 @@ class WP_PQ_API
         $connected_email         = sanitize_email((string) ($body['connected_email'] ?? ''));
         $granted_scope           = sanitize_text_field((string) ($body['granted_scope'] ?? ''));
 
+        // ── Recover user_id from nonce if relay didn't forward it ──────────
+        // Nonce format: "user_id:random_string"
+        if ($user_id <= 0 && $nonce !== '' && str_contains($nonce, ':')) {
+            $nonce_user_id = (int) explode(':', $nonce, 2)[0];
+            if ($nonce_user_id > 0) {
+                $user_id = $nonce_user_id;
+                if ($debug) { error_log('PQ Relay-Receive: recovered user_id=' . $user_id . ' from nonce'); }
+            }
+        }
+
+        if ($debug) {
+            error_log('PQ Relay-Receive: user_id=' . $user_id . ' email=' . $connected_email . ' has_nonce=' . ($nonce !== '' ? 'yes' : 'no') . ' has_access=' . ($access_token !== '' ? 'yes' : 'no') . ' has_refresh=' . ($encrypted_refresh_token !== '' ? 'yes' : 'no'));
+        }
+
         if ($nonce === '' || $access_token === '' || $encrypted_refresh_token === '') {
+            if ($debug) { error_log('PQ Relay-Receive: FAILED — missing required fields (nonce=' . ($nonce !== '' ? 'yes' : 'no') . ' access=' . ($access_token !== '' ? 'yes' : 'no') . ' refresh=' . ($encrypted_refresh_token !== '' ? 'yes' : 'no') . ')'); }
             return new WP_REST_Response(['error' => 'Missing required fields.'], 400);
         }
 
         if ($user_id <= 0 || ! get_userdata($user_id)) {
+            if ($debug) { error_log('PQ Relay-Receive: FAILED — invalid user_id ' . $user_id); }
             return new WP_REST_Response(['error' => 'Invalid user_id.'], 400);
         }
 
         // ── Verify nonce (per-user) ────────────────────────────────────────
         $stored_nonce = (string) get_user_meta($user_id, 'wp_pq_relay_oauth_nonce', true);
+        if ($debug) {
+            error_log('PQ Relay-Receive: stored_nonce=' . ($stored_nonce !== '' ? 'present(' . strlen($stored_nonce) . 'chars)' : 'EMPTY') . ' received_nonce_length=' . strlen($nonce));
+        }
         if ($stored_nonce === '' || ! hash_equals($stored_nonce, $nonce)) {
+            if ($debug) { error_log('PQ Relay-Receive: FAILED — nonce mismatch (stored_empty=' . ($stored_nonce === '' ? 'yes' : 'no') . ')'); }
             return new WP_REST_Response(['error' => 'Nonce mismatch.'], 403);
         }
 
@@ -2438,8 +2589,8 @@ class WP_PQ_API
 
         update_user_meta($user_id, 'wp_pq_google_tokens', $tokens);
 
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('PQ Relay: tokens stored for user ' . $user_id . ' (' . $connected_email . ')');
+        if ($debug) {
+            error_log('PQ Relay-Receive: SUCCESS — tokens stored for user ' . $user_id . ' (' . $connected_email . ')');
         }
 
         return new WP_REST_Response(['ok' => true], 200);
@@ -2461,14 +2612,23 @@ class WP_PQ_API
         $user_id = get_current_user_id();
 
         // Generate a per-user one-time nonce so relay-receive can verify.
-        $nonce = wp_generate_password(32, false, false);
+        // Prefix with user_id so relay-receive can recover the user even if
+        // the relay service doesn't forward user_id in its POST body.
+        $random = wp_generate_password(32, false, false);
+        $nonce  = $user_id . ':' . $random;
         update_user_meta($user_id, 'wp_pq_relay_oauth_nonce', $nonce);
+
+        $scopes = trim((string) get_option('wp_pq_google_scopes', ''));
+        if ($scopes === '') {
+            $scopes = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/drive';
+        }
 
         $params = http_build_query([
             'site_url'   => home_url(),
             'nonce'      => $nonce,
-            'return_url' => home_url('/switchboard/?section=preferences'),
+            'return_url' => home_url('/portal?section=preferences'),
             'user_id'    => $user_id,
+            'scopes'     => $scopes,
         ], '', '&', PHP_QUERY_RFC3986);
 
         $url = rtrim($relay_url, '/') . '/initiate.php?' . $params;
@@ -2648,7 +2808,7 @@ class WP_PQ_API
 
             $scope_label = $is_internal
                 ? 'Internal'
-                : ucfirst(str_replace('_', ' ', $client_role)) . ($job_member ? ' · job member' : '');
+                : ucwords(str_replace('_', ' ', $client_role)) . ($job_member ? ' · job member' : '');
             $items[] = [
                 'id' => (int) $user->ID,
                 'name' => (string) $user->display_name,
@@ -3154,7 +3314,7 @@ class WP_PQ_API
                 $deferred_emails[] = [
                     'to' => $user->user_email,
                     'subject' => $message['title'],
-                    'body' => $message['body'] . "\n\nTask ID: {$task_id}",
+                    'body' => $message['body'] . "\n\nView task: " . self::task_portal_url($task_id),
                 ];
             }
         }
@@ -3165,7 +3325,7 @@ class WP_PQ_API
             self::defer(static function () use ($deferred_emails, $sender_id): void {
                 foreach ($deferred_emails as $mail) {
                     try {
-                        self::send_gmail($mail['to'], $mail['subject'], $mail['body'], $sender_id);
+                        self::send_gmail($sender_id, $mail['to'], $mail['subject'], $mail['body']);
                     } catch (\Throwable $e) {
                         // Mail failure must not block operations
                     }
@@ -3205,7 +3365,17 @@ class WP_PQ_API
         ]);
 
         if (is_email($recipient->user_email) && WP_PQ_Housekeeping::is_event_enabled($action_owner_id, 'task_assigned')) {
-            self::send_gmail($recipient->user_email, $message['title'], $message['body'] . "\n\nTask ID: {$task_id}", get_current_user_id());
+            $email = $recipient->user_email;
+            $subject = $message['title'];
+            $email_body = $message['body'] . "\n\nView task: " . self::task_portal_url($task_id);
+            $sender_id = get_current_user_id();
+            self::defer(static function () use ($email, $subject, $email_body, $sender_id): void {
+                try {
+                    self::send_gmail($sender_id, $email, $subject, $email_body);
+                } catch (\Throwable $e) {
+                    // Mail failure must not block operations.
+                }
+            });
         }
     }
 
@@ -3224,6 +3394,8 @@ class WP_PQ_API
 
         $author = self::get_cached_user($author_id);
         $author_name = $author ? $author->display_name : 'A collaborator';
+
+        $deferred_emails = [];
 
         foreach ($mentions as $handle) {
             $participant = $by_handle[strtolower($handle)] ?? null;
@@ -3253,14 +3425,27 @@ class WP_PQ_API
             ]);
 
             if (is_email($user->user_email) && WP_PQ_Housekeeping::is_event_enabled($mentioned_user_id, 'task_mentioned')) {
-                self::send_gmail(
-                    $user->user_email,
-                    'You were mentioned on a task',
-                    $author_name . ' mentioned @' . $participant['handle'] . ' on "' . (string) ($task['title'] ?? 'Task') . "\".\n\n"
-                    . 'Message: ' . wp_strip_all_tags($body) . "\n\nTask ID: {$task_id}",
-                    $author_id
-                );
+                $deferred_emails[] = [
+                    'to' => $user->user_email,
+                    'subject' => 'You were mentioned on a task',
+                    'body' => $author_name . ' mentioned @' . $participant['handle'] . ' on "' . (string) ($task['title'] ?? 'Task') . "\".\n\n"
+                        . 'Message: ' . wp_strip_all_tags($body) . "\n\nView task: " . self::task_portal_url($task_id),
+                ];
             }
+        }
+
+        // Defer email delivery to after the response is sent (was synchronous — 15s timeout per email).
+        if (! empty($deferred_emails)) {
+            $sender_id = $author_id;
+            self::defer(static function () use ($deferred_emails, $sender_id): void {
+                foreach ($deferred_emails as $mail) {
+                    try {
+                        self::send_gmail($sender_id, $mail['to'], $mail['subject'], $mail['body']);
+                    } catch (\Throwable $e) {
+                        // Mail failure must not block operations.
+                    }
+                }
+            });
         }
     }
 
@@ -3396,38 +3581,48 @@ class WP_PQ_API
      */
     private static function send_client_status_update(int $task_id, string $new_status): void
     {
+        $debug = defined('WP_DEBUG') && WP_DEBUG;
         $sender_id = get_current_user_id();
-        self::defer(static function () use ($task_id, $new_status, $sender_id): void {
+        if ($debug) { error_log('PQ Status Email: queuing deferred email for task ' . $task_id . ' status=' . $new_status . ' sender=' . $sender_id); }
+
+        self::defer(static function () use ($task_id, $new_status, $sender_id, $debug): void {
             $task = self::get_enriched_task($task_id);
             if (! $task) {
+                if ($debug) { error_log('PQ Status Email: task ' . $task_id . ' not found, aborting'); }
                 return;
             }
 
             $recipient_ids = self::client_notification_recipient_ids($task);
+            if ($debug) { error_log('PQ Status Email: task ' . $task_id . ' recipients=' . json_encode($recipient_ids)); }
             if (empty($recipient_ids)) {
+                if ($debug) { error_log('PQ Status Email: no recipients for task ' . $task_id); }
                 return;
             }
 
             foreach ($recipient_ids as $recipient_id) {
                 if (! WP_PQ_Housekeeping::is_event_enabled($recipient_id, 'client_status_updates')) {
+                    if ($debug) { error_log('PQ Status Email: user ' . $recipient_id . ' has client_status_updates disabled, skipping'); }
                     continue;
                 }
 
                 $user = self::get_cached_user($recipient_id);
                 if (! $user || ! is_email($user->user_email)) {
+                    if ($debug) { error_log('PQ Status Email: user ' . $recipient_id . ' invalid or no email, skipping'); }
                     continue;
                 }
 
                 $body = self::build_client_status_update_body($task, $recipient_id, $new_status);
                 if ($body === '') {
+                    if ($debug) { error_log('PQ Status Email: empty body for user ' . $recipient_id . ', skipping'); }
                     continue;
                 }
 
+                if ($debug) { error_log('PQ Status Email: sending to ' . $user->user_email . ' from user ' . $sender_id); }
                 self::send_gmail(
+                    $sender_id,
                     $user->user_email,
                     'Switchboard update: ' . self::task_title($task),
-                    $body,
-                    $sender_id
+                    $body
                 );
             }
         });
@@ -3514,6 +3709,14 @@ class WP_PQ_API
         }
 
         return $rows;
+    }
+
+    /**
+     * Build a portal deep-link URL that opens the task drawer.
+     */
+    private static function task_portal_url(int $task_id): string
+    {
+        return home_url('/portal?task=' . $task_id);
     }
 
     private static function build_event_message(array $task, string $event_key, int $recipient_id): array
@@ -5186,7 +5389,7 @@ class WP_PQ_API
     {
         $scopes = trim((string) get_option('wp_pq_google_scopes', ''));
         if ($scopes === '') {
-            $scopes = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/drive';
+            $scopes = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/drive';
         }
 
         return $scopes;
@@ -5202,9 +5405,7 @@ class WP_PQ_API
         if (! empty($tokens['access_token']) || ! empty($tokens['encrypted_refresh_token']) || ! empty($tokens['refresh_token'])) {
             return $tokens;
         }
-
-        // Fallback: legacy site-wide token (migration period).
-        return (array) get_option('wp_pq_google_tokens', []);
+        return [];
     }
 
     /**
@@ -5580,60 +5781,67 @@ class WP_PQ_API
     }
 
     /**
-     * Send an email via Gmail API using a specific user's token.
-     * Falls back to wp_mail() if the user has no Google token.
-     */
-    /**
-     * Send an email via Gmail API using a specific user's token.
-     * Falls back to wp_mail() if the user has no Google token.
+     * Send an email via Gmail API using the sender's Google token.
+     * Falls back to wp_mail() if the user has no Google connection.
      *
-     * @param string $content_type  'text/plain' or 'text/html'
+     * @param int    $sender_user_id  WordPress user whose Gmail token to use.
+     * @param string $to              Recipient email address.
+     * @param string $subject         Email subject.
+     * @param string $body            Email body (plain text or HTML).
+     * @param bool   $is_html         Whether $body is HTML. Default false.
+     * @return bool  True on success, false on failure.
      */
-    public static function send_gmail(string $to, string $subject, string $body, int $sender_user_id = 0, string $content_type = 'text/plain'): bool
+    public static function send_gmail(int $sender_user_id, string $to, string $subject, string $body, bool $is_html = false): bool
     {
-        if ($sender_user_id <= 0) {
-            $sender_user_id = get_current_user_id();
+        $access_token = self::get_google_access_token($sender_user_id);
+        if ($access_token === '') {
+            // Fallback to wp_mail() if user hasn't connected Google.
+            $headers = $is_html ? ['Content-Type: text/html; charset=UTF-8'] : [];
+            return wp_mail($to, $subject, $body, $headers);
         }
 
-        $token = self::get_google_access_token($sender_user_id);
-        if ($token === '') {
-            // Fallback to wp_mail if no Gmail token available.
-            $headers = $content_type === 'text/html' ? ['Content-Type: text/html; charset=UTF-8'] : [];
-            return (bool) wp_mail($to, $subject, $body, $headers);
+        $tokens = self::get_user_google_tokens($sender_user_id);
+        $from_email = (string) ($tokens['connected_email'] ?? '');
+        if ($from_email === '') {
+            return wp_mail($to, $subject, $body, $is_html ? ['Content-Type: text/html; charset=UTF-8'] : []);
         }
 
         // Build RFC 2822 message.
-        $sender = get_user_by('id', $sender_user_id);
-        $from_email = $sender ? $sender->user_email : '';
-        $from_name = $sender ? $sender->display_name : '';
-
-        $mime = "From: " . ($from_name ? "{$from_name} <{$from_email}>" : $from_email) . "\r\n";
-        $mime .= "To: {$to}\r\n";
-        $mime .= "Subject: {$subject}\r\n";
-        $mime .= "Content-Type: {$content_type}; charset=UTF-8\r\n";
-        $mime .= "\r\n";
-        $mime .= $body;
+        $content_type = $is_html ? 'text/html' : 'text/plain';
+        $mime = "From: {$from_email}\r\n"
+              . "To: {$to}\r\n"
+              . "Subject: {$subject}\r\n"
+              . "MIME-Version: 1.0\r\n"
+              . "Content-Type: {$content_type}; charset=UTF-8\r\n"
+              . "\r\n"
+              . $body;
 
         $encoded = rtrim(strtr(base64_encode($mime), '+/', '-_'), '=');
 
-        $response = wp_remote_post('https://www.googleapis.com/gmail/v1/users/me/messages/send', [
+        $resp = wp_remote_post('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', [
+            'timeout' => 15,
             'headers' => [
-                'Authorization' => 'Bearer ' . $token,
-                'Content-Type' => 'application/json',
+                'Authorization' => 'Bearer ' . $access_token,
+                'Content-Type'  => 'application/json',
             ],
             'body' => wp_json_encode(['raw' => $encoded]),
-            'timeout' => 15,
         ]);
 
-        if (is_wp_error($response)) {
-            $headers = $content_type === 'text/html' ? ['Content-Type: text/html; charset=UTF-8'] : [];
-            return (bool) wp_mail($to, $subject, $body, $headers);
+        if (is_wp_error($resp)) {
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('PQ Gmail send failed: ' . $resp->get_error_message());
+            }
+            // Fallback to wp_mail on network failure.
+            return wp_mail($to, $subject, $body, $is_html ? ['Content-Type: text/html; charset=UTF-8'] : []);
         }
 
-        $code = (int) wp_remote_retrieve_response_code($response);
+        $code = (int) wp_remote_retrieve_response_code($resp);
         if ($code < 200 || $code >= 300) {
-            $headers = $content_type === 'text/html' ? ['Content-Type: text/html; charset=UTF-8'] : [];
-            return (bool) wp_mail($to, $subject, $body, $headers);
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('PQ Gmail send HTTP ' . $code . ': ' . wp_remote_retrieve_body($resp));
+            }
+            // Fallback to wp_mail on API error.
+            return wp_mail($to, $subject, $body, $is_html ? ['Content-Type: text/html; charset=UTF-8'] : []);
         }
 
         return true;
@@ -5746,7 +5954,7 @@ class WP_PQ_API
         $title = $ok ? 'Google Connected' : 'Google Connection Failed';
         $color = $ok ? '#166534' : '#991b1b';
         $bg = $ok ? '#ecfdf5' : '#fef2f2';
-        $portal_url = home_url('/switchboard/');
+        $portal_url = home_url('/portal');
 
         echo '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">';
         echo '<title>' . esc_html($title) . '</title>';

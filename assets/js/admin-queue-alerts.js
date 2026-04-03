@@ -403,20 +403,43 @@
   // Handle ?gcal_connected=1 redirect from OAuth relay
   (function () {
     var params = new URLSearchParams(window.location.search);
-    if (params.get('gcal_connected') === '1') {
-      // Clean the URL
-      params.delete('gcal_connected');
-      var clean = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
-      window.history.replaceState(null, '', clean);
-      // Show success and open preferences
-      setTimeout(function () {
-        bridge.alert('Google connected — Calendar, Meet, and Gmail are active.', 'success');
-        // Hide onboarding overlay if visible.
-        var overlay = document.getElementById('wp-pq-onboarding-overlay');
-        if (overlay) overlay.hidden = true;
-        if (typeof openPreferencesPanel === 'function') openPreferencesPanel().catch(console.error);
-      }, 300);
+    if (params.get('gcal_connected') !== '1') return;
+
+    // Clean the URL immediately.
+    params.delete('gcal_connected');
+    var clean = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+    window.history.replaceState(null, '', clean);
+
+    // The relay redirects the browser immediately, but its server-to-server
+    // POST to relay-receive may still be in flight. Poll the status endpoint
+    // for up to 8 seconds before declaring success or failure.
+    var attempts = 0;
+    var maxAttempts = 8;
+    function checkConnection() {
+      attempts++;
+      bridge.api('google/oauth/status', { method: 'GET' }).then(function (data) {
+        if (data && data.connected) {
+          bridge.alert('Google connected — Calendar, Meet, and Gmail are active.', 'success');
+          var overlay = document.getElementById('wp-pq-onboarding-overlay');
+          if (overlay) overlay.hidden = true;
+          if (typeof openPreferencesPanel === 'function') openPreferencesPanel().catch(console.error);
+          refreshGcalStatus();
+        } else if (attempts < maxAttempts) {
+          setTimeout(checkConnection, 1000);
+        } else {
+          bridge.alert('Google authorization completed, but the token handshake has not finished yet. Please refresh the page in a moment, or try connecting again.', true);
+          if (typeof openPreferencesPanel === 'function') openPreferencesPanel().catch(console.error);
+        }
+      }).catch(function () {
+        if (attempts < maxAttempts) {
+          setTimeout(checkConnection, 1000);
+        } else {
+          bridge.alert('Could not verify Google connection. Please refresh and try again.', true);
+        }
+      });
     }
+    // Give the relay-receive POST a head start before first check.
+    setTimeout(checkConnection, 1500);
   })();
 
   // Onboarding interstitial — show if Google not connected.
@@ -438,6 +461,13 @@
         } catch (err) {
           bridge.alert(err.message || 'Failed to start Google connection.', true);
         }
+      });
+    }
+    var skipLink = document.getElementById('wp-pq-onboarding-skip');
+    if (skipLink) {
+      skipLink.addEventListener('click', function (e) {
+        e.preventDefault();
+        overlay.hidden = true;
       });
     }
   })();

@@ -2,12 +2,12 @@
 
 ## Active UI/UX Issues
 
-- [ ] Status transition performance — 10-15 second delay between click and toast on some moves (profile server-side `sync_task_calendar_event` and `emit_event`)
+- [x] Status transition performance — fixed (v0.29.0): root cause was synchronous `send_gmail()` in `notify_mentions` (15s timeout per @mention email). Deferred all email sends to post-response via `fastcgi_finish_request()`. Also fixed `emit_assignment_event`. Added `PQ_PERF` instrumentation spans on `move_task` — measured p95 at ~33ms with status change.
 - [x] File uploads — replaced with external link field per task (v0.27.0); removed Uppy, Drive integration, Documents panel, file dropzone
-- [ ] Messages/Notes UI — user wants unified conversation view instead of separate cards
-- [ ] Tooltip clipping — sticky note and priority marker tooltips can get clipped by card `overflow: hidden` on cards near container edges
-- [ ] Date validation bug — `datetime-local` input sends browser-local format; `strtotime()` handles it but display may show wrong timezone
-- [ ] Contextual date-swap prompt — when a drag demotes a task, prompt "Would you like to swap due dates with [displaced task]?"
+- [x] Messages/Notes UI — (v0.29.0) unified conversation view: single chronological stream via `GET /tasks/{id}/conversation` (UNION ALL, ASC). Compose toggle for Message (notifies) vs Note (silent). Notes render with pin badge + left border. "Notes" tab removed, "Messages" renamed to "Conversation".
+- [x] Tooltip clipping — fixed: switched from CSS pseudo-element (absolute) to JS-positioned fixed tooltip that escapes overflow ancestors
+- [x] Date validation bug — fixed: `sanitize_datetime()` now uses `DateTimeImmutable` + `wp_timezone()` to correctly interpret browser-local datetime-local inputs
+- [x] Contextual date-swap prompt — (v0.29.0) move modal shows "Swap due dates" checkbox only on demotion (target status index < source) when either task has a deadline. Uses existing `swap_due_dates` API parameter. Hint text shows both task titles.
 - [x] Create form — file upload removed; tasks use external link field instead
 
 ## Deferred Code Simplification (class-wp-pq-api.php)
@@ -41,17 +41,32 @@ These were identified by review agents but deferred as higher-risk refactors:
 - [ ] **Define client role constants on `WP_PQ_Roles`** — `'client_admin'`, `'client_contributor'`, `'client_viewer'` used as raw strings
 - [ ] **Batch bucket name lookups in CSV export** — `statement_line_bucket_name` fires per-line query
 
+## Program Backlog (phases, sequencing, dependencies)
+
+Full implementation plan with exit criteria: `docs/release_tracking.md`
+
+| Phase | Target | Items | Depends on |
+|-------|--------|-------|------------|
+| **A** v0.29 | Hot path performance | Timed spans, profile emit_event + calendar sync, defer/async fix, regression guard | — |
+| **B** v0.30 | Unified conversation UI | Product rules, API contract (single sorted stream), portal JS, a11y | A (stable transitions) |
+| **C** v0.29 | Date-swap on demotion | Define demotion pairs, modal/prompt, atomic API, telemetry | A (same handler path) |
+| **D** v0.32 | Per-user Google OAuth | Relay, token storage, API endpoints, calendar, Gmail send, portal UI, migration | F (cookie/redirect alignment) |
+| **E** v0.33 | Onboarding / magic-link | Token model, email templates, redeem flow, manager invite UI | F (URL shape), D (Gmail option) |
+| **F** v0.31 | `/portal` route | Routing, custom login, session cookies, redirect rules | — |
+| **G** Later | Swimlanes | Lane key, board layout, Sortable constraints, persistence | A (board perf stable) |
+| **H** Ongoing | Code simplifications | Tied to touch points in A/B/D; time-boxed refactors | — |
+
 ## Integration / Infrastructure
 
 - [x] **Google OAuth** — OAuth relay deployed, consent screen working, Calendar + Drive scopes granted, token refresh working via relay
 - [x] **SMTP / Email** — configured and delivering
 - [x] **Google Meet scheduling** — OAuth connected, Calendar API functional
-- [ ] **Per-user Google OAuth** — every user connects their own Google account during onboarding. Calendar events, Meet invites, and emails use the acting user's token. Spec: `docs/PER_USER_OAUTH_SPEC.md`
-- [ ] **Onboarding / magic-link invite system** — manager invites user by email, magic link creates account, onboarding interstitial requires Google connection before workspace access
-- [ ] **Gmail send** — emails sent via Gmail API using the acting user's token instead of system SMTP. Falls back to `wp_mail()` if user hasn't connected Google.
-- [ ] **Front-end portal route** — user wants `/portal` route with custom login (not wp-admin). Discussed but not started. Will become the basis for multi-tenant migration.
+- [x] **Per-user Google OAuth** *(Phase D, v0.32.0)* — per-user token storage (wp_usermeta), relay carries user_id, per-user nonce, onboarding interstitial, migration from wp_options, legacy fallback removed
+- [x] **Onboarding / magic-link invite system** *(Phase E, v0.33.0)* — 64-char hex token, pq_invites table, invite email via send_gmail, /portal/invite/{token} auto-creates user + assigns role + binds to client + logs in, manager Invites section with send/revoke UI
+- [x] **Gmail send** *(Phase D, v0.32.0)* — `send_gmail()` via Gmail API using sender's token; falls back to `wp_mail()` if user hasn't connected Google. All 4 wp_mail call sites replaced.
+- [x] **Front-end portal route** *(Phase F, v0.30.0)* — `/portal` with custom login, session cookies, redirect rules, REST nonce alignment. Basis for multi-tenant migration.
 
-## Swimlanes (Future Feature)
+## Swimlanes *(Phase G — Future Feature)*
 
 Horizontal row groupings that cut across status columns. Design decisions locked in:
 
@@ -68,21 +83,15 @@ Data model: new `pq_lanes` table (`id`, `manager_user_id`, `client_id` nullable,
 
 App name: **Switchboard**. All user-facing references (login page, welcome emails, portal header, browser title) should use "Switchboard" instead of "Priority Queue" or "Priority Portal".
 
-## Multi-Tenant Migration (Future)
+## Multi-Tenant Migration *(Separate Program)*
 
-Blitzy tech spec saved at `docs/NEXT_JS_ROADMAP.md` (10,800 lines). Target stack:
+Blitzy tech spec saved at `docs/NEXT_JS_ROADMAP.md` (10,800 lines). Strategy: strangler fig — define read models and events, dual-write one bounded context first, tenant isolation + audit log from day one.
 
-- React + Next.js (App Router), TypeScript, Tailwind CSS
-- PostgreSQL (Supabase or self-hosted), NextAuth.js or Supabase Auth
-- Google Calendar/Meet API, Resend/SendGrid, OpenAI, S3-compatible storage
-- Vercel or similar Node hosting
+Target stack: React + Next.js (App Router), TypeScript, Tailwind, PostgreSQL (Supabase or self-hosted), NextAuth/Supabase Auth, Google APIs, Resend/SendGrid, S3, Vercel.
 
-Key migration concerns:
-- Auth system replacement (WordPress roles → custom RBAC)
-- Database migration (18 MySQL tables → PostgreSQL)
-- File storage (WordPress uploads → S3)
-- Email (wp_mail → Resend/SendGrid)
-- Cron jobs (WP-Cron → platform cron or Vercel Cron)
+## iOS / Android *(Separate Program)*
+
+After Phase F and stable public API surface. Mobile is a **consumer**, not a fork of business rules. RN vs native TBD based on calendar/Gmail depth and offline needs; share OpenAPI from PHP or Next backend.
 
 ## Completed (This Session)
 

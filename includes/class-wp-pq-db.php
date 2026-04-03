@@ -41,6 +41,7 @@ class WP_PQ_DB
         $work_logs = $wpdb->prefix . 'pq_work_logs';
         $work_log_items = $wpdb->prefix . 'pq_work_log_items';
         $ledger_entries = $wpdb->prefix . 'pq_work_ledger_entries';
+        $invites = $wpdb->prefix . 'pq_invites';
 
         dbDelta("CREATE TABLE {$clients} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -378,6 +379,31 @@ class WP_PQ_DB
             KEY invoice_status (invoice_status),
             KEY statement_month (statement_month),
             KEY invoice_draft_id (invoice_draft_id)
+        ) {$charset_collate};");
+
+        dbDelta("CREATE TABLE {$invites} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            token VARCHAR(64) NOT NULL,
+            first_name VARCHAR(100) NOT NULL DEFAULT '',
+            last_name VARCHAR(100) NOT NULL DEFAULT '',
+            email VARCHAR(190) NOT NULL,
+            role VARCHAR(40) NOT NULL DEFAULT 'pq_client',
+            client_id BIGINT UNSIGNED NULL,
+            client_role VARCHAR(40) NULL DEFAULT 'client_contributor',
+            invited_by BIGINT UNSIGNED NOT NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            delivery_status VARCHAR(20) NOT NULL DEFAULT 'unknown',
+            expires_at DATETIME NOT NULL,
+            accepted_at DATETIME NULL,
+            accepted_user_id BIGINT UNSIGNED NULL,
+            resent_count INT UNSIGNED NOT NULL DEFAULT 0,
+            last_resent_at DATETIME NULL,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY token (token),
+            KEY email (email),
+            KEY status_expires (status, expires_at),
+            KEY email_client_status (email, client_id, status)
         ) {$charset_collate};");
 
         update_option('wp_pq_db_version', WP_PQ_VERSION, true);
@@ -1141,6 +1167,64 @@ class WP_PQ_DB
         update_option('wp_pq_per_user_tokens_migration_applied', 1, true);
     }
 
+    /**
+     * Migrate legacy site-wide Google tokens to per-user storage.
+     * Finds the WordPress user matching the connected_email and moves
+     * the tokens to their wp_usermeta. Idempotent — skips if already run.
+     */
+    public static function migrate_google_tokens_to_user(): void
+    {
+        if (get_option('wp_pq_google_tokens_migrated')) {
+            return;
+        }
+
+        $site_tokens = get_option('wp_pq_google_tokens', []);
+        if (! is_array($site_tokens) || empty($site_tokens['connected_email'])) {
+            // Nothing to migrate.
+            update_option('wp_pq_google_tokens_migrated', 1, true);
+            return;
+        }
+
+        $user = get_user_by('email', $site_tokens['connected_email']);
+        if ($user) {
+            // Only migrate if user doesn't already have per-user tokens.
+            $existing = get_user_meta($user->ID, 'wp_pq_google_tokens', true);
+            if (empty($existing) || (! is_array($existing)) || empty($existing['access_token'])) {
+                update_user_meta($user->ID, 'wp_pq_google_tokens', $site_tokens);
+                if (defined('WP_DEBUG') && WP_DEBUG) {
+                    error_log('PQ: Migrated site-wide Google tokens to user ' . $user->ID . ' (' . $site_tokens['connected_email'] . ')');
+                }
+            }
+        }
+
+        update_option('wp_pq_google_tokens_migrated', 1, true);
+    }
+
+    public static function migrate_invite_tracking_columns(): void
+    {
+        global $wpdb;
+        if (get_option('wp_pq_invite_tracking_migration_applied')) {
+            return;
+        }
+
+        $table = $wpdb->prefix . 'pq_invites';
+        $cols = $wpdb->get_col("SHOW COLUMNS FROM {$table}");
+        if (! in_array('delivery_status', $cols, true)) {
+            $wpdb->query("ALTER TABLE {$table} ADD COLUMN delivery_status VARCHAR(20) NOT NULL DEFAULT 'unknown' AFTER status");
+        }
+        if (! in_array('accepted_user_id', $cols, true)) {
+            $wpdb->query("ALTER TABLE {$table} ADD COLUMN accepted_user_id BIGINT UNSIGNED NULL AFTER accepted_at");
+        }
+        if (! in_array('resent_count', $cols, true)) {
+            $wpdb->query("ALTER TABLE {$table} ADD COLUMN resent_count INT UNSIGNED NOT NULL DEFAULT 0 AFTER accepted_user_id");
+        }
+        if (! in_array('last_resent_at', $cols, true)) {
+            $wpdb->query("ALTER TABLE {$table} ADD COLUMN last_resent_at DATETIME NULL AFTER resent_count");
+        }
+
+        update_option('wp_pq_invite_tracking_migration_applied', 1, true);
+    }
+
     public static function get_or_create_default_billing_bucket_id(int $client_id): int
     {
         global $wpdb;
@@ -1207,6 +1291,36 @@ class WP_PQ_DB
         }
 
         return $base . ' - Main';
+    }
+
+    public static function create_client(string $name, string $email = ''): int
+    {
+        global $wpdb;
+        $clients_table = $wpdb->prefix . 'pq_clients';
+        $name = trim($name);
+        if ($name === '') {
+            return 0;
+        }
+        $base_slug = sanitize_title($name);
+        if ($base_slug === '') {
+            $base_slug = 'client';
+        }
+        $slug = $base_slug;
+        $suffix = 2;
+        while ((int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$clients_table} WHERE slug = %s", $slug)) > 0) {
+            $slug = $base_slug . '-' . $suffix;
+            $suffix++;
+        }
+        $now = current_time('mysql', true);
+        $wpdb->insert($clients_table, [
+            'name' => $name,
+            'slug' => $slug,
+            'primary_contact_user_id' => 0,
+            'created_by' => get_current_user_id(),
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        return (int) $wpdb->insert_id;
     }
 
     public static function get_or_create_client_id_for_user(int $primary_contact_user_id, string $fallback_name = ''): int

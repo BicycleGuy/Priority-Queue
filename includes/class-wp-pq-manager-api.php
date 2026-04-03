@@ -217,6 +217,13 @@ class WP_PQ_Manager_API
             'permission_callback' => [self::class, 'can_manage'],
         ]);
 
+        // Files library — all logged-in users (permission-segregated in handler).
+        register_rest_route('pq/v1', '/files', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [self::class, 'get_files_library'],
+            'permission_callback' => static fn() => is_user_logged_in(),
+        ]);
+
         register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/reopen-completed', [
             'methods' => WP_REST_Server::CREATABLE,
             'callback' => [self::class, 'reopen_completed_task'],
@@ -228,11 +235,94 @@ class WP_PQ_Manager_API
             'callback' => [self::class, 'create_followup_task'],
             'permission_callback' => [self::class, 'can_manage'],
         ]);
+
+        register_rest_route('pq/v1', '/manager/invites', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [self::class, 'list_invites'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'create_invite'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/invites/(?P<id>\d+)', [
+            'methods' => WP_REST_Server::DELETABLE,
+            'callback' => [self::class, 'revoke_invite'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/invites/(?P<id>\d+)/resend', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'resend_invite'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
+        // ── Client Admin self-service invites ─────────────────────────
+        register_rest_route('pq/v1', '/client/invites', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [self::class, 'client_list_invites'],
+                'permission_callback' => [self::class, 'can_client_admin'],
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'client_create_invite'],
+                'permission_callback' => [self::class, 'can_client_admin'],
+            ],
+        ]);
+
+        register_rest_route('pq/v1', '/client/invites/(?P<id>\d+)/resend', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'client_resend_invite'],
+            'permission_callback' => [self::class, 'can_client_admin'],
+        ]);
+
+        register_rest_route('pq/v1', '/client/invites/(?P<id>\d+)', [
+            'methods' => WP_REST_Server::DELETABLE,
+            'callback' => [self::class, 'client_revoke_invite'],
+            'permission_callback' => [self::class, 'can_client_admin'],
+        ]);
     }
 
     public static function can_manage(): bool
     {
         return current_user_can(WP_PQ_Roles::CAP_APPROVE);
+    }
+
+    /**
+     * Permission callback: current user must be client_admin on at least one client.
+     */
+    public static function can_client_admin(): bool
+    {
+        if (! is_user_logged_in()) {
+            return false;
+        }
+        $memberships = WP_PQ_DB::get_user_client_memberships(get_current_user_id());
+        foreach ($memberships as $m) {
+            if ($m['role'] === 'client_admin') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Return the client IDs where the current user is client_admin.
+     */
+    private static function get_current_user_admin_client_ids(): array
+    {
+        $memberships = WP_PQ_DB::get_user_client_memberships(get_current_user_id());
+        $ids = [];
+        foreach ($memberships as $m) {
+            if ($m['role'] === 'client_admin') {
+                $ids[] = (int) $m['client_id'];
+            }
+        }
+        return $ids;
     }
 
     public static function get_clients(WP_REST_Request $request): WP_REST_Response
@@ -871,7 +961,7 @@ class WP_PQ_Manager_API
 
         $subject = sprintf('Invoice Draft %s', (string) ($statement['statement_code'] ?? $statement_id));
         $message = self::statement_email_html($statement);
-        $sent = WP_PQ_API::send_gmail($client_email, $subject, $message, get_current_user_id(), 'text/html');
+        $sent = WP_PQ_API::send_gmail(get_current_user_id(), $client_email, $subject, $message, true);
         if (! $sent) {
             return new WP_REST_Response(['message' => 'Invoice draft email could not be sent.'], 500);
         }
@@ -1424,5 +1514,463 @@ class WP_PQ_Manager_API
         ));
 
         return true;
+    }
+
+    // ── Files Library ───────────────────────────────────────────
+
+    /**
+     * Return all tasks that have a files_link, permission-segregated.
+     * Managers see everything; clients see only tasks they can access.
+     * Supports ?client_id and ?bucket_id query filters.
+     */
+    public static function get_files_library(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $tasks_table  = $wpdb->prefix . 'pq_tasks';
+        $bucket_table = $wpdb->prefix . 'pq_billing_buckets';
+        $user_id      = get_current_user_id();
+        $is_manager   = current_user_can(WP_PQ_Roles::CAP_APPROVE);
+
+        $where = ["t.files_link IS NOT NULL", "t.files_link != ''"];
+        $params = [];
+
+        // Permission scoping: non-managers only see tasks they can access.
+        if (! $is_manager) {
+            $memberships = WP_PQ_DB::get_user_client_memberships($user_id);
+            $client_ids = array_map(fn($m) => (int) $m['client_id'], $memberships);
+            if (empty($client_ids)) {
+                return new WP_REST_Response(['items' => []], 200);
+            }
+            $placeholders = implode(',', array_fill(0, count($client_ids), '%d'));
+            $where[] = "t.client_id IN ($placeholders)";
+            $params = array_merge($params, $client_ids);
+        }
+
+        // Optional filters.
+        $client_filter = (int) $request->get_param('client_id');
+        if ($client_filter > 0) {
+            $where[] = 't.client_id = %d';
+            $params[] = $client_filter;
+        }
+        $bucket_filter = (int) $request->get_param('bucket_id');
+        if ($bucket_filter > 0) {
+            $where[] = 't.billing_bucket_id = %d';
+            $params[] = $bucket_filter;
+        }
+
+        $where_sql = implode(' AND ', $where);
+        $sql = "SELECT t.id, t.title, t.files_link, t.status, t.client_id,
+                       t.billing_bucket_id, t.updated_at,
+                       b.bucket_name
+                FROM {$tasks_table} t
+                LEFT JOIN {$bucket_table} b ON b.id = t.billing_bucket_id
+                WHERE {$where_sql}
+                ORDER BY t.updated_at DESC
+                LIMIT 500";
+
+        if (! empty($params)) {
+            $sql = $wpdb->prepare($sql, ...$params);
+        }
+
+        $rows = $wpdb->get_results($sql, ARRAY_A) ?: [];
+
+        // Attach client account names.
+        $client_ids = array_unique(array_filter(array_column($rows, 'client_id')));
+        $client_names = [];
+        if (! empty($client_ids)) {
+            $accounts_table = $wpdb->prefix . 'pq_clients';
+            $ph = implode(',', array_fill(0, count($client_ids), '%d'));
+            $accounts = $wpdb->get_results($wpdb->prepare(
+                "SELECT id, name FROM {$accounts_table} WHERE id IN ($ph)",
+                ...$client_ids
+            ), ARRAY_A) ?: [];
+            foreach ($accounts as $a) {
+                $client_names[(int) $a['id']] = $a['name'];
+            }
+        }
+        foreach ($rows as &$row) {
+            $row['client_name'] = $client_names[(int) ($row['client_id'] ?? 0)] ?? '';
+        }
+        unset($row);
+
+        return new WP_REST_Response(['items' => $rows], 200);
+    }
+
+    // ── Invites ───────────────────────────────────────────────────
+
+    public static function create_invite(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $first_name = sanitize_text_field(trim((string) $request->get_param('first_name')));
+        $last_name = sanitize_text_field(trim((string) $request->get_param('last_name')));
+        $email = strtolower(sanitize_email((string) $request->get_param('email')));
+        $role = sanitize_key((string) $request->get_param('role'));
+        $client_id = (int) $request->get_param('client_id');
+        $client_role = sanitize_key((string) $request->get_param('client_role'));
+
+        if ($first_name === '' || $last_name === '') {
+            return new WP_REST_Response(['message' => 'First and last name are required.'], 422);
+        }
+        if (! is_email($email)) {
+            return new WP_REST_Response(['message' => 'Valid email required.'], 422);
+        }
+        if (! in_array($role, ['pq_client', 'pq_worker'], true)) {
+            $role = 'pq_client';
+        }
+        // Create new client on the fly if requested
+        $new_client_name = sanitize_text_field(trim((string) $request->get_param('new_client_name')));
+        if ($role === 'pq_client' && $client_id <= 0 && $new_client_name !== '') {
+            $new_client_id = WP_PQ_DB::create_client($new_client_name, $email);
+            if ($new_client_id <= 0) {
+                return new WP_REST_Response(['message' => 'Failed to create client.'], 500);
+            }
+            WP_PQ_Admin::create_bucket_for_client($new_client_id, WP_PQ_DB::suggest_default_bucket_name($new_client_id));
+            $client_id = $new_client_id;
+        }
+        if ($role === 'pq_client' && $client_id <= 0) {
+            return new WP_REST_Response(['message' => 'Select or create a client when inviting a client user.'], 422);
+        }
+        if (! in_array($client_role, ['client_admin', 'client_contributor', 'client_viewer'], true)) {
+            $client_role = 'client_contributor';
+        }
+
+        // Check for existing pending invite to same email
+        $existing = $wpdb->get_row($wpdb->prepare(
+            "SELECT id FROM {$wpdb->prefix}pq_invites WHERE email = %s AND status = 'pending' AND expires_at > NOW()",
+            $email
+        ));
+        if ($existing) {
+            return new WP_REST_Response(['message' => 'An active invite already exists for this email.'], 409);
+        }
+
+        $token = bin2hex(random_bytes(32));
+        $now = current_time('mysql', true);
+        $expires = gmdate('Y-m-d H:i:s', time() + (7 * DAY_IN_SECONDS));
+
+        $wpdb->insert($wpdb->prefix . 'pq_invites', [
+            'token' => $token,
+            'first_name' => $first_name,
+            'last_name' => $last_name,
+            'email' => $email,
+            'role' => $role,
+            'client_id' => $client_id ?: null,
+            'client_role' => $role === 'pq_client' ? $client_role : null,
+            'invited_by' => get_current_user_id(),
+            'status' => 'pending',
+            'expires_at' => $expires,
+            'created_at' => $now,
+        ]);
+
+        // Send the invite email
+        $invite_url = home_url('/portal/invite/' . $token);
+        $inviter = wp_get_current_user();
+        $inviter_name = $inviter->display_name ?: 'Your team';
+        $subject = $inviter_name . ' invited you to Switchboard';
+        $body = "Hi {$first_name},\n\n"
+              . "{$inviter_name} has invited you to collaborate on Switchboard.\n\n"
+              . "Click below to accept and set up your account:\n\n"
+              . $invite_url . "\n\n"
+              . "This link expires in 7 days.";
+
+        $invite_id = $wpdb->insert_id;
+        $sent = WP_PQ_API::send_gmail(get_current_user_id(), $email, $subject, $body);
+        $delivery_status = $sent ? 'sent' : 'failed';
+        $wpdb->update($wpdb->prefix . 'pq_invites', ['delivery_status' => $delivery_status], ['id' => $invite_id]);
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => $sent ? 'Invite sent to ' . $email . '.' : 'Invite created but email delivery failed. Use Copy Link to share manually.',
+            'invite' => [
+                'id' => $invite_id,
+                'email' => $email,
+                'role' => $role,
+                'status' => 'pending',
+                'delivery_status' => $delivery_status,
+                'token' => $token,
+                'expires_at' => $expires,
+            ],
+        ], 201);
+    }
+
+    public static function list_invites(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'pq_invites';
+        $clients_table = $wpdb->prefix . 'pq_clients';
+
+        $rows = $wpdb->get_results(
+            "SELECT i.*, c.name AS client_name
+             FROM {$table} i
+             LEFT JOIN {$clients_table} c ON c.id = i.client_id
+             ORDER BY i.created_at DESC
+             LIMIT 200",
+            ARRAY_A
+        ) ?: [];
+
+        // Mark expired invites
+        foreach ($rows as &$row) {
+            if ($row['status'] === 'pending' && strtotime($row['expires_at']) < time()) {
+                $row['status'] = 'expired';
+            }
+        }
+        unset($row);
+
+        return new WP_REST_Response(['invites' => $rows], 200);
+    }
+
+    public static function revoke_invite(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $id = (int) $request['id'];
+        $wpdb->update(
+            $wpdb->prefix . 'pq_invites',
+            ['status' => 'revoked'],
+            ['id' => $id, 'status' => 'pending']
+        );
+        return new WP_REST_Response(['ok' => true, 'message' => 'Invite revoked.'], 200);
+    }
+
+    public static function resend_invite(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $id = (int) $request['id'];
+        $table = $wpdb->prefix . 'pq_invites';
+
+        $invite = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $id), ARRAY_A);
+        if (! $invite) {
+            return new WP_REST_Response(['message' => 'Invite not found.'], 404);
+        }
+        if ($invite['status'] === 'accepted') {
+            return new WP_REST_Response(['message' => 'This invite has already been accepted.'], 409);
+        }
+        if ($invite['status'] === 'revoked') {
+            return new WP_REST_Response(['message' => 'This invite has been revoked.'], 409);
+        }
+
+        $new_token = bin2hex(random_bytes(32));
+        $new_expires = gmdate('Y-m-d H:i:s', time() + (7 * DAY_IN_SECONDS));
+        $now = current_time('mysql', true);
+
+        $wpdb->update($table, [
+            'token' => $new_token,
+            'status' => 'pending',
+            'expires_at' => $new_expires,
+            'resent_count' => (int) ($invite['resent_count'] ?? 0) + 1,
+            'last_resent_at' => $now,
+        ], ['id' => $id]);
+
+        $invite_url = home_url('/portal/invite/' . $new_token);
+        $inviter = wp_get_current_user();
+        $inviter_name = $inviter->display_name ?: 'Your team';
+        $subject = $inviter_name . ' invited you to Switchboard';
+        $body = "Hi {$invite['first_name']},\n\n"
+              . "{$inviter_name} has invited you to collaborate on Switchboard.\n\n"
+              . "Click below to accept and set up your account:\n\n"
+              . $invite_url . "\n\n"
+              . "This link expires in 7 days.";
+
+        $sent = WP_PQ_API::send_gmail(get_current_user_id(), $invite['email'], $subject, $body);
+        $delivery_status = $sent ? 'sent' : 'failed';
+        $wpdb->update($table, ['delivery_status' => $delivery_status], ['id' => $id]);
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => $sent ? 'Invite resent to ' . $invite['email'] . '.' : 'Invite updated but email delivery failed. Use Copy Link to share manually.',
+            'token' => $new_token,
+            'delivery_status' => $delivery_status,
+        ], 200);
+    }
+
+    // ── Client Admin self-service invite handlers ─────────────────
+
+    public static function client_list_invites(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $admin_client_ids = self::get_current_user_admin_client_ids();
+        if (empty($admin_client_ids)) {
+            return new WP_REST_Response(['invites' => []], 200);
+        }
+
+        $table = $wpdb->prefix . 'pq_invites';
+        $clients_table = $wpdb->prefix . 'pq_clients';
+        $placeholders = implode(',', array_fill(0, count($admin_client_ids), '%d'));
+
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT i.*, c.name AS client_name
+             FROM {$table} i
+             LEFT JOIN {$clients_table} c ON c.id = i.client_id
+             WHERE i.client_id IN ({$placeholders})
+             ORDER BY i.created_at DESC
+             LIMIT 200",
+            ...$admin_client_ids
+        ), ARRAY_A) ?: [];
+
+        foreach ($rows as &$row) {
+            if ($row['status'] === 'pending' && strtotime($row['expires_at']) < time()) {
+                $row['status'] = 'expired';
+            }
+        }
+        unset($row);
+
+        return new WP_REST_Response(['invites' => $rows], 200);
+    }
+
+    public static function client_create_invite(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $admin_client_ids = self::get_current_user_admin_client_ids();
+        if (empty($admin_client_ids)) {
+            return new WP_REST_Response(['message' => 'No client admin access.'], 403);
+        }
+
+        $first_name = sanitize_text_field(trim((string) $request->get_param('first_name')));
+        $last_name = sanitize_text_field(trim((string) $request->get_param('last_name')));
+        $email = strtolower(sanitize_email((string) $request->get_param('email')));
+        $client_role = sanitize_key((string) $request->get_param('client_role'));
+        $client_id = (int) $request->get_param('client_id');
+
+        if ($first_name === '' || $last_name === '') {
+            return new WP_REST_Response(['message' => 'First and last name are required.'], 422);
+        }
+        if (! is_email($email)) {
+            return new WP_REST_Response(['message' => 'Valid email required.'], 422);
+        }
+
+        // Auto-set client_id if user is admin on exactly one client
+        if ($client_id <= 0 && count($admin_client_ids) === 1) {
+            $client_id = $admin_client_ids[0];
+        }
+        if ($client_id <= 0 || ! in_array($client_id, $admin_client_ids, true)) {
+            return new WP_REST_Response(['message' => 'Invalid client selection.'], 422);
+        }
+
+        // Client admins can only invite contributors or viewers, not admins
+        if (! in_array($client_role, ['client_contributor', 'client_viewer'], true)) {
+            $client_role = 'client_contributor';
+        }
+
+        // Check for existing pending invite
+        $existing = $wpdb->get_row($wpdb->prepare(
+            "SELECT id FROM {$wpdb->prefix}pq_invites WHERE email = %s AND status = 'pending' AND expires_at > NOW()",
+            $email
+        ));
+        if ($existing) {
+            return new WP_REST_Response(['message' => 'An active invite already exists for this email.'], 409);
+        }
+
+        $token = bin2hex(random_bytes(32));
+        $now = current_time('mysql', true);
+        $expires = gmdate('Y-m-d H:i:s', time() + (7 * DAY_IN_SECONDS));
+
+        $wpdb->insert($wpdb->prefix . 'pq_invites', [
+            'token' => $token,
+            'first_name' => $first_name,
+            'last_name' => $last_name,
+            'email' => $email,
+            'role' => 'pq_client',
+            'client_id' => $client_id,
+            'client_role' => $client_role,
+            'invited_by' => get_current_user_id(),
+            'status' => 'pending',
+            'expires_at' => $expires,
+            'created_at' => $now,
+        ]);
+
+        $invite_url = home_url('/portal/invite/' . $token);
+        $inviter = wp_get_current_user();
+        $inviter_name = $inviter->display_name ?: 'Your team';
+        $subject = $inviter_name . ' invited you to Switchboard';
+        $body = "Hi {$first_name},\n\n"
+              . "{$inviter_name} has invited you to collaborate on Switchboard.\n\n"
+              . "Click below to accept and set up your account:\n\n"
+              . $invite_url . "\n\n"
+              . "This link expires in 7 days.";
+
+        $invite_id = $wpdb->insert_id;
+        $sent = WP_PQ_API::send_gmail(get_current_user_id(), $email, $subject, $body);
+        $delivery_status = $sent ? 'sent' : 'failed';
+        $wpdb->update($wpdb->prefix . 'pq_invites', ['delivery_status' => $delivery_status], ['id' => $invite_id]);
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => $sent ? 'Invite sent to ' . $email . '.' : 'Invite created but email delivery failed. Use Copy Link to share manually.',
+            'invite' => [
+                'id' => $invite_id,
+                'email' => $email,
+                'role' => 'pq_client',
+                'status' => 'pending',
+                'delivery_status' => $delivery_status,
+                'token' => $token,
+                'expires_at' => $expires,
+            ],
+        ], 201);
+    }
+
+    public static function client_resend_invite(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $id = (int) $request['id'];
+        $table = $wpdb->prefix . 'pq_invites';
+        $admin_client_ids = self::get_current_user_admin_client_ids();
+
+        $invite = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $id), ARRAY_A);
+        if (! $invite || ! in_array((int) $invite['client_id'], $admin_client_ids, true)) {
+            return new WP_REST_Response(['message' => 'Invite not found.'], 404);
+        }
+        if ($invite['status'] === 'accepted') {
+            return new WP_REST_Response(['message' => 'This invite has already been accepted.'], 409);
+        }
+        if ($invite['status'] === 'revoked') {
+            return new WP_REST_Response(['message' => 'This invite has been revoked.'], 409);
+        }
+
+        $new_token = bin2hex(random_bytes(32));
+        $new_expires = gmdate('Y-m-d H:i:s', time() + (7 * DAY_IN_SECONDS));
+        $now = current_time('mysql', true);
+
+        $wpdb->update($table, [
+            'token' => $new_token,
+            'status' => 'pending',
+            'expires_at' => $new_expires,
+            'resent_count' => (int) ($invite['resent_count'] ?? 0) + 1,
+            'last_resent_at' => $now,
+        ], ['id' => $id]);
+
+        $invite_url = home_url('/portal/invite/' . $new_token);
+        $inviter = wp_get_current_user();
+        $inviter_name = $inviter->display_name ?: 'Your team';
+        $subject = $inviter_name . ' invited you to Switchboard';
+        $body = "Hi {$invite['first_name']},\n\n"
+              . "{$inviter_name} has invited you to collaborate on Switchboard.\n\n"
+              . "Click below to accept and set up your account:\n\n"
+              . $invite_url . "\n\n"
+              . "This link expires in 7 days.";
+
+        $sent = WP_PQ_API::send_gmail(get_current_user_id(), $invite['email'], $subject, $body);
+        $delivery_status = $sent ? 'sent' : 'failed';
+        $wpdb->update($table, ['delivery_status' => $delivery_status], ['id' => $id]);
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'message' => $sent ? 'Invite resent to ' . $invite['email'] . '.' : 'Invite updated but email delivery failed. Use Copy Link to share manually.',
+            'token' => $new_token,
+            'delivery_status' => $delivery_status,
+        ], 200);
+    }
+
+    public static function client_revoke_invite(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $id = (int) $request['id'];
+        $table = $wpdb->prefix . 'pq_invites';
+        $admin_client_ids = self::get_current_user_admin_client_ids();
+
+        $invite = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $id), ARRAY_A);
+        if (! $invite || ! in_array((int) $invite['client_id'], $admin_client_ids, true)) {
+            return new WP_REST_Response(['message' => 'Invite not found.'], 404);
+        }
+
+        $wpdb->update($table, ['status' => 'revoked'], ['id' => $id, 'status' => 'pending']);
+        return new WP_REST_Response(['ok' => true, 'message' => 'Invite revoked.'], 200);
     }
 }
