@@ -79,6 +79,9 @@
   const priorityPanelEl = document.getElementById('wp-pq-priority-panel');
   const prioritySelectEl = document.getElementById('wp-pq-priority-select');
   const prioritySaveBtn = document.getElementById('wp-pq-save-priority');
+  const lanePanelEl = document.getElementById('wp-pq-lane-panel');
+  const laneSelectEl = document.getElementById('wp-pq-lane-select');
+  const laneSaveBtn = document.getElementById('wp-pq-save-lane');
   const meetingPanel = document.getElementById('wp-pq-meeting-panel');
   const meetingSummaryEl = document.getElementById('wp-pq-meeting-summary');
   const meetingList = document.getElementById('wp-pq-meeting-list');
@@ -126,6 +129,8 @@
   let selectedTaskId = null;
   let floatingMeetingTaskId = null;
   let tasksCache = [];
+  let lanesCache = [];
+  let laneMode = 'off'; // 'off' | 'manual' | 'auto_job'
   let calendar = null;
   let participantCache = [];
   let currentView = 'board';
@@ -1048,6 +1053,30 @@
     prioritySaveBtn.disabled = false;
   }
 
+  function syncLanePanel(task) {
+    if (!lanePanelEl || !laneSelectEl || !laneSaveBtn) return;
+    if (!window.wpPqConfig.canApprove || !task) {
+      lanePanelEl.hidden = true;
+      return;
+    }
+
+    // Hide in auto_job mode (lanes are derived from job assignment).
+    if (laneMode === 'auto_job' || laneMode === 'off') {
+      lanePanelEl.hidden = true;
+      return;
+    }
+
+    // Populate lane options from cache.
+    var options = '<option value="0">Uncategorized</option>';
+    lanesCache.forEach(function (lane) {
+      options += '<option value="' + lane.id + '">' + escapeHtml(lane.label) + '</option>';
+    });
+    laneSelectEl.innerHTML = options;
+    laneSelectEl.value = String(parseInt(task.lane_id || 0, 10) || 0);
+    lanePanelEl.hidden = !lanesCache.length;
+    laneSaveBtn.disabled = false;
+  }
+
   function ensureAssigneePresent(task) {
     if (!task || !task.action_owner_id || !task.action_owner_name) return;
     const exists = workersCache.some((worker) => parseInt(worker.id, 10) === parseInt(task.action_owner_id, 10));
@@ -1274,10 +1303,134 @@
     return '<button type="button" class="button wp-pq-delete-btn wp-pq-button-danger" data-task-id="' + taskId + '">Delete</button>';
   }
 
+  function getLaneCollapseState() {
+    try {
+      return JSON.parse(localStorage.getItem('wp_pq_lane_collapse') || '{}');
+    } catch (e) {
+      return {};
+    }
+  }
+
+  function setLaneCollapsed(laneKey, collapsed) {
+    var state = getLaneCollapseState();
+    state[laneKey] = collapsed;
+    try {
+      localStorage.setItem('wp_pq_lane_collapse', JSON.stringify(state));
+    } catch (e) { /* ignore */ }
+  }
+
   function renderBoard(tasks) {
     if (!boardEl) return;
     boardEl.innerHTML = '';
 
+    // Determine effective lanes based on mode.
+    var effectiveLanes = [];
+    if (laneMode === 'manual') {
+      effectiveLanes = lanesCache.slice();
+    } else if (laneMode === 'auto_job') {
+      effectiveLanes = buildAutoJobLanes(tasks);
+    }
+
+    // If no lanes to show, render the classic flat board.
+    if (!effectiveLanes.length) {
+      renderBoardFlat(tasks);
+      return;
+    }
+
+    // Swimlane mode: group tasks into lanes.
+    var laneOrder = effectiveLanes.slice().sort(function (a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
+    // Add virtual "Uncategorized" lane at the end.
+    laneOrder.push({ id: 0, label: 'Uncategorized', sort_order: 99999, _virtual: true });
+
+    var collapseState = getLaneCollapseState();
+
+    // Sticky column header row.
+    var headerRow = document.createElement('div');
+    headerRow.className = 'wp-pq-board-lane-header-row';
+    // Empty cell for the lane label column.
+    var cornerCell = document.createElement('div');
+    cornerCell.className = 'wp-pq-board-lane-corner';
+    headerRow.appendChild(cornerCell);
+    statusColumns.forEach(function (column) {
+      var colHead = document.createElement('div');
+      colHead.className = 'wp-pq-board-lane-col-head';
+      colHead.innerHTML = '<h4>' + escapeHtml(column.label) + '</h4>';
+      headerRow.appendChild(colHead);
+    });
+    boardEl.appendChild(headerRow);
+
+    laneOrder.forEach(function (lane) {
+      var laneKey = 'lane_' + lane.id;
+      var isCollapsed = !!collapseState[laneKey];
+      var laneTasks;
+      if (laneMode === 'auto_job') {
+        laneTasks = tasks.filter(function (task) {
+          var bucketId = parseInt(task.billing_bucket_id || 0, 10);
+          return lane.id === 0 ? (bucketId === 0) : (bucketId === lane.id);
+        });
+      } else {
+        laneTasks = tasks.filter(function (task) {
+          return lane.id === 0 ? (!task.lane_id || task.lane_id === 0) : (parseInt(task.lane_id, 10) === lane.id);
+        });
+      }
+
+      // Lane header (full-width, collapsible).
+      var laneHeaderEl = document.createElement('div');
+      laneHeaderEl.className = 'wp-pq-board-lane-head' + (isCollapsed ? ' is-collapsed' : '');
+      laneHeaderEl.dataset.laneId = lane.id;
+      laneHeaderEl.innerHTML =
+        '<button type="button" class="wp-pq-lane-toggle" aria-expanded="' + (!isCollapsed) + '">' +
+        '<span class="wp-pq-lane-arrow">' + (isCollapsed ? '&#9654;' : '&#9660;') + '</span>' +
+        ' <strong>' + escapeHtml(lane.label) + '</strong>' +
+        ' <span class="wp-pq-lane-count">' + laneTasks.length + '</span>' +
+        '</button>';
+
+      laneHeaderEl.querySelector('.wp-pq-lane-toggle').addEventListener('click', function () {
+        var nowCollapsed = !isCollapsed;
+        setLaneCollapsed(laneKey, nowCollapsed);
+        // Re-render board to reflect new state.
+        renderBoard(tasks);
+        initBoardSort();
+      });
+      boardEl.appendChild(laneHeaderEl);
+
+      // Lane body (the grid row of columns) — hidden when collapsed.
+      if (!isCollapsed) {
+        var laneRow = document.createElement('div');
+        laneRow.className = 'wp-pq-board-lane-row';
+        laneRow.dataset.laneId = lane.id;
+
+        statusColumns.forEach(function (column) {
+          var cellTasks = laneTasks.filter(function (task) { return normalizeStatus(task.status) === column.key; });
+          var cellEl = document.createElement('div');
+          cellEl.className = 'wp-pq-board-lane-cell';
+          cellEl.dataset.status = column.key;
+          cellEl.dataset.laneId = lane.id;
+
+          var listEl = document.createElement('div');
+          listEl.className = 'wp-pq-board-column-list';
+          listEl.dataset.status = column.key;
+          listEl.dataset.laneId = lane.id;
+
+          if (!cellTasks.length) {
+            var emptyEl = document.createElement('p');
+            emptyEl.className = 'wp-pq-empty-state';
+            emptyEl.textContent = '\u00A0';
+            listEl.appendChild(emptyEl);
+          } else {
+            cellTasks.forEach(function (task) { listEl.appendChild(boardCard(task)); });
+          }
+
+          cellEl.appendChild(listEl);
+          laneRow.appendChild(cellEl);
+        });
+
+        boardEl.appendChild(laneRow);
+      }
+    });
+  }
+
+  function renderBoardFlat(tasks) {
     statusColumns.forEach((column) => {
       const tasksInColumn = tasks.filter((task) => normalizeStatus(task.status) === column.key);
       const columnEl = document.createElement('section');
@@ -1369,7 +1522,10 @@
           setBoardDragTarget(null);
           const sourceStatus = normalizeStatus(evt.from && evt.from.dataset ? evt.from.dataset.status : '');
           const targetStatus = normalizeStatus(evt.to && evt.to.dataset ? evt.to.dataset.status : sourceStatus);
-          if (evt.oldIndex === evt.newIndex && sourceStatus === targetStatus) return;
+          const sourceLaneId = parseInt((evt.from && evt.from.dataset ? evt.from.dataset.laneId : '') || '0', 10);
+          const targetLaneId = parseInt((evt.to && evt.to.dataset ? evt.to.dataset.laneId : '') || '0', 10);
+          const laneChanged = sourceLaneId !== targetLaneId && lanesCache.length > 0;
+          if (evt.oldIndex === evt.newIndex && sourceStatus === targetStatus && !laneChanged) return;
 
           const movedTaskId = parseInt(evt.item.dataset.id, 10);
           const nextCard = evt.item.nextElementSibling;
@@ -1405,20 +1561,36 @@
             position: position,
             sourceStatus: sourceStatus,
             targetStatus: targetStatus,
+            laneId: laneChanged ? targetLaneId : undefined,
           });
+
+          // Cross-lane drag confirmation.
+          if (laneChanged && sourceStatus === targetStatus) {
+            var targetLane = lanesCache.find(function (l) { return l.id === targetLaneId; });
+            var targetLaneLabel = targetLaneId === 0 ? 'Uncategorized' : (targetLane ? targetLane.label : 'Lane #' + targetLaneId);
+            if (!confirm('Move task #' + movedTaskId + ' to lane "' + targetLaneLabel + '"?')) {
+              await loadTasks();
+              return;
+            }
+          }
+
           if (!window.wpPqModals.shouldPromptForMoveDecision(sourceStatus, targetStatus)) {
             try {
               selectedTaskId = movedTaskId;
+              var moveBody = {
+                task_id: movedTaskId,
+                target_task_id: targetTaskId || 0,
+                position: position,
+                target_status: targetStatus,
+                priority_direction: 'keep',
+                swap_due_dates: false,
+              };
+              if (laneChanged) {
+                moveBody.lane_id = targetLaneId;
+              }
               const result = await api('tasks/move', {
                 method: 'POST',
-                body: JSON.stringify({
-                  task_id: movedTaskId,
-                  target_task_id: targetTaskId || 0,
-                  position: position,
-                  target_status: targetStatus,
-                  priority_direction: 'keep',
-                  swap_due_dates: false,
-                }),
+                body: JSON.stringify(moveBody),
               });
               if (result.task) {
                 upsertTask(result.task);
@@ -1517,6 +1689,7 @@
       syncAssignmentPanel(task);
     }
     syncPriorityPanel(task);
+    syncLanePanel(task);
   }
 
   function isDesktopWorkspace() {
@@ -1561,6 +1734,7 @@
   async function loadTasks() {
     const data = await api(apiPathWithFilters('tasks'), { method: 'GET' });
     replaceTasks(data.tasks || []);
+    lanesCache = Array.isArray(data.lanes) ? data.lanes : [];
     if (selectedTaskId && !getTaskById(selectedTaskId) && !(activeTaskRecord && idEq(activeTaskRecord.id, selectedTaskId))) {
       closeDrawer();
     }
@@ -2193,6 +2367,40 @@
     });
   }
 
+  // ── Lane save button ──────────────────────────────────────────────
+  if (laneSaveBtn && laneSelectEl) {
+    laneSaveBtn.addEventListener('click', async () => {
+      if (!selectedTaskId) return;
+
+      const laneId = parseInt(laneSelectEl.value || '0', 10);
+      laneSaveBtn.disabled = true;
+
+      try {
+        const result = await api('tasks/' + selectedTaskId + '/lane', {
+          method: 'POST',
+          body: JSON.stringify({ lane_id: laneId }),
+        });
+
+        if (result.task) {
+          upsertTask(result.task);
+          await refreshFromCache({ reloadActivePane: false, refreshCalendar: false, forceSelect: true });
+          await selectTask(selectedTaskId, drawerIsOpen(), {
+            preservePanelState: true,
+            loadParticipants: false,
+            loadWorkspace: false,
+          });
+          alert('Lane updated.', 'success');
+        } else {
+          await loadTasks();
+        }
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        laneSaveBtn.disabled = false;
+      }
+    });
+  }
+
   function setActiveView(showBoard) {
     currentView = showBoard ? 'board' : 'calendar';
     if (boardPanel) boardPanel.hidden = !showBoard;
@@ -2214,6 +2422,44 @@
       if (calendar) calendar.render();
       await loadCalendarEvents();
     });
+  }
+
+  // ── Lane mode toggle ──────────────────────────────────────────────
+  var laneModeSelect = document.getElementById('wp-pq-lane-mode-select');
+  var laneModeBar = document.getElementById('wp-pq-lane-mode-bar');
+
+  function initLaneMode() {
+    try {
+      laneMode = localStorage.getItem('wp_pq_lane_mode') || 'off';
+    } catch (e) {
+      laneMode = 'off';
+    }
+    if (laneModeSelect) {
+      laneModeSelect.value = laneMode;
+      laneModeSelect.addEventListener('change', function () {
+        laneMode = laneModeSelect.value;
+        try { localStorage.setItem('wp_pq_lane_mode', laneMode); } catch (e) { /* */ }
+        renderTaskCollections();
+      });
+    }
+  }
+
+  /**
+   * Build virtual lanes from tasks' bucket assignments.
+   * Returns an array shaped like lanesCache entries.
+   */
+  function buildAutoJobLanes(tasks) {
+    var bucketMap = {};
+    tasks.forEach(function (task) {
+      var bucketId = parseInt(task.billing_bucket_id || 0, 10);
+      var bucketName = task.bucket_name || 'Main';
+      if (bucketId > 0 && !bucketMap[bucketId]) {
+        bucketMap[bucketId] = { id: bucketId, label: bucketName, sort_order: Object.keys(bucketMap).length, client_visible: true, _auto: true };
+      }
+    });
+    var lanes = Object.values(bucketMap);
+    lanes.sort(function (a, b) { return a.label.localeCompare(b.label); });
+    return lanes;
   }
 
   function wireTogglePanel(button, panel, closeButton) {
@@ -2561,6 +2807,7 @@
   wireDrawerControls();
   wireTogglePanel(openCreateBtn, createPanel, closeCreateBtn);
   initViewToggle();
+  initLaneMode();
   initWorkspaceTabs();
   initCalendar();
   setActiveView(true);

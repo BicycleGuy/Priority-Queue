@@ -244,6 +244,12 @@ class WP_PQ_API
             'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
         ]);
 
+        register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/lane', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'update_task_lane'],
+            'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
+        ]);
+
         register_rest_route('pq/v1', '/tasks/(?P<id>\d+)/schedule', [
             'methods' => WP_REST_Server::CREATABLE,
             'callback' => [self::class, 'update_schedule'],
@@ -431,6 +437,7 @@ class WP_PQ_API
         return new WP_REST_Response([
             'tasks' => $rows,
             'filters' => self::build_task_filters_payload($user_id),
+            'lanes' => WP_PQ_DB::get_lanes(),
         ], 200);
     }
 
@@ -466,6 +473,8 @@ class WP_PQ_API
 
         $max_position = (int) $wpdb->get_var("SELECT COALESCE(MAX(queue_position), 0) FROM {$table}");
 
+        $lane_id = (int) $request->get_param('lane_id');
+
         $inserted = $wpdb->insert($table, [
             'title' => $title,
             'description' => sanitize_textarea_field((string) $request->get_param('description')),
@@ -480,6 +489,7 @@ class WP_PQ_API
             'action_owner_id' => $action_owner_id > 0 ? $action_owner_id : null,
             'is_billable' => $is_billable,
             'billing_bucket_id' => $billing_bucket_id > 0 ? $billing_bucket_id : null,
+            'lane_id' => $lane_id > 0 ? $lane_id : null,
             'owner_ids' => wp_json_encode($allowed_assign ? $owner_ids : []),
             'needs_meeting' => $request->get_param('needs_meeting') ? 1 : 0,
             'billing_status' => $is_billable ? 'unbilled' : 'not_billable',
@@ -627,6 +637,58 @@ class WP_PQ_API
         );
 
         self::emit_event($task_id, 'task_reprioritized');
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'task' => self::get_enriched_task($task_id),
+        ], 200);
+    }
+
+    public static function update_task_lane(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+
+        $task_id = (int) $request->get_param('id');
+        $task = self::get_task_row($task_id);
+        if (! $task) {
+            return new WP_REST_Response(['message' => 'Task not found.'], 404);
+        }
+
+        $user_id = get_current_user_id();
+        if (! self::can_access_task($task, $user_id)) {
+            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        }
+
+        $new_lane_id = (int) $request->get_param('lane_id');
+        $old_lane_id = (int) ($task['lane_id'] ?? 0);
+
+        if ($new_lane_id === $old_lane_id) {
+            return new WP_REST_Response([
+                'ok' => true,
+                'task' => self::get_enriched_task($task_id),
+            ], 200);
+        }
+
+        // Validate lane exists (unless clearing to Uncategorized).
+        if ($new_lane_id > 0) {
+            $lane = WP_PQ_DB::get_lane($new_lane_id);
+            if (! $lane) {
+                return new WP_REST_Response(['message' => 'Lane not found.'], 404);
+            }
+        }
+
+        $wpdb->update($wpdb->prefix . 'pq_tasks', [
+            'lane_id' => $new_lane_id > 0 ? $new_lane_id : null,
+            'updated_at' => current_time('mysql', true),
+        ], ['id' => $task_id]);
+
+        self::insert_history_note(
+            $wpdb->prefix . 'pq_task_status_history',
+            $task_id,
+            (string) $task['status'],
+            $user_id,
+            'lane:' . $old_lane_id . '->' . $new_lane_id
+        );
 
         return new WP_REST_Response([
             'ok' => true,
@@ -795,6 +857,21 @@ class WP_PQ_API
                 $notes[] = 'priority:' . $task['priority'] . '->' . $new_priority;
                 $priority_changed = true;
                 $task['priority'] = $new_priority;
+            }
+        }
+
+        // Lane change (swimlane move).
+        $new_lane_id = $request->get_param('lane_id');
+        if ($new_lane_id !== null) {
+            $new_lane_id = (int) $new_lane_id;
+            $old_lane_id = (int) ($task['lane_id'] ?? 0);
+            if ($new_lane_id !== $old_lane_id) {
+                $wpdb->update($tasks_table, [
+                    'lane_id' => $new_lane_id > 0 ? $new_lane_id : null,
+                    'updated_at' => current_time('mysql', true),
+                ], ['id' => $task_id]);
+                $task['lane_id'] = $new_lane_id > 0 ? $new_lane_id : null;
+                $notes[] = 'lane:' . $old_lane_id . '->' . $new_lane_id;
             }
         }
 
@@ -3888,12 +3965,17 @@ class WP_PQ_API
             }
         }
 
+        // Lane labels lookup.
+        $lane_ids = array_values(array_unique(array_filter(array_map(static fn($row) => (int) ($row['lane_id'] ?? 0), $rows))));
+        $lane_labels = ! empty($lane_ids) ? WP_PQ_DB::get_lane_labels() : [];
+
         foreach ($rows as &$row) {
             $task_id = (int) $row['id'];
             $row['note_count'] = $note_counts[$task_id] ?? 0;
             $row['latest_note_preview'] = $latest_notes[$task_id] ?? '';
             $row['statement_code'] = $statement_codes[(int) ($row['statement_id'] ?? 0)] ?? '';
             $row['bucket_name'] = $bucket_names[(int) ($row['billing_bucket_id'] ?? 0)] ?? 'Main';
+            $row['lane_label'] = $lane_labels[(int) ($row['lane_id'] ?? 0)] ?? '';
         }
 
         return $rows;
@@ -5288,6 +5370,8 @@ class WP_PQ_API
             : false;
         $row['note_count'] = isset($row['note_count']) ? (int) $row['note_count'] : 0;
         $row['latest_note_preview'] = isset($row['latest_note_preview']) ? (string) $row['latest_note_preview'] : '';
+        $row['lane_id'] = isset($row['lane_id']) ? (int) $row['lane_id'] : 0;
+        $row['lane_label'] = (string) ($row['lane_label'] ?? '');
 
         return $row;
     }

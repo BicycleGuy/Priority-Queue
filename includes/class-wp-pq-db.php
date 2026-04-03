@@ -381,6 +381,29 @@ class WP_PQ_DB
             KEY invoice_draft_id (invoice_draft_id)
         ) {$charset_collate};");
 
+        $lanes = $wpdb->prefix . 'pq_lanes';
+
+        dbDelta("CREATE TABLE {$lanes} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            manager_user_id BIGINT UNSIGNED NOT NULL,
+            client_id BIGINT UNSIGNED NULL,
+            label VARCHAR(100) NOT NULL,
+            sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+            client_visible TINYINT(1) NOT NULL DEFAULT 1,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY manager_user_id (manager_user_id),
+            KEY client_id (client_id),
+            KEY sort_order (sort_order)
+        ) {$charset_collate};");
+
+        // Add lane_id column to tasks table if it doesn't exist.
+        $lane_col = $wpdb->get_results("SHOW COLUMNS FROM {$tasks} LIKE 'lane_id'");
+        if (empty($lane_col)) {
+            $wpdb->query("ALTER TABLE {$tasks} ADD COLUMN lane_id BIGINT UNSIGNED NULL AFTER billing_bucket_id");
+            $wpdb->query("ALTER TABLE {$tasks} ADD KEY lane_id (lane_id)");
+        }
+
         dbDelta("CREATE TABLE {$invites} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             token VARCHAR(64) NOT NULL,
@@ -1644,5 +1667,147 @@ class WP_PQ_DB
     private static function clear_job_membership_cache(int $billing_bucket_id, int $user_id): void
     {
         unset(self::$job_member_ids_cache[$billing_bucket_id], self::$job_member_ids_for_user_cache[$user_id]);
+    }
+
+    // ── Swimlane helpers ─────────────────────────────────────────────
+
+    /**
+     * Get all lanes, optionally filtered by manager.
+     *
+     * @return array<int, array{id: int, manager_user_id: int, client_id: int|null, label: string, sort_order: int, client_visible: bool}>
+     */
+    public static function get_lanes(int $manager_user_id = 0): array
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'pq_lanes';
+
+        if ($manager_user_id > 0) {
+            $rows = $wpdb->get_results(
+                $wpdb->prepare("SELECT * FROM {$table} WHERE manager_user_id = %d ORDER BY sort_order ASC, id ASC", $manager_user_id),
+                ARRAY_A
+            );
+        } else {
+            $rows = $wpdb->get_results("SELECT * FROM {$table} ORDER BY sort_order ASC, id ASC", ARRAY_A);
+        }
+
+        return array_map(static function (array $row): array {
+            return [
+                'id' => (int) $row['id'],
+                'manager_user_id' => (int) $row['manager_user_id'],
+                'client_id' => $row['client_id'] !== null ? (int) $row['client_id'] : null,
+                'label' => (string) $row['label'],
+                'sort_order' => (int) $row['sort_order'],
+                'client_visible' => (bool) $row['client_visible'],
+                'created_at' => (string) $row['created_at'],
+            ];
+        }, $rows ?: []);
+    }
+
+    /**
+     * Get a single lane by ID.
+     */
+    public static function get_lane(int $lane_id): ?array
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'pq_lanes';
+        $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $lane_id), ARRAY_A);
+        return $row ?: null;
+    }
+
+    /**
+     * Create a new lane and return its ID.
+     */
+    public static function create_lane(int $manager_user_id, string $label, ?int $client_id = null, bool $client_visible = true): int
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'pq_lanes';
+
+        $max_sort = (int) $wpdb->get_var(
+            $wpdb->prepare("SELECT COALESCE(MAX(sort_order), 0) FROM {$table} WHERE manager_user_id = %d", $manager_user_id)
+        );
+
+        $wpdb->insert($table, [
+            'manager_user_id' => $manager_user_id,
+            'client_id' => $client_id,
+            'label' => $label,
+            'sort_order' => $max_sort + 1,
+            'client_visible' => $client_visible ? 1 : 0,
+            'created_at' => current_time('mysql', true),
+        ]);
+
+        return (int) $wpdb->insert_id;
+    }
+
+    /**
+     * Update a lane's properties.
+     */
+    public static function update_lane(int $lane_id, array $data): bool
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'pq_lanes';
+
+        $update = [];
+        if (isset($data['label'])) {
+            $update['label'] = sanitize_text_field($data['label']);
+        }
+        if (isset($data['sort_order'])) {
+            $update['sort_order'] = (int) $data['sort_order'];
+        }
+        if (isset($data['client_visible'])) {
+            $update['client_visible'] = $data['client_visible'] ? 1 : 0;
+        }
+
+        if (empty($update)) {
+            return false;
+        }
+
+        return $wpdb->update($table, $update, ['id' => $lane_id]) !== false;
+    }
+
+    /**
+     * Delete a lane and reassign its tasks to Uncategorized (lane_id = NULL).
+     */
+    public static function delete_lane(int $lane_id): bool
+    {
+        global $wpdb;
+        $lanes_table = $wpdb->prefix . 'pq_lanes';
+        $tasks_table = $wpdb->prefix . 'pq_tasks';
+
+        // Move tasks out of this lane.
+        $wpdb->update($tasks_table, ['lane_id' => null], ['lane_id' => $lane_id]);
+
+        return $wpdb->delete($lanes_table, ['id' => $lane_id]) !== false;
+    }
+
+    /**
+     * Bulk-update lane sort orders.
+     *
+     * @param array<int, int> $order Map of lane_id => sort_order
+     */
+    public static function reorder_lanes(array $order): void
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'pq_lanes';
+
+        foreach ($order as $lane_id => $sort_order) {
+            $wpdb->update($table, ['sort_order' => (int) $sort_order], ['id' => (int) $lane_id]);
+        }
+    }
+
+    /**
+     * Build a lane label lookup map for enriching task rows.
+     *
+     * @return array<int, string> lane_id => label
+     */
+    public static function get_lane_labels(): array
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'pq_lanes';
+        $rows = $wpdb->get_results("SELECT id, label FROM {$table}", ARRAY_A);
+        $map = [];
+        foreach ($rows ?: [] as $row) {
+            $map[(int) $row['id']] = (string) $row['label'];
+        }
+        return $map;
     }
 }

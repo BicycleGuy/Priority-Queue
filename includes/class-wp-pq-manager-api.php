@@ -261,6 +261,39 @@ class WP_PQ_Manager_API
             'permission_callback' => [self::class, 'can_manage'],
         ]);
 
+        // ── Swimlanes ────────────────────────────────────────────────
+        register_rest_route('pq/v1', '/manager/lanes', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [self::class, 'get_lanes'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'create_lane'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/lanes/reorder', [
+            'methods' => WP_REST_Server::CREATABLE,
+            'callback' => [self::class, 'reorder_lanes'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/lanes/(?P<id>\d+)', [
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'update_lane'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+            [
+                'methods' => WP_REST_Server::DELETABLE,
+                'callback' => [self::class, 'delete_lane'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+        ]);
+
         // ── Client Admin self-service invites ─────────────────────────
         register_rest_route('pq/v1', '/client/invites', [
             [
@@ -1972,5 +2005,97 @@ class WP_PQ_Manager_API
 
         $wpdb->update($table, ['status' => 'revoked'], ['id' => $id, 'status' => 'pending']);
         return new WP_REST_Response(['ok' => true, 'message' => 'Invite revoked.'], 200);
+    }
+
+    // ── Swimlane handlers ────────────────────────────────────────────
+
+    public static function get_lanes(WP_REST_Request $request): WP_REST_Response
+    {
+        $lanes = WP_PQ_DB::get_lanes();
+        return new WP_REST_Response(['lanes' => $lanes], 200);
+    }
+
+    public static function create_lane(WP_REST_Request $request): WP_REST_Response
+    {
+        $label = sanitize_text_field((string) $request->get_param('label'));
+        if ($label === '') {
+            return new WP_REST_Response(['message' => 'Lane label is required.'], 422);
+        }
+
+        $client_id = $request->get_param('client_id') !== null ? (int) $request->get_param('client_id') : null;
+        $client_visible = $request->get_param('client_visible') !== null
+            ? rest_sanitize_boolean($request->get_param('client_visible'))
+            : true;
+
+        $lane_id = WP_PQ_DB::create_lane(get_current_user_id(), $label, $client_id, $client_visible);
+
+        if ($lane_id <= 0) {
+            return new WP_REST_Response(['message' => 'Failed to create lane.'], 500);
+        }
+
+        $lane = WP_PQ_DB::get_lane($lane_id);
+        return new WP_REST_Response(['lane' => $lane], 201);
+    }
+
+    public static function update_lane(WP_REST_Request $request): WP_REST_Response
+    {
+        $lane_id = (int) $request['id'];
+        $lane = WP_PQ_DB::get_lane($lane_id);
+
+        if (! $lane) {
+            return new WP_REST_Response(['message' => 'Lane not found.'], 404);
+        }
+
+        $data = [];
+        if ($request->get_param('label') !== null) {
+            $label = sanitize_text_field((string) $request->get_param('label'));
+            if ($label === '') {
+                return new WP_REST_Response(['message' => 'Lane label cannot be empty.'], 422);
+            }
+            $data['label'] = $label;
+        }
+        if ($request->get_param('sort_order') !== null) {
+            $data['sort_order'] = (int) $request->get_param('sort_order');
+        }
+        if ($request->get_param('client_visible') !== null) {
+            $data['client_visible'] = rest_sanitize_boolean($request->get_param('client_visible'));
+        }
+
+        WP_PQ_DB::update_lane($lane_id, $data);
+
+        return new WP_REST_Response(['lane' => WP_PQ_DB::get_lane($lane_id)], 200);
+    }
+
+    public static function delete_lane(WP_REST_Request $request): WP_REST_Response
+    {
+        $lane_id = (int) $request['id'];
+        $lane = WP_PQ_DB::get_lane($lane_id);
+
+        if (! $lane) {
+            return new WP_REST_Response(['message' => 'Lane not found.'], 404);
+        }
+
+        WP_PQ_DB::delete_lane($lane_id);
+
+        return new WP_REST_Response(['ok' => true, 'message' => 'Lane deleted. Tasks moved to Uncategorized.'], 200);
+    }
+
+    public static function reorder_lanes(WP_REST_Request $request): WP_REST_Response
+    {
+        $items = (array) $request->get_param('items');
+        $order = [];
+
+        foreach ($items as $index => $item) {
+            $lane_id = (int) ($item['id'] ?? 0);
+            if ($lane_id > 0) {
+                $order[$lane_id] = (int) $index;
+            }
+        }
+
+        if (! empty($order)) {
+            WP_PQ_DB::reorder_lanes($order);
+        }
+
+        return new WP_REST_Response(['ok' => true, 'lanes' => WP_PQ_DB::get_lanes()], 200);
     }
 }

@@ -2199,6 +2199,221 @@ button.wp-pq-manager-list-item.is-active {
   flex: 1;
 }
 
+/* ── Swimlane layout ─────────────────────────────────────────────── */
+
+.wp-pq-board-lane-header-row {
+  display: grid;
+  grid-template-columns: 140px repeat(6, 1fr);
+  gap: 0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--pq-bg);
+  border-bottom: 2px solid var(--pq-border);
+  margin-bottom: 0;
+}
+
+.wp-pq-board-lane-corner {
+  padding: 8px 10px;
+  font-weight: 600;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--pq-muted);
+}
+
+.wp-pq-board-lane-col-head {
+  padding: 8px 10px;
+  border-left: 1px solid var(--pq-border);
+  text-align: center;
+}
+
+.wp-pq-board-lane-col-head h4 {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pq-muted);
+}
+
+.wp-pq-board-lane-head {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  background: var(--pq-surface);
+  border-bottom: 1px solid var(--pq-border);
+  border-top: 1px solid var(--pq-border);
+  cursor: pointer;
+  user-select: none;
+}
+
+.wp-pq-board-lane-head.is-collapsed {
+  opacity: 0.7;
+}
+
+.wp-pq-lane-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wp-pq-lane-toggle:hover {
+  color: var(--pq-accent);
+}
+
+.wp-pq-lane-arrow {
+  font-size: 0.7rem;
+  line-height: 1;
+  display: inline-block;
+  width: 12px;
+  text-align: center;
+}
+
+.wp-pq-lane-count {
+  font-size: 0.75rem;
+  color: var(--pq-muted);
+  background: var(--pq-bg);
+  padding: 1px 7px;
+  border-radius: 10px;
+  margin-left: 4px;
+}
+
+.wp-pq-board-lane-row {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0;
+  border-bottom: 1px solid var(--pq-border);
+}
+
+.wp-pq-board-lane-cell {
+  border-left: 1px solid var(--pq-border);
+  min-height: 80px;
+  padding: 6px;
+}
+
+.wp-pq-board-lane-cell:first-child {
+  border-left: none;
+}
+
+.wp-pq-board-lane-cell .wp-pq-board-column-list {
+  min-height: 60px;
+  padding-bottom: 10px;
+}
+
+.wp-pq-board-lane-cell .wp-pq-empty-state {
+  min-height: 40px;
+  font-size: 0;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── Lane panel in drawer ────────────────────────────────────────── */
+
+.wp-pq-lane-panel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--pq-border);
+}
+
+.wp-pq-lane-copy strong {
+  font-size: 0.85rem;
+}
+
+.wp-pq-lane-copy .wp-pq-panel-note {
+  font-size: 0.78rem;
+  color: var(--pq-muted);
+  margin: 2px 0 0;
+}
+
+.wp-pq-lane-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.wp-pq-lane-controls select {
+  max-width: 160px;
+}
+
+/* ── Lane mode toggle bar ────────────────────────────────────────── */
+
+.wp-pq-lane-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 8px;
+}
+
+.wp-pq-lane-mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--pq-muted);
+}
+
+.wp-pq-lane-mode-toggle select {
+  font-size: 0.82rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--pq-border);
+  background: var(--pq-surface);
+}
+
+/* ── Lanes management section ────────────────────────────────────── */
+
+.wp-pq-lanes-manager {
+  max-width: 640px;
+}
+
+.wp-pq-lane-add-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.wp-pq-lane-add-form input[type="text"] {
+  flex: 1;
+  min-width: 160px;
+}
+
+.wp-pq-lane-visible-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.wp-pq-lanes-table .wp-pq-lane-label-input {
+  width: 100%;
+  border: 1px solid transparent;
+  padding: 4px 6px;
+  background: transparent;
+  font: inherit;
+  border-radius: 3px;
+}
+
+.wp-pq-lanes-table .wp-pq-lane-label-input:focus {
+  border-color: var(--pq-accent);
+  background: var(--pq-surface);
+  outline: none;
+}
+
 .wp-pq-task-card {
   position: relative;
   border: 1px solid var(--pq-border);
@@ -3698,6 +3913,49 @@ body.wp-pq-drawer-open {
   /* ── Subpanel spacing ── */
   .wp-pq-subpanel {
     padding: 14px 10px;
+  }
+}
+
+/* ── Swimlane mobile: stack lanes vertically, hide grid ──────────── */
+@media (max-width: 640px) {
+  .wp-pq-board-lane-header-row {
+    display: none;
+  }
+
+  .wp-pq-board-lane-row {
+    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: row;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    gap: 0;
+  }
+
+  .wp-pq-board-lane-cell {
+    min-width: 85vw;
+    scroll-snap-align: start;
+    border-left: none;
+    border-right: 1px solid var(--pq-border);
+  }
+
+  .wp-pq-board-lane-head {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+
+  .wp-pq-lane-panel {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .wp-pq-lane-controls {
+    width: 100%;
+  }
+
+  .wp-pq-lane-controls select {
+    flex: 1;
+    max-width: none;
   }
 }
 

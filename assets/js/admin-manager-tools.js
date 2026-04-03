@@ -288,9 +288,100 @@
     }
   }
 
+  // ── Swimlanes Management ──────────────────────────────────────────────
+
+  async function renderLanes() {
+    renderManagerFrame('lanes');
+    el.managerContent.innerHTML = '<div class="wp-pq-empty-state">Loading lanes…</div>';
+
+    var data = await api('manager/lanes');
+    var lanes = data.lanes || [];
+
+    var html = '<div class="wp-pq-section-heading"><div><h3>Swimlanes</h3>' +
+      '<p class="wp-pq-panel-note">Swimlanes add horizontal rows across the board to group tasks by category. ' +
+      'Drag tasks between lanes on the board, or assign lanes from the task drawer.</p></div></div>';
+
+    html += '<div class="wp-pq-lanes-manager">';
+
+    // Add lane form.
+    html += '<form class="wp-pq-lane-add-form" id="wp-pq-lane-add-form">' +
+      '<input type="text" name="label" placeholder="New lane name…" class="regular-text" required autocomplete="off" />' +
+      ' <label class="wp-pq-lane-visible-label"><input type="checkbox" name="client_visible" checked /> Visible to clients</label>' +
+      ' <button type="submit" class="button button-primary">Add Lane</button>' +
+      '</form>';
+
+    // Lane list.
+    if (!lanes.length) {
+      html += '<p class="wp-pq-empty-state">No lanes yet. Create one above to start grouping tasks on the board.</p>';
+    } else {
+      html += '<table class="wp-pq-lanes-table widefat striped"><thead><tr>' +
+        '<th>Lane</th><th>Client Visible</th><th>Tasks</th><th></th>' +
+        '</tr></thead><tbody>';
+      lanes.forEach(function (lane) {
+        html += '<tr data-lane-id="' + lane.id + '">' +
+          '<td><input type="text" class="wp-pq-lane-label-input" value="' + esc(lane.label) + '" data-lane-id="' + lane.id + '" /></td>' +
+          '<td><input type="checkbox" class="wp-pq-lane-visible-toggle" data-lane-id="' + lane.id + '"' + (lane.client_visible ? ' checked' : '') + ' /></td>' +
+          '<td class="wp-pq-lane-task-count" data-lane-id="' + lane.id + '">—</td>' +
+          '<td><button type="button" class="button button-small wp-pq-lane-delete" data-lane-id="' + lane.id + '">Delete</button></td>' +
+          '</tr>';
+      });
+      html += '</tbody></table>';
+    }
+
+    html += '</div>';
+    el.managerContent.innerHTML = html;
+
+    // Wire add form.
+    var addForm = document.getElementById('wp-pq-lane-add-form');
+    if (addForm) {
+      addForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        var label = addForm.elements.label.value.trim();
+        if (!label) return;
+        var clientVisible = addForm.elements.client_visible.checked;
+        await submitJson('manager/lanes', { label: label, client_visible: clientVisible });
+        toast('Lane created.');
+        await renderLanes();
+      });
+    }
+
+    // Wire inline rename (on blur).
+    el.managerContent.querySelectorAll('.wp-pq-lane-label-input').forEach(function (input) {
+      input.addEventListener('blur', async function () {
+        var laneId = input.dataset.laneId;
+        var newLabel = input.value.trim();
+        if (!newLabel) return;
+        await submitJson('manager/lanes/' + laneId, { label: newLabel });
+      });
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+      });
+    });
+
+    // Wire client visible toggle.
+    el.managerContent.querySelectorAll('.wp-pq-lane-visible-toggle').forEach(function (cb) {
+      cb.addEventListener('change', async function () {
+        var laneId = cb.dataset.laneId;
+        await submitJson('manager/lanes/' + laneId, { client_visible: cb.checked });
+      });
+    });
+
+    // Wire delete buttons.
+    el.managerContent.querySelectorAll('.wp-pq-lane-delete').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        var laneId = btn.dataset.laneId;
+        if (!confirm('Delete this lane? Tasks in it will move to Uncategorized.')) return;
+        await api('manager/lanes/' + laneId, { method: 'DELETE' });
+        toast('Lane deleted.');
+        await renderLanes();
+      });
+    });
+  }
+
   m.render.files = renderFiles;
   m.render.invites = renderInvites;
   m.render['ai-import'] = renderAiImport;
+  m.render.lanes = renderLanes;
 
   // ── Boot ─────────────────────────────────────────────────────────────
   // This file loads last (all renderers are now registered).

@@ -879,6 +879,7 @@ class WP_PQ_Portal
             echo '            <button class="button" type="button" data-pq-section="ai-import"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.8h6l-4.9 3.6 1.9 5.8-5-3.6-5 3.6 1.9-5.8-4.9-3.6h6z"/></svg></span><span>AI Import</span></span></button>';
             echo '            <button class="button" type="button" data-pq-section="files"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span><span>Files &amp; Links</span></span></button>';
             echo '            <button class="button" type="button" data-pq-section="invites"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg></span><span>Invites</span></span></button>';
+            echo '            <button class="button" type="button" data-pq-section="lanes"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg></span><span>Swimlanes</span></span></button>';
             echo '            <button class="button" type="button" data-pq-section="preferences"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span>Preferences</span></span></button>';
             echo '          </div>';
             echo '        </details>';
@@ -1013,6 +1014,18 @@ class WP_PQ_Portal
         // Focal hint removed — was static, not contextual.
         echo '    </div>';
         echo '    <div id="wp-pq-board-filter-bar" class="wp-pq-board-filter-bar"></div>';
+        if ($is_manager) {
+            echo '    <div class="wp-pq-lane-mode-bar" id="wp-pq-lane-mode-bar">';
+            echo '      <label class="wp-pq-lane-mode-toggle">';
+            echo '        <span class="wp-pq-lane-mode-label">Lanes:</span>';
+            echo '        <select id="wp-pq-lane-mode-select">';
+            echo '          <option value="off">Off</option>';
+            echo '          <option value="manual">Manual</option>';
+            echo '          <option value="auto_job">Auto by Job</option>';
+            echo '        </select>';
+            echo '      </label>';
+            echo '    </div>';
+        }
         echo '    <div id="wp-pq-board-panel">';
         echo '      <div id="wp-pq-board" class="wp-pq-board"></div>';
         echo '    </div>';
@@ -1060,6 +1073,20 @@ class WP_PQ_Portal
         echo '            <button class="button" type="button" id="wp-pq-save-priority">Update Priority</button>';
         echo '          </div>';
         echo '        </div>';
+        if ($is_manager) {
+            echo '        <div id="wp-pq-lane-panel" class="wp-pq-lane-panel" hidden>';
+            echo '          <div class="wp-pq-lane-copy">';
+            echo '            <strong>Swimlane</strong>';
+            echo '            <div class="wp-pq-panel-note">Group this task into a lane on the board.</div>';
+            echo '          </div>';
+            echo '          <div class="wp-pq-lane-controls">';
+            echo '            <select id="wp-pq-lane-select">';
+            echo '              <option value="0">Uncategorized</option>';
+            echo '            </select>';
+            echo '            <button class="button" type="button" id="wp-pq-save-lane">Update Lane</button>';
+            echo '          </div>';
+            echo '        </div>';
+        }
         echo '      </div>';
         echo '      <div id="wp-pq-task-empty" class="wp-pq-task-empty">Select a task to open its workspace and review messages, notes, files, and approvals.</div>';
         echo '      <div id="wp-pq-task-workspace" class="wp-pq-task-workspace" hidden>';
