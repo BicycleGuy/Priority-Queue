@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#faf9f7" />
+  <title>Switchboard — Phone UI mockup</title>
+  <style>
+    :root {
+      --pq-bg: #faf9f7;
+      --pq-surface: #ffffff;
+      --pq-ink: #1a1a1a;
+      --pq-muted: #78716c;
+      --pq-border: #e7e5e4;
+      --pq-soft: #f5f5f4;
+      --pq-accent: #991b1b;
+      --pq-accent-dark: #7f1d1d;
+      --pq-accent-soft: rgba(153, 27, 27, 0.08);
+      --pq-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+      --pq-radius: 14px;
+      --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --nav-h: 56px;
+      --safe-b: env(safe-area-inset-bottom, 0px);
+      --safe-t: env(safe-area-inset-top, 0px);
+    }
+
+    [data-theme="dark"] {
+      --pq-bg: #1c1917;
+      --pq-surface: #292524;
+      --pq-ink: #f5f5f4;
+      --pq-muted: #a8a29e;
+      --pq-border: #44403c;
+      --pq-soft: #292524;
+      --pq-accent: #f87171;
+      --pq-accent-dark: #ef4444;
+      --pq-accent-soft: rgba(248, 113, 113, 0.12);
+      --pq-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+      color-scheme: dark;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: var(--font);
+      background: #0c0a09;
+      color: var(--pq-ink);
+      line-height: 1.45;
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 12px;
+    }
+
+    .mock-ribbon {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: var(--pq-accent-soft);
+      border-bottom: 1px solid var(--pq-border);
+      padding: 8px 12px;
+      font-size: 11px;
+      text-align: center;
+      z-index: 9999;
+      color: #fafaf9;
+      background: #44403c;
+    }
+
+    .mock-ribbon strong { color: #fca5a5; }
+
+    body.has-ribbon { padding-top: 40px; }
+
+    /* Phone chassis */
+    .phone {
+      width: 100%;
+      max-width: 390px;
+      min-height: min(844px, calc(100vh - 48px));
+      background: var(--pq-bg);
+      border-radius: 28px;
+      border: 3px solid #292524;
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    @media (max-width: 420px) {
+      body { padding: 0; background: var(--pq-bg); }
+      .mock-ribbon { font-size: 10px; }
+      .phone {
+        max-width: none;
+        min-height: 100vh;
+        border-radius: 0;
+        border: 0;
+        box-shadow: none;
+      }
+    }
+
+    /* Screens */
+    .screens {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      padding-top: var(--safe-t);
+    }
+
+    .screen {
+      display: none;
+      flex: 1;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .screen.is-active { display: flex; }
+
+    /* App bar */
+    .app-bar {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px 8px;
+      background: var(--pq-bg);
+      border-bottom: 1px solid transparent;
+    }
+
+    .app-bar h1 {
+      margin: 0;
+      font-size: 1.15rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      flex: 1;
+    }
+
+    .icon-btn {
+      width: 40px;
+      height: 40px;
+      border: 0;
+      border-radius: 12px;
+      background: var(--pq-soft);
+      color: var(--pq-ink);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .icon-btn:active { transform: scale(0.96); }
+
+    .scope-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      max-width: 140px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: var(--pq-surface);
+      border: 1px solid var(--pq-border);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--pq-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .scroll-body {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 0 14px 12px;
+      padding-bottom: calc(var(--nav-h) + var(--safe-b) + 16px);
+    }
+
+    /* Status filter — core: scan workflow at a glance */
+    .status-strip {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding: 0 14px 12px;
+      flex-shrink: 0;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+
+    .status-strip::-webkit-scrollbar { display: none; }
+
+    .pill {
+      flex-shrink: 0;
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+      border: 1px solid var(--pq-border);
+      background: var(--pq-surface);
+      color: var(--pq-muted);
+      cursor: pointer;
+    }
+
+    .pill.is-on {
+      background: var(--pq-accent-soft);
+      color: var(--pq-accent);
+      border-color: transparent;
+    }
+
+    /* Task cards — tappable, thumb-friendly */
+    .task-card {
+      background: var(--pq-surface);
+      border: 1px solid var(--pq-border);
+      border-radius: var(--pq-radius);
+      padding: 14px;
+      margin-bottom: 10px;
+      box-shadow: var(--pq-shadow);
+      text-align: left;
+      width: 100%;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .task-card:active { filter: brightness(0.98); }
+
+    .task-card .title {
+      margin: 0 0 6px;
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 1.25;
+      color: var(--pq-ink);
+    }
+
+    .task-card .meta {
+      margin: 0;
+      font-size: 13px;
+      color: var(--pq-muted);
+    }
+
+    .badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 3px 7px;
+      border-radius: 6px;
+      margin-bottom: 8px;
+      background: var(--pq-soft);
+      color: var(--pq-muted);
+    }
+
+    .badge-urgent {
+      background: var(--pq-accent-soft);
+      color: var(--pq-accent);
+    }
+
+    /* Calendar screen */
+    .cal-head {
+      padding: 0 14px 8px;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--pq-muted);
+    }
+
+    .cal-row {
+      display: flex;
+      gap: 10px;
+      padding: 12px 14px;
+      background: var(--pq-surface);
+      border-radius: var(--pq-radius);
+      border: 1px solid var(--pq-border);
+      margin-bottom: 8px;
+      align-items: flex-start;
+    }
+
+    .cal-time {
+      font-size: 12px;
+      font-weight: 800;
+      color: var(--pq-accent);
+      width: 52px;
+      flex-shrink: 0;
+    }
+
+    .cal-row h3 {
+      margin: 0 0 4px;
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .cal-row p {
+      margin: 0;
+      font-size: 13px;
+      color: var(--pq-muted);
+    }
+
+    /* New request — core intake */
+    .form-screen .scroll-body {
+      padding-top: 8px;
+    }
+
+    label.field {
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--pq-muted);
+      margin-bottom: 16px;
+    }
+
+    label.field span {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .input, textarea, select {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--pq-border);
+      background: var(--pq-surface);
+      color: var(--pq-ink);
+      font: inherit;
+      font-size: 16px; /* avoids iOS zoom */
+    }
+
+    textarea { min-height: 100px; resize: vertical; }
+
+    .row-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .btn-primary {
+      width: 100%;
+      padding: 14px;
+      border: 0;
+      border-radius: 14px;
+      background: var(--pq-accent);
+      color: #fff;
+      font-weight: 800;
+      font-size: 16px;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+
+    .btn-ghost {
+      padding: 12px;
+      border: 1px solid var(--pq-border);
+      border-radius: 12px;
+      background: transparent;
+      color: var(--pq-ink);
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 8px;
+    }
+
+    /* Task detail — full screen */
+    .detail-screen {
+      position: absolute;
+      inset: 0;
+      background: var(--pq-bg);
+      z-index: 20;
+      display: none;
+      flex-direction: column;
+    }
+
+    .detail-screen.is-open { display: flex; }
+
+    .detail-bar {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 8px 8px 6px;
+      padding-top: calc(8px + var(--safe-t));
+      background: var(--pq-surface);
+      border-bottom: 1px solid var(--pq-border);
+    }
+
+    .detail-bar .back {
+      width: 44px;
+      height: 44px;
+      border: 0;
+      background: transparent;
+      font-size: 22px;
+      cursor: pointer;
+      color: var(--pq-accent);
+      border-radius: 12px;
+    }
+
+    .detail-bar .titles {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .detail-bar .kicker {
+      margin: 0;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--pq-accent);
+    }
+
+    .detail-bar h2 {
+      margin: 2px 0 0;
+      font-size: 16px;
+      font-weight: 800;
+      line-height: 1.2;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .detail-tabs {
+      display: flex;
+      gap: 6px;
+      padding: 10px 14px;
+      overflow-x: auto;
+      flex-shrink: 0;
+      background: var(--pq-surface);
+      border-bottom: 1px solid var(--pq-border);
+    }
+
+    .detail-tabs button {
+      flex-shrink: 0;
+      padding: 8px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--pq-border);
+      background: var(--pq-bg);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--pq-muted);
+      cursor: pointer;
+    }
+
+    .detail-tabs button.is-on {
+      background: var(--pq-accent-soft);
+      border-color: transparent;
+      color: var(--pq-accent);
+    }
+
+    .detail-tabs .count {
+      font-size: 11px;
+      opacity: 0.85;
+      margin-left: 4px;
+    }
+
+    .thread {
+      padding: 14px;
+    }
+
+    .bubble {
+      padding: 12px 14px;
+      border-radius: 14px;
+      margin-bottom: 10px;
+      max-width: 92%;
+      font-size: 15px;
+      line-height: 1.4;
+    }
+
+    .bubble.them {
+      background: var(--pq-soft);
+      border: 1px solid var(--pq-border);
+      margin-right: auto;
+    }
+
+    .bubble.me {
+      background: var(--pq-accent-soft);
+      margin-left: auto;
+      border: 1px solid transparent;
+    }
+
+    .bubble .who {
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--pq-muted);
+      margin-bottom: 4px;
+    }
+
+    .composer {
+      flex-shrink: 0;
+      padding: 10px 14px calc(10px + var(--safe-b));
+      background: var(--pq-surface);
+      border-top: 1px solid var(--pq-border);
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+    }
+
+    .composer textarea {
+      flex: 1;
+      min-height: 44px;
+      max-height: 120px;
+      margin: 0;
+    }
+
+    .composer .send {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      border: 0;
+      background: var(--pq-accent);
+      color: #fff;
+      font-size: 18px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .action-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 10px 14px;
+      background: var(--pq-soft);
+      border-bottom: 1px solid var(--pq-border);
+    }
+
+    .action-bar button {
+      padding: 8px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--pq-border);
+      background: var(--pq-surface);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--pq-ink);
+      cursor: pointer;
+    }
+
+    /* Alerts */
+    .notif {
+      display: flex;
+      gap: 12px;
+      padding: 14px;
+      background: var(--pq-surface);
+      border-radius: var(--pq-radius);
+      border: 1px solid var(--pq-border);
+      margin-bottom: 10px;
+      text-align: left;
+      width: 100%;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .notif-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--pq-accent);
+      flex-shrink: 0;
+      margin-top: 4px;
+    }
+
+    .notif.is-read .notif-dot { background: var(--pq-border); }
+
+    .notif h3 {
+      margin: 0 0 4px;
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .notif p {
+      margin: 0;
+      font-size: 13px;
+      color: var(--pq-muted);
+    }
+
+    /* More / settings */
+    .list-group {
+      background: var(--pq-surface);
+      border-radius: var(--pq-radius);
+      border: 1px solid var(--pq-border);
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+
+    .list-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: 16px 14px;
+      border: 0;
+      border-bottom: 1px solid var(--pq-border);
+      background: transparent;
+      font: inherit;
+      font-size: 16px;
+      font-weight: 600;
+      text-align: left;
+      cursor: pointer;
+      color: var(--pq-ink);
+    }
+
+    .list-row:last-child { border-bottom: 0; }
+
+    .list-row small {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--pq-muted);
+      margin-top: 2px;
+    }
+
+    .chev { color: var(--pq-muted); font-size: 18px; }
+
+    /* Bottom navigation — core IA */
+    .bottom-nav {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: calc(var(--nav-h) + var(--safe-b));
+      padding-bottom: var(--safe-b);
+      background: var(--pq-surface);
+      border-top: 1px solid var(--pq-border);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-around;
+      padding-top: 6px;
+      z-index: 10;
+    }
+
+    .nav-item {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      border: 0;
+      background: transparent;
+      color: var(--pq-muted);
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      padding: 4px;
+    }
+
+    .nav-item.is-on { color: var(--pq-accent); }
+
+    .nav-item svg {
+      width: 24px;
+      height: 24px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+    }
+
+    .nav-fab-wrap {
+      position: relative;
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      margin-top: -22px;
+    }
+
+    .nav-fab {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      border: 4px solid var(--pq-bg);
+      background: var(--pq-accent);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: var(--pq-shadow);
+    }
+
+    .nav-fab svg { stroke: #fff; width: 26px; height: 26px; }
+
+    /* Menu sheet (scope / filters) */
+    .sheet-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.35);
+      z-index: 30;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s;
+    }
+
+    .sheet-backdrop.is-open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .sheet {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      max-height: 70%;
+      background: var(--pq-surface);
+      border-radius: 20px 20px 0 0;
+      z-index: 31;
+      transform: translateY(100%);
+      transition: transform 0.25s ease;
+      display: flex;
+      flex-direction: column;
+      padding-bottom: var(--safe-b);
+    }
+
+    .sheet.is-open { transform: translateY(0); }
+
+    .sheet-handle {
+      width: 36px;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--pq-border);
+      margin: 10px auto 8px;
+    }
+
+    .sheet h3 {
+      margin: 0 16px 12px;
+      font-size: 18px;
+      font-weight: 800;
+    }
+
+    .sheet .sheet-body {
+      overflow-y: auto;
+      padding: 0 16px 20px;
+    }
+  </style>
+</head>
+<body class="has-ribbon">
+  <div class="mock-ribbon"><strong>Phone mockup</strong> — core flows only. Open on a phone or narrow window. Not wired to WordPress.</div>
+
+  <div class="phone" id="phone" data-theme="light">
+    <div class="screens">
+      <!-- BOARD -->
+      <section class="screen is-active" id="scr-board" aria-label="Task board">
+        <header class="app-bar">
+          <button type="button" class="icon-btn" id="btn-menu" aria-label="Scope and filters">
+            <svg width="22" height="22" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
+          <h1>Switchboard</h1>
+          <span class="scope-chip" title="Client / job scope">Acme · Website</span>
+        </header>
+        <div class="status-strip" role="tablist" aria-label="Filter by status">
+          <button type="button" class="pill is-on" data-filter="all">All open</button>
+          <button type="button" class="pill" data-filter="mine">Mine</button>
+          <button type="button" class="pill">Pending</button>
+          <button type="button" class="pill">In progress</button>
+          <button type="button" class="pill">Review</button>
+          <button type="button" class="pill">Delivered</button>
+        </div>
+        <div class="scroll-body">
+          <p style="margin:0 0 10px;font-size:13px;color:var(--pq-muted);">Tap a card for messages, meeting, files, and status actions.</p>
+          <button type="button" class="task-card" data-open-detail>
+            <span class="badge badge-urgent">Urgent</span>
+            <p class="title">Homepage hero copy refresh</p>
+            <p class="meta">In progress · Due Mar 28 · You</p>
+          </button>
+          <button type="button" class="task-card" data-open-detail>
+            <span class="badge">Normal</span>
+            <p class="title">Footer legal links</p>
+            <p class="meta">Pending approval · Due Apr 2</p>
+          </button>
+          <button type="button" class="task-card" data-open-detail>
+            <span class="badge">Normal</span>
+            <p class="title">Blog taxonomy cleanup</p>
+            <p class="meta">Needs review · Assigned to Sam</p>
+          </button>
+        </div>
+      </section>
+
+      <!-- CALENDAR -->
+      <section class="screen" id="scr-cal" aria-label="Calendar">
+        <header class="app-bar">
+          <h1 style="flex:1">Calendar</h1>
+          <button type="button" class="icon-btn" aria-label="Today" title="Today">•</button>
+        </header>
+        <div class="scroll-body">
+          <p class="cal-head">March 2026</p>
+          <div class="cal-row">
+            <span class="cal-time">10:00</span>
+            <div>
+              <h3>Kickoff · Homepage hero</h3>
+              <p>Google Meet · Task #1042</p>
+            </div>
+          </div>
+          <div class="cal-row">
+            <span class="cal-time">All day</span>
+            <div>
+              <h3>Deadline · Footer legal</h3>
+              <p>Requested deadline</p>
+            </div>
+          </div>
+          <div class="cal-row">
+            <span class="cal-time">15:30</span>
+            <div>
+              <h3>Review · Blog taxonomy</h3>
+              <p>Internal</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- NEW REQUEST -->
+      <section class="screen form-screen" id="scr-new" aria-label="New request">
+        <header class="app-bar">
+          <button type="button" class="icon-btn" id="btn-close-new" aria-label="Close">
+            <span style="font-size:20px;line-height:1">×</span>
+          </button>
+          <h1>New request</h1>
+        </header>
+        <div class="scroll-body">
+          <label class="field"><span>Title</span>
+            <input class="input" type="text" placeholder="What do you need?" />
+          </label>
+          <label class="field"><span>Job</span>
+            <select><option>Website refresh · Q1</option><option>Retainer · Support</option></select>
+          </label>
+          <div class="row-2">
+            <label class="field"><span>Priority</span>
+              <select><option>Normal</option><option>High</option><option>Urgent</option></select>
+            </label>
+            <label class="field"><span>Deadline</span>
+              <input class="input" type="date" />
+            </label>
+          </div>
+          <label class="field"><span>Description</span>
+            <textarea placeholder="Context, links, acceptance criteria…"></textarea>
+          </label>
+          <label class="field" style="display:flex;align-items:center;gap:10px;flex-direction:row;">
+            <input type="checkbox" style="width:22px;height:22px;" />
+            <span style="margin:0">Meeting requested</span>
+          </label>
+          <button type="button" class="btn-primary">Submit request</button>
+          <button type="button" class="btn-ghost" id="btn-cancel-new">Cancel</button>
+        </div>
+      </section>
+
+      <!-- ALERTS -->
+      <section class="screen" id="scr-alerts" aria-label="Notifications">
+        <header class="app-bar">
+          <h1>Alerts</h1>
+        </header>
+        <div class="scroll-body">
+          <button type="button" class="notif" data-open-detail>
+            <span class="notif-dot" aria-hidden="true"></span>
+            <div>
+              <h3>Message on Homepage hero</h3>
+              <p>@you — Can we lock tone by EOD?</p>
+            </div>
+          </button>
+          <button type="button" class="notif is-read">
+            <span class="notif-dot" aria-hidden="true"></span>
+            <div>
+              <h3>Task approved</h3>
+              <p>Footer legal links is approved.</p>
+            </div>
+          </button>
+          <button type="button" class="notif is-read">
+            <span class="notif-dot" aria-hidden="true"></span>
+            <div>
+              <h3>Deadline updated</h3>
+              <p>Blog taxonomy now targets Apr 5.</p>
+            </div>
+          </button>
+        </div>
+      </section>
+
+      <!-- MORE -->
+      <section class="screen" id="scr-more" aria-label="More">
+        <header class="app-bar">
+          <h1>More</h1>
+        </header>
+        <div class="scroll-body">
+          <div class="list-group">
+            <button type="button" class="list-row">
+              <span>Preferences <small>Notifications &amp; Google</small></span>
+              <span class="chev">›</span>
+            </button>
+            <button type="button" class="list-row" id="row-theme">
+              <span>Dark mode</span>
+              <span class="chev" id="theme-toggle-label">Off</span>
+            </button>
+          </div>
+          <p style="font-size:12px;font-weight:700;color:var(--pq-muted);margin:16px 0 8px;">Manager workspace</p>
+          <div class="list-group">
+            <button type="button" class="list-row">
+              <span>Clients &amp; members</span>
+              <span class="chev">›</span>
+            </button>
+            <button type="button" class="list-row">
+              <span>Billing &amp; statements</span>
+              <span class="chev">›</span>
+            </button>
+            <button type="button" class="list-row">
+              <span>AI import</span>
+              <span class="chev">›</span>
+            </button>
+          </div>
+          <p style="font-size:13px;color:var(--pq-muted);margin-top:20px;">Sign out (mock)</p>
+        </div>
+      </section>
+    </div>
+
+    <!-- Task detail overlay -->
+    <div class="detail-screen" id="detail" aria-hidden="true">
+      <header class="detail-bar">
+        <button type="button" class="back" id="detail-back" aria-label="Back">‹</button>
+        <div class="titles">
+          <p class="kicker">In progress</p>
+          <h2>Homepage hero copy refresh</h2>
+        </div>
+      </header>
+      <div class="action-bar">
+        <button type="button">Move status…</button>
+        <button type="button">Assign</button>
+        <button type="button">Priority</button>
+      </div>
+      <div class="detail-tabs" role="tablist">
+        <button type="button" class="is-on" data-tab="conv">Conversation<span class="count">3</span></button>
+        <button type="button" data-tab="meet">Meeting</button>
+        <button type="button" data-tab="files">Files</button>
+      </div>
+      <div class="scroll-body" style="padding-bottom:8px;">
+        <div id="panel-conv" class="thread">
+          <p style="font-size:12px;color:var(--pq-muted);margin:0 0 12px;">Messages &amp; notes in one thread (target UX).</p>
+          <div class="bubble them">
+            <div class="who">Client · 1h ago</div>
+            Bold and short. No exclamation marks.
+          </div>
+          <div class="bubble me">
+            <div class="who">You · 45m ago</div>
+            Locked three variants in the doc — @sam for review?
+          </div>
+          <div class="bubble them">
+            <div class="who">Note · Team · 20m ago</div>
+            Legal wants disclaimers in footer only.
+          </div>
+        </div>
+        <div id="panel-meet" class="thread" hidden>
+          <p style="color:var(--pq-muted);">Meet link, time, attendees (synced from Google when connected).</p>
+        </div>
+        <div id="panel-files" class="thread" hidden>
+          <p style="color:var(--pq-muted);">External file links per task (current product direction).</p>
+        </div>
+      </div>
+      <div class="composer">
+        <textarea rows="1" placeholder="Message… Use @ to mention"></textarea>
+        <button type="button" class="send" aria-label="Send">➤</button>
+      </div>
+    </div>
+
+    <!-- Scope sheet -->
+    <div class="sheet-backdrop" id="sheet-bg"></div>
+    <div class="sheet" id="sheet" role="dialog" aria-label="Scope and filters">
+      <div class="sheet-handle"></div>
+      <h3>Scope</h3>
+      <div class="sheet-body">
+        <label class="field"><span>Client</span>
+          <select><option>Acme Corp</option><option>Contoso</option></select>
+        </label>
+        <label class="field"><span>Job</span>
+          <select><option>Website refresh · Q1</option><option>Brand · 2026</option></select>
+        </label>
+        <button type="button" class="btn-primary" id="sheet-done">Apply</button>
+      </div>
+    </div>
+
+    <nav class="bottom-nav" aria-label="Main">
+      <button type="button" class="nav-item is-on" data-nav="board" aria-current="page">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Board
+      </button>
+      <button type="button" class="nav-item" data-nav="cal">
+        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+        Calendar
+      </button>
+      <div class="nav-fab-wrap">
+        <button type="button" class="nav-fab" id="nav-fab" aria-label="New request">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+      <button type="button" class="nav-item" data-nav="alerts">
+        <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        Alerts
+      </button>
+      <button type="button" class="nav-item" data-nav="more">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+        More
+      </button>
+    </nav>
+  </div>
+
+  <script>
+    (function () {
+      var phone = document.getElementById('phone');
+      var screens = {
+        board: document.getElementById('scr-board'),
+        cal: document.getElementById('scr-cal'),
+        new: document.getElementById('scr-new'),
+        alerts: document.getElementById('scr-alerts'),
+        more: document.getElementById('scr-more')
+      };
+      var navItems = document.querySelectorAll('.nav-item[data-nav]');
+      var detail = document.getElementById('detail');
+      var detailBack = document.getElementById('detail-back');
+      var sheet = document.getElementById('sheet');
+      var sheetBg = document.getElementById('sheet-bg');
+      var btnMenu = document.getElementById('btn-menu');
+      var sheetDone = document.getElementById('sheet-done');
+      var navFab = document.getElementById('nav-fab');
+      var btnCloseNew = document.getElementById('btn-close-new');
+      var btnCancelNew = document.getElementById('btn-cancel-new');
+
+      function showScreen(key) {
+        Object.keys(screens).forEach(function (k) {
+          screens[k].classList.toggle('is-active', k === key);
+        });
+        navItems.forEach(function (el) {
+          el.classList.toggle('is-on', el.getAttribute('data-nav') === key);
+        });
+      }
+
+      navItems.forEach(function (el) {
+        el.addEventListener('click', function () {
+          showScreen(el.getAttribute('data-nav'));
+        });
+      });
+
+      navFab.addEventListener('click', function () {
+        showScreen('new');
+        navItems.forEach(function (el) { el.classList.remove('is-on'); });
+      });
+
+      btnCloseNew.addEventListener('click', function () { showScreen('board'); });
+      btnCancelNew.addEventListener('click', function () { showScreen('board'); });
+
+      document.querySelectorAll('[data-open-detail]').forEach(function (el) {
+        el.addEventListener('click', function () {
+          detail.classList.add('is-open');
+          detail.setAttribute('aria-hidden', 'false');
+        });
+      });
+
+      detailBack.addEventListener('click', function () {
+        detail.classList.remove('is-open');
+        detail.setAttribute('aria-hidden', 'true');
+      });
+
+      btnMenu.addEventListener('click', function () {
+        sheet.classList.add('is-open');
+        sheetBg.classList.add('is-open');
+      });
+      sheetBg.addEventListener('click', closeSheet);
+      sheetDone.addEventListener('click', closeSheet);
+      function closeSheet() {
+        sheet.classList.remove('is-open');
+        sheetBg.classList.remove('is-open');
+      }
+
+      document.querySelectorAll('.detail-tabs [data-tab]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var tab = btn.getAttribute('data-tab');
+          document.querySelectorAll('.detail-tabs [data-tab]').forEach(function (b) {
+            b.classList.toggle('is-on', b === btn);
+          });
+          document.getElementById('panel-conv').hidden = tab !== 'conv';
+          document.getElementById('panel-meet').hidden = tab !== 'meet';
+          document.getElementById('panel-files').hidden = tab !== 'files';
+        });
+      });
+
+      var rowTheme = document.getElementById('row-theme');
+      if (rowTheme) {
+        rowTheme.addEventListener('click', function () {
+          var isDark = phone.getAttribute('data-theme') === 'dark';
+          phone.setAttribute('data-theme', isDark ? 'light' : 'dark');
+          var label = document.getElementById('theme-toggle-label');
+          if (label) label.textContent = isDark ? 'Off' : 'On';
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute('content', isDark ? '#faf9f7' : '#292524');
+        });
+      }
+
+      document.querySelectorAll('.status-strip .pill').forEach(function (p) {
+        p.addEventListener('click', function () {
+          if (!p.getAttribute('data-filter')) return;
+          document.querySelectorAll('.status-strip .pill').forEach(function (x) { x.classList.remove('is-on'); });
+          p.classList.add('is-on');
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

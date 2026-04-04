@@ -886,6 +886,33 @@ body .wp-pq-binder .wp-pq-filter-nav .button {
   height: auto;
 }
 
+body .wp-pq-binder .wp-pq-section-toggle {
+  border-bottom: 1px solid var(--pq-border);
+  padding-bottom: 10px;
+  margin-bottom: 2px;
+}
+
+.wp-pq-section-arrow {
+  font-size: 10px;
+  color: var(--pq-muted);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.wp-pq-filter-nav-items {
+  display: grid;
+  gap: 6px;
+}
+
+.wp-pq-filter-nav-items.is-collapsed {
+  display: none;
+}
+
+.wp-pq-filter-nav-items > .button {
+  min-height: 0;
+  overflow: hidden;
+}
+
 body .wp-pq-binder .wp-pq-filter-nav .button:hover {
   background: var(--pq-sidebar-hover);
   color: var(--pq-sidebar-ink);
@@ -1148,11 +1175,10 @@ body .wp-pq-filter-list .button {
 
 .wp-pq-workspace-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 0fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 22px;
   min-width: 0;
   align-items: start;
-  transition: grid-template-columns 220ms ease;
 }
 
 .wp-pq-workspace-main {
@@ -1168,17 +1194,7 @@ body .wp-pq-filter-list .button {
 }
 
 .wp-pq-app-shell.is-detail-focus .wp-pq-workspace-body {
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 440px);
-}
-
-.wp-pq-app-shell.is-detail-focus .wp-pq-binder {
-  transform: translateX(-28px);
-  opacity: 0.76;
-}
-
-.wp-pq-app-shell.is-detail-focus .wp-pq-workspace-main {
-  transform: translateX(-20px);
-  opacity: 0.84;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .wp-pq-kicker {
@@ -2947,26 +2963,28 @@ body .wp-pq-wrap .wp-pq-archive-all-btn {
 }
 
 .wp-pq-drawer {
-  position: sticky;
-  top: 24px;
-  width: auto;
-  height: calc(100vh - 128px);
-  min-width: 0;
+  position: fixed;
+  top: 32px;
+  right: 0;
+  bottom: 0;
+  width: min(440px, 40vw);
+  min-width: 360px;
   padding: 18px;
   background: var(--pq-surface);
-  border: 1px solid var(--pq-border);
-  border-radius: var(--pq-radius-lg);
+  border-left: 1px solid var(--pq-border);
+  border-radius: var(--pq-radius-lg) 0 0 0;
   box-shadow: var(--pq-shadow);
-  transform: translateX(36px);
-  z-index: 1;
+  transform: translateY(100%);
+  z-index: 9990;
   overflow-y: auto;
   overflow-x: hidden;
   opacity: 0;
   pointer-events: none;
+  transition: transform 260ms ease, opacity 180ms ease, box-shadow 180ms ease;
 }
 
 .wp-pq-drawer.is-open {
-  transform: translateX(0);
+  transform: translateY(0);
   opacity: 1;
   pointer-events: auto;
   box-shadow: var(--pq-shadow-lg);

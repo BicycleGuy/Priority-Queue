@@ -692,25 +692,52 @@
 
     /* ── Client axis ─────────────────────────────────── */
     if (binderClientContext && canViewAll) {
-      var clientBtns = [
-        '<button class="button' + (filterState.clientUserId === 0 ? ' is-active' : '') + '" type="button" data-client-id="0">' +
-          '<span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><span class="wp-pq-job-avatar wp-pq-job-avatar--all">✱</span></span><span>All clients</span></span>' +
-        '</button>'
-      ];
+      var clientsCollapsed = getBinderCollapseState('clients');
+      var clientItemBtns = [];
       allClients.forEach(function (c) {
         var cid = parseInt(c.id, 10) || 0;
         var name = c.name || c.label || 'Client';
-        clientBtns.push(
+        clientItemBtns.push(
           '<button class="button' + (cid === filterState.clientUserId ? ' is-active' : '') + '" type="button" data-client-id="' + escapeHtml(cid) + '">' +
             '<span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">' + clientAvatarHtml(name, cid) + '</span><span>' + escapeHtml(name) + '</span></span>' +
           '</button>'
         );
       });
-      binderClientContext.innerHTML = '<div class="wp-pq-filter-nav">' + clientBtns.join('') + '</div>';
+      binderClientContext.innerHTML =
+        '<div class="wp-pq-filter-nav">' +
+          '<button class="button wp-pq-section-toggle' + (filterState.clientUserId === 0 ? ' is-active' : '') + '" type="button" data-client-id="0" data-toggle-section="clients">' +
+            '<span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><span class="wp-pq-job-avatar wp-pq-job-avatar--all">✱</span></span><span>All clients</span></span>' +
+            '<span class="wp-pq-section-arrow">' + (clientsCollapsed ? '&#9654;' : '&#9660;') + '</span>' +
+          '</button>' +
+          '<div class="wp-pq-filter-nav-items' + (clientsCollapsed ? ' is-collapsed' : '') + '">' + clientItemBtns.join('') + '</div>' +
+        '</div>';
 
       if (!binderClientContext._pqBound) {
         binderClientContext._pqBound = true;
         binderClientContext.addEventListener('click', async function (e) {
+          // Toggle collapse
+          var toggleBtn = e.target.closest('[data-toggle-section]');
+          if (toggleBtn) {
+            var section = toggleBtn.dataset.toggleSection;
+            var itemsEl = binderClientContext.querySelector('.wp-pq-filter-nav-items');
+            var arrowEl = toggleBtn.querySelector('.wp-pq-section-arrow');
+            if (itemsEl) {
+              var nowCollapsed = !itemsEl.classList.contains('is-collapsed');
+              itemsEl.classList.toggle('is-collapsed', nowCollapsed);
+              if (arrowEl) arrowEl.innerHTML = nowCollapsed ? '&#9654;' : '&#9660;';
+              setBinderCollapseState(section, nowCollapsed);
+            }
+            // If it's also the "All" filter button, apply the filter too
+            if (toggleBtn.dataset.clientId !== undefined) {
+              e.preventDefault();
+              taskFilter = { mode: 'all', value: 'all' };
+              setFilterState({ clientUserId: 0, billingBucketId: 0 });
+              syncFilterControls();
+              selectedTaskId = null;
+              await loadTasks();
+            }
+            return;
+          }
           var btn = e.target.closest('[data-client-id]');
           if (!btn) return;
           e.preventDefault();
@@ -731,25 +758,53 @@
 
     /* ── Job axis ────────────────────────────────────── */
     if (binderJobContext) {
-      var jobBtns = [
-        '<button class="button' + (filterState.billingBucketId === 0 ? ' is-active' : '') + '" type="button" data-job-id="0">' +
-          '<span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><span class="wp-pq-job-avatar wp-pq-job-avatar--all">✱</span></span><span>All jobs</span></span>' +
-        '</button>'
-      ];
+      var jobsCollapsed = getBinderCollapseState('jobs');
+      var jobItemBtns = [];
       allBuckets.forEach(function (b) {
         var bid = parseInt(b.id, 10) || 0;
         var name = b.label || b.bucket_name || 'Job';
-        jobBtns.push(
+        jobItemBtns.push(
           '<button class="button' + (bid === filterState.billingBucketId ? ' is-active' : '') + '" type="button" data-job-id="' + escapeHtml(bid) + '">' +
             '<span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true">' + jobAvatarHtml(name, b.client_id) + '</span><span>' + escapeHtml(name) + '</span></span>' +
           '</button>'
         );
       });
-      binderJobContext.innerHTML = '<div class="wp-pq-filter-nav">' + jobBtns.join('') + '</div>';
+      binderJobContext.innerHTML =
+        '<div class="wp-pq-filter-nav">' +
+          '<button class="button wp-pq-section-toggle' + (filterState.billingBucketId === 0 ? ' is-active' : '') + '" type="button" data-job-id="0" data-toggle-section="jobs">' +
+            '<span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><span class="wp-pq-job-avatar wp-pq-job-avatar--all">✱</span></span><span>All jobs</span></span>' +
+            '<span class="wp-pq-section-arrow">' + (jobsCollapsed ? '&#9654;' : '&#9660;') + '</span>' +
+          '</button>' +
+          '<div class="wp-pq-filter-nav-items' + (jobsCollapsed ? ' is-collapsed' : '') + '">' + jobItemBtns.join('') + '</div>' +
+        '</div>';
 
       if (!binderJobContext._pqBound) {
         binderJobContext._pqBound = true;
         binderJobContext.addEventListener('click', async function (e) {
+          // Toggle collapse
+          var toggleBtn = e.target.closest('[data-toggle-section]');
+          if (toggleBtn) {
+            var section = toggleBtn.dataset.toggleSection;
+            var itemsEl = binderJobContext.querySelector('.wp-pq-filter-nav-items');
+            var arrowEl = toggleBtn.querySelector('.wp-pq-section-arrow');
+            if (itemsEl) {
+              var nowCollapsed = !itemsEl.classList.contains('is-collapsed');
+              itemsEl.classList.toggle('is-collapsed', nowCollapsed);
+              if (arrowEl) arrowEl.innerHTML = nowCollapsed ? '&#9654;' : '&#9660;';
+              setBinderCollapseState(section, nowCollapsed);
+            }
+            if (toggleBtn.dataset.jobId !== undefined) {
+              e.preventDefault();
+              taskFilter = { mode: 'all', value: 'all' };
+              setFilterState({
+                clientUserId: filterState.clientUserId,
+                billingBucketId: 0,
+              });
+              syncFilterControls();
+              await loadTasks();
+            }
+            return;
+          }
           var btn = e.target.closest('[data-job-id]');
           if (!btn) return;
           e.preventDefault();
@@ -1244,7 +1299,9 @@
 
     card.addEventListener('click', () => {
       if (boardDragActive || Date.now() < boardDragLockUntil) return;
-      selectTask(task.id, true);
+      selectTask(task.id, true).catch(function (err) {
+        console.error('[Switchboard] Card click → selectTask error:', err);
+      });
     });
     return card;
   }
@@ -1276,7 +1333,9 @@
       '</div>' +
       '<div class="actions">' + renderStatusButtons(task) + '</div>';
 
-    li.addEventListener('click', () => selectTask(task.id, false));
+    li.addEventListener('click', () => selectTask(task.id, false).catch(function (err) {
+      console.error('[Switchboard] List item click → selectTask error:', err);
+    }));
     return li;
   }
 
@@ -1337,6 +1396,23 @@
 
   function deleteButtonHtml(taskId) {
     return '<button type="button" class="button wp-pq-delete-btn wp-pq-button-danger" data-task-id="' + taskId + '">Delete</button>';
+  }
+
+  function getBinderCollapseState(section) {
+    try {
+      var state = JSON.parse(localStorage.getItem('wp_pq_binder_collapse') || '{}');
+      return !!state[section];
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function setBinderCollapseState(section, collapsed) {
+    try {
+      var state = JSON.parse(localStorage.getItem('wp_pq_binder_collapse') || '{}');
+      state[section] = collapsed;
+      localStorage.setItem('wp_pq_binder_collapse', JSON.stringify(state));
+    } catch (e) { /* ignore */ }
   }
 
   function getLaneCollapseState() {
@@ -1728,7 +1804,11 @@
       meetingPanel.hidden = false;
     }
     if (window.wpPqConfig.canAssign) {
-      await loadWorkers(task);
+      try {
+        await loadWorkers(task);
+      } catch (err) {
+        console.error('[Switchboard] loadWorkers failed:', err);
+      }
       ensureAssigneePresent(task);
       syncAssignmentPanel(task);
     }
@@ -1795,18 +1875,29 @@
     const task = getTaskById(taskId);
     if (!task) return;
 
-    await updateTaskSummary(task);
+    // Highlight and open drawer BEFORE async work so the UI responds immediately
+    // even if a network request fails.
     if (!(config.preservePanelState && sameTask)) {
       resetTaskPanelState(task.id);
     }
     highlightSelected();
     if (shouldOpenDrawer) openDrawer();
+
+    try {
+      await updateTaskSummary(task);
+    } catch (err) {
+      console.error('[Switchboard] updateTaskSummary failed:', err);
+    }
     seedMeetingForm(config.forceMeetingSeed === true);
     const jobs = [];
     if (config.loadParticipants !== false) jobs.push(loadParticipants({ force: !!config.forceParticipants }));
     if (config.loadWorkspace !== false) jobs.push(loadActiveWorkspacePane({ force: !!config.forceWorkspace }));
     if (jobs.length) {
-      await Promise.all(jobs);
+      try {
+        await Promise.all(jobs);
+      } catch (err) {
+        console.error('[Switchboard] selectTask background jobs failed:', err);
+      }
     }
   }
 
