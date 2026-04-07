@@ -54,6 +54,18 @@ class WP_PQ_Google_Auth
             self::render_oauth_result_page(false, 'Google client credentials are not configured in WordPress.');
         }
 
+        // Validate CSRF state and clean up.
+        $is_valid = self::validate_and_cleanup_oauth_state($state);
+        if (! $is_valid) {
+            if ($as_json) {
+                return new WP_REST_Response([
+                    'ok' => false,
+                    'message' => 'OAuth state mismatch. Please try connecting again.',
+                ], 403);
+            }
+            self::render_oauth_result_page(false, 'OAuth state mismatch — please try connecting again.');
+        }
+
         $resp = wp_remote_post('https://oauth2.googleapis.com/token', [
             'timeout' => 20,
             'body' => [
@@ -119,7 +131,7 @@ class WP_PQ_Google_Auth
         }
 
         $state = wp_generate_password(20, false, false);
-        update_option('wp_pq_google_oauth_state', $state, false);
+        set_transient('wp_pq_oauth_state_' . get_current_user_id(), $state, 600);
 
         $params = [
             'client_id' => $client_id,
@@ -498,6 +510,35 @@ class WP_PQ_Google_Auth
         update_user_meta($user_id, 'wp_pq_google_tokens', $tokens);
 
         return (string) $body['access_token'];
+    }
+
+    /**
+     * Validate OAuth state parameter against stored value and clean up.
+     * Checks per-user transient first, falls back to legacy global option.
+     */
+    private static function validate_and_cleanup_oauth_state(string $state): bool
+    {
+        if ($state === '') {
+            return false;
+        }
+
+        $user_id = get_current_user_id();
+        $expected_state = $user_id > 0 ? get_transient('wp_pq_oauth_state_' . $user_id) : '';
+
+        // Check per-user transient (current approach).
+        if ($state === $expected_state) {
+            delete_transient('wp_pq_oauth_state_' . $user_id);
+            return true;
+        }
+
+        // Check legacy global option for backwards compatibility.
+        $legacy_state = (string) get_option('wp_pq_google_oauth_state', '');
+        if ($state === $legacy_state) {
+            delete_option('wp_pq_google_oauth_state');
+            return true;
+        }
+
+        return false;
     }
 
     private static function render_oauth_result_page(bool $ok, string $message): void

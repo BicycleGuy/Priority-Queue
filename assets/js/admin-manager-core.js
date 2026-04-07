@@ -4,8 +4,6 @@
     return;
   }
 
-  const apiRoot = managerConfig.root;
-  const headers = { 'X-WP-Nonce': managerConfig.nonce };
   const managerNav = document.getElementById('wp-pq-manager-nav');
   const managerPanel = document.getElementById('wp-pq-manager-panel');
   const managerTitle = document.getElementById('wp-pq-manager-panel-title');
@@ -40,16 +38,12 @@
       note: 'Active workflow stays here. Everything else now hangs off the same portal shell.',
     },
     clients: {
-      title: 'Clients',
+      title: 'Clients and Jobs',
       note: 'Create client accounts, manage members, and control job access without leaving the portal.',
     },
-    'billing-rollup': {
-      title: 'Billing Rollup',
-      note: 'Overview only. Completed work is grouped from ledger entries, and job corrections save automatically.',
-    },
-    'monthly-statements': {
-      title: 'Monthly Statements',
-      note: 'Read-only ledger reporting grouped by client, job, and month.',
+    'billing-queue': {
+      title: 'Billing Queue',
+      note: 'Review delivered work, make billing decisions, and track payment status.',
     },
     'work-statements': {
       title: 'Work Statements',
@@ -81,14 +75,8 @@
     },
   };
 
-  function esc(value) {
-    return String(value == null ? '' : value)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
-  }
+  const esc = window.wpPqPortalUI.escapeHtml;
+  const api = window.wpPqPortalUI.api;
 
   function rowsToCsv(rows) {
     return rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n');
@@ -96,11 +84,12 @@
 
   function invoiceStatusLabel(status) {
     switch (String(status || '')) {
-      case 'written_off': return 'No Charge';
-      case 'unbilled': return 'Unbilled';
+      case 'pending_review': return 'Pending Review';
+      case 'billable': return 'Billable';
+      case 'no_charge': return 'No Charge';
       case 'invoiced': return 'Invoiced';
       case 'paid': return 'Paid';
-      default: return String(status || 'Unbilled').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+      default: return String(status || 'Pending Review').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
     }
   }
 
@@ -110,48 +99,6 @@
       return;
     }
     window.alert(message);
-  }
-
-  function friendlyApiError(response, payload) {
-    const code = String(payload && payload.code ? payload.code : '');
-    const message = String(payload && payload.message ? payload.message : '');
-    if (
-      code === 'rest_cookie_invalid_nonce'
-      || /cookie check failed/i.test(message)
-      || (/nonce/i.test(message) && /invalid|expired|failed/i.test(message))
-      || ((response.status === 401 || response.status === 403) && /cookie|nonce|rest/i.test(message))
-    ) {
-      return 'Your session expired. Refresh the page and try again.';
-    }
-
-    return message || 'Request failed.';
-  }
-
-  async function api(path, options) {
-    const requestOptions = Object.assign({
-      credentials: 'same-origin',
-    }, options || {});
-    requestOptions.headers = Object.assign({}, headers, (options && options.headers) || {});
-    if (requestOptions.body instanceof FormData) {
-      delete requestOptions.headers['Content-Type'];
-    } else if (!requestOptions.headers['Content-Type']) {
-      requestOptions.headers['Content-Type'] = 'application/json';
-    }
-    const response = await fetch(apiRoot + path.replace(/^\//, ''), requestOptions);
-
-    let payload = null;
-    const text = await response.text();
-    try {
-      payload = text ? JSON.parse(text) : {};
-    } catch (error) {
-      payload = { message: text || 'Request failed.' };
-    }
-
-    if (!response.ok) {
-      throw new Error(friendlyApiError(response, payload));
-    }
-
-    return payload;
   }
 
   function sectionUrl(section) {
@@ -315,7 +262,6 @@
   async function submitJson(path, method, body) {
     return api(path, {
       method: method || 'POST',
-      headers: Object.assign({}, headers, { 'Content-Type': 'application/json' }),
       body: JSON.stringify(body || {}),
     });
   }
@@ -511,6 +457,21 @@
     }
   });
 
+  managerToolbar?.addEventListener('input', async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) return;
+    if (target.id !== 'wp-pq-client-browser-search') return;
+
+    state.clientsSearch = target.value || '';
+    await _pqMgr.render.clients();
+    const searchInput = document.getElementById('wp-pq-client-browser-search');
+    if (searchInput) {
+      searchInput.focus();
+      const length = String(state.clientsSearch || '').length;
+      searchInput.setSelectionRange(length, length);
+    }
+  });
+
   managerToolbar?.addEventListener('submit', async (event) => {
     const form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
@@ -544,14 +505,8 @@
       }
       if (form.id === 'wp-pq-rollup-filter-form') {
         const data = Object.fromEntries(new FormData(form).entries());
-        replaceSectionUrl('billing-rollup', data);
-        await _pqMgr.render['billing-rollup']();
-        return;
-      }
-      if (form.id === 'wp-pq-monthly-filter-form') {
-        const data = Object.fromEntries(new FormData(form).entries());
-        replaceSectionUrl('monthly-statements', data);
-        await _pqMgr.render['monthly-statements']();
+        replaceSectionUrl('billing-queue', data);
+        await _pqMgr.render['billing-queue']();
         return;
       }
       if (form.id === 'wp-pq-files-filter-form') {
@@ -585,7 +540,6 @@
         const formData = new FormData(form);
         const response = await api('manager/ai-import/parse', {
           method: 'POST',
-          headers,
           body: formData,
         });
         state.aiPreview = response.preview || null;
@@ -608,22 +562,8 @@
     try {
       if (form.id === 'wp-pq-rollup-filter-form') {
         const data = Object.fromEntries(new FormData(form).entries());
-        replaceSectionUrl('billing-rollup', data);
-        await _pqMgr.render['billing-rollup']();
-        return;
-      }
-      if (form.id === 'wp-pq-monthly-filter-form') {
-        if (target.name === 'client_id') {
-          const jobFilter = form.querySelector('select[name="billing_bucket_id"]');
-          if (jobFilter) {
-            jobFilter.innerHTML = Number(target.value || 0) > 0
-              ? clientJobOptions(target.value, 0, true)
-              : '<option value="0">All jobs</option>';
-          }
-        }
-        const data = Object.fromEntries(new FormData(form).entries());
-        replaceSectionUrl('monthly-statements', data);
-        await _pqMgr.render['monthly-statements']();
+        replaceSectionUrl('billing-queue', data);
+        await _pqMgr.render['billing-queue']();
         return;
       }
       if (form.id === 'wp-pq-files-filter-form') {
@@ -651,6 +591,26 @@
     }
   });
 
+  // Tree collapse/expand and backdrop click (non-button elements)
+  managerContent?.addEventListener('click', (event) => {
+    // Tree toggle: collapse indicator or group header
+    const toggle = event.target.closest('[data-action="tree-toggle"]');
+    if (toggle) {
+      const li = toggle.closest('li');
+      if (li) li.classList.toggle('is-collapsed');
+      return;
+    }
+    // Drawer backdrop click
+    if (event.target.id === 'wp-pq-tree-backdrop') {
+      state.drawerOpen = false;
+      const drawer = document.getElementById('wp-pq-tree-drawer');
+      const backdrop = document.getElementById('wp-pq-tree-backdrop');
+      if (drawer) drawer.classList.remove('is-open');
+      if (backdrop) backdrop.classList.remove('is-open');
+      return;
+    }
+  });
+
   managerContent?.addEventListener('click', async (event) => {
     const button = event.target.closest('button');
     if (!button) return;
@@ -659,8 +619,17 @@
       if (button.dataset.openClient) {
         state.selectedClientId = Number(button.dataset.openClient || 0);
         state.clientTab = 'overview';
+        state.drawerOpen = true;
         replaceSectionUrl('clients', state.selectedClientId > 0 ? { client_id: state.selectedClientId } : {});
         await _pqMgr.render.clients();
+        return;
+      }
+      if (action === 'close-tree-drawer') {
+        state.drawerOpen = false;
+        const drawer = document.getElementById('wp-pq-tree-drawer');
+        const backdrop = document.getElementById('wp-pq-tree-backdrop');
+        if (drawer) drawer.classList.remove('is-open');
+        if (backdrop) backdrop.classList.remove('is-open');
         return;
       }
       if (button.dataset.clientTab) {
@@ -669,27 +638,71 @@
         document.querySelectorAll('.wp-pq-client-tab-body').forEach((body) => { body.hidden = body.dataset.tab !== state.clientTab; });
         return;
       }
-      if (button.dataset.clientAlpha) {
-        const alpha = String(button.dataset.clientAlpha || '').toUpperCase();
-        const listEl = document.querySelector('.wp-pq-client-browser-list');
-        if (listEl) {
-          const target = listEl.querySelector(`[data-client-letter="${alpha}"]`);
-          if (target) {
-            target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-          }
-        }
-        // highlight active letter
-        document.querySelectorAll('.wp-pq-client-alpha-btn').forEach((btn) => btn.classList.toggle('is-active', String(btn.dataset.clientAlpha || '').toUpperCase() === alpha));
-        return;
-      }
       if (button.dataset.openStatement) {
         state.invoiceDraftMode = 'review';
         await openSection('invoice-drafts', { query: { statement_id: Number(button.dataset.openStatement || 0) } });
         return;
       }
-      if (action === 'delete-job') {
-        if (!window.confirm('Delete this job if it is empty and has no dependencies?')) return;
-        await api(`manager/jobs/${button.dataset.jobId}`, { method: 'DELETE', headers });
+      if (action === 'delete-client-contact') {
+        await api(`manager/clients/${button.dataset.clientId}/contacts/${button.dataset.contactId}`, { method: 'DELETE' });
+        state.clients = null;
+        await _pqMgr.render.clients();
+        toast('Contact removed.', false);
+        return;
+      }
+      if (action === 'delete-member-contact') {
+        await api(`manager/members/${button.dataset.memberId}/contacts/${button.dataset.contactId}`, { method: 'DELETE' });
+        state.clients = null;
+        await _pqMgr.render.clients();
+        toast('Member contact removed.', false);
+        return;
+      }
+      if (action === 'show-move-job') {
+        const jobId = button.dataset.jobId;
+        const panel = managerContent.querySelector(`[data-move-panel="${jobId}"]`);
+        if (panel) panel.hidden = false;
+        const delPanel = managerContent.querySelector(`[data-delete-panel="${jobId}"]`);
+        if (delPanel) delPanel.hidden = true;
+        return;
+      }
+      if (action === 'show-delete-job') {
+        const jobId = button.dataset.jobId;
+        const panel = managerContent.querySelector(`[data-delete-panel="${jobId}"]`);
+        if (panel) panel.hidden = false;
+        const movePanel = managerContent.querySelector(`[data-move-panel="${jobId}"]`);
+        if (movePanel) movePanel.hidden = true;
+        return;
+      }
+      if (action === 'cancel-job-panel') {
+        const jobId = button.dataset.jobId;
+        const movePanel = managerContent.querySelector(`[data-move-panel="${jobId}"]`);
+        const delPanel = managerContent.querySelector(`[data-delete-panel="${jobId}"]`);
+        if (movePanel) movePanel.hidden = true;
+        if (delPanel) delPanel.hidden = true;
+        return;
+      }
+      if (action === 'confirm-move-job') {
+        const jobId = button.dataset.jobId;
+        const select = managerContent.querySelector(`[data-move-target-client="${jobId}"]`);
+        const targetClientId = select ? Number(select.value) : 0;
+        if (targetClientId <= 0) { toast('Choose a target client.', true); return; }
+        await submitJson(`manager/jobs/${jobId}/move`, 'POST', { target_client_id: targetClientId });
+        state.clients = null;
+        await _pqMgr.render.clients();
+        toast('Job moved to new client.', false);
+        return;
+      }
+      if (action === 'confirm-delete-job') {
+        const jobId = button.dataset.jobId;
+        const confirmInput = managerContent.querySelector(`[data-delete-confirm="${jobId}"]`);
+        const confirmVal = confirmInput ? confirmInput.value.trim() : '';
+        if (confirmVal !== 'DELETE') { toast('Type DELETE to confirm.', true); return; }
+        const targetSelect = managerContent.querySelector(`[data-delete-target-job="${jobId}"]`);
+        const targetBucketId = targetSelect ? Number(targetSelect.value) : 0;
+        await submitJson(`manager/jobs/${jobId}/force-delete`, 'POST', {
+          confirm: 'DELETE',
+          target_bucket_id: targetBucketId,
+        });
         state.clients = null;
         await _pqMgr.render.clients();
         toast('Job deleted.', false);
@@ -708,7 +721,7 @@
         if (!inviteId) return;
         button.disabled = true;
         button.textContent = 'Sending…';
-        var result = await api('manager/invites/' + inviteId + '/resend', { method: 'POST', headers });
+        var result = await api('manager/invites/' + inviteId + '/resend', { method: 'POST' });
         toast(result.message || 'Invite resent.', false);
         await _pqMgr.render.invites();
         return;
@@ -741,7 +754,7 @@
       }
       if (action === 'delete-statement' && state.statementDetail) {
         if (!window.confirm('Delete this invoice draft and restore entry eligibility?')) return;
-        await api(`manager/statements/${state.statementDetail.id}`, { method: 'DELETE', headers });
+        await api(`manager/statements/${state.statementDetail.id}`, { method: 'DELETE' });
         state.invoiceDraftMode = 'review';
         replaceSectionUrl('invoice-drafts', {});
         await _pqMgr.render['invoice-drafts']();
@@ -749,13 +762,13 @@
         return;
       }
       if (action === 'delete-line' && state.statementDetail) {
-        await api(`manager/statements/${state.statementDetail.id}/lines/${button.dataset.lineId}`, { method: 'DELETE', headers });
+        await api(`manager/statements/${state.statementDetail.id}/lines/${button.dataset.lineId}`, { method: 'DELETE' });
         await _pqMgr.render['invoice-drafts'](state.statementDetail.id);
         toast('Invoice draft line removed.', false);
         return;
       }
       if (action === 'remove-task' && state.statementDetail) {
-        await api(`manager/statements/${state.statementDetail.id}/tasks/${button.dataset.taskId}`, { method: 'DELETE', headers });
+        await api(`manager/statements/${state.statementDetail.id}/tasks/${button.dataset.taskId}`, { method: 'DELETE' });
         await _pqMgr.render['invoice-drafts'](state.statementDetail.id);
         toast('Task removed from invoice draft.', false);
         return;
@@ -784,7 +797,7 @@
         if (target.checked) {
           await submitJson(`manager/jobs/${bucketId}/members`, 'POST', { user_id: userId });
         } else {
-          await api(`manager/jobs/${bucketId}/members/${userId}`, { method: 'DELETE', headers });
+          await api(`manager/jobs/${bucketId}/members/${userId}`, { method: 'DELETE' });
         }
         state.clients = null;
         toast(target.checked ? 'Access granted.' : 'Access removed.', false);
@@ -850,6 +863,31 @@
         toast('Job saved.', false);
         return;
       }
+      if (form.dataset.action === 'save-client-address') {
+        await submitJson(`manager/clients/${form.dataset.clientId}`, 'POST', Object.fromEntries(new FormData(form).entries()));
+        state.clients = null;
+        await _pqMgr.render.clients();
+        toast('Address saved.', false);
+        return;
+      }
+      if (form.dataset.action === 'save-client-contact') {
+        const fd = Object.fromEntries(new FormData(form).entries());
+        fd.is_primary = fd.is_primary ? 1 : 0;
+        await submitJson(`manager/clients/${form.dataset.clientId}/contacts`, 'POST', fd);
+        state.clients = null;
+        await _pqMgr.render.clients();
+        toast('Contact saved.', false);
+        return;
+      }
+      if (form.dataset.action === 'save-member-contact') {
+        const fd = Object.fromEntries(new FormData(form).entries());
+        fd.is_primary = fd.is_primary ? 1 : 0;
+        await submitJson(`manager/members/${form.dataset.memberId}/contacts`, 'POST', fd);
+        state.clients = null;
+        await _pqMgr.render.clients();
+        toast('Member contact saved.', false);
+        return;
+      }
       if (form.dataset.action === 'assign-job-member') {
         await submitJson(`manager/jobs/${form.dataset.bucketId}/members`, 'POST', { user_id: Number(new FormData(form).get('user_id') || 0) });
         state.clients = null;
@@ -859,7 +897,7 @@
       }
       if (form.dataset.action === 'assign-rollup-job') {
         await submitJson('manager/rollups/assign-job', 'POST', Object.fromEntries(new FormData(form).entries()));
-        await _pqMgr.render['billing-rollup']();
+        await _pqMgr.render['billing-queue']();
         toast('Completed work job updated.', false);
         return;
       }
@@ -870,8 +908,8 @@
         try {
           const response = await submitJson(`tasks/${taskId}/reopen-completed`, 'POST', { target_status: targetStatus });
           toast(response.message || 'Completed task reopened.', false);
-          if (state.section === 'monthly-statements') {
-            await _pqMgr.render['monthly-statements']();
+          if (state.section === 'billing-queue') {
+            await _pqMgr.render['billing-queue']();
           } else if (state.section === 'invoice-drafts' && state.statementDetail) {
             await _pqMgr.render['invoice-drafts'](state.statementDetail.id);
           }
@@ -885,8 +923,8 @@
           }
           const followup = await submitJson(`tasks/${taskId}/followup`, 'POST', { target_status: targetStatus });
           toast(followup.message || 'Follow-up task created.', false);
-          if (state.section === 'monthly-statements') {
-            await _pqMgr.render['monthly-statements']();
+          if (state.section === 'billing-queue') {
+            await _pqMgr.render['billing-queue']();
           } else if (state.section === 'invoice-drafts' && state.statementDetail) {
             await _pqMgr.render['invoice-drafts'](state.statementDetail.id);
           }

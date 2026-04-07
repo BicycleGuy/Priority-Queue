@@ -18,82 +18,53 @@
   var printHtml = m.printHtml;
   var renderManagerFrame = m.renderManagerFrame;
 
-  // ── Billing Rollup ───────────────────────────────────────────────────
+  // ── Billing Queue ────────────────────────────────────────────────────
 
-  async function renderBillingRollup() {
-    renderManagerFrame('billing-rollup');
-    el.managerContent.innerHTML = '<div class="wp-pq-empty-state">Loading billing rollup…</div>';
-    await ensureClients();
-    const params = new URLSearchParams(window.location.search);
-    const month = params.get('month') || new Date().toISOString().slice(0, 7);
-    const clientId = params.get('client_id') || '0';
-    const data = await api(`manager/rollups?month=${encodeURIComponent(month)}&client_id=${encodeURIComponent(clientId)}`);
-
-    el.managerToolbar.innerHTML = `
-      <form id="wp-pq-rollup-filter-form" class="wp-pq-period-form">
-        <label>Month <input type="month" name="month" value="${esc(data.range.month)}"></label>
-        <label>Client
-          <select name="client_id">${clientOptions(clientId, true)}</select>
-        </label>
-      </form>
-    `;
-
-    el.managerContent.innerHTML = (data.groups || []).map((group) => `
-      <section class="wp-pq-panel wp-pq-manager-card">
-        <div class="wp-pq-section-heading">
-          <div>
-            <h3>${esc(group.client_name || 'Client')} · ${esc(group.bucket_name || 'Job')}</h3>
-            <p class="wp-pq-panel-note">${Number((group.entries || []).length)} completed work entries · ${Number(group.invoice_ready_count || 0)} invoice-ready</p>
-          </div>
-        </div>
-        <table class="wp-pq-admin-table wp-pq-manager-table">
-          <thead><tr><th>Date</th><th>Title</th><th>Owner</th><th>Status</th><th>Job</th></tr></thead>
-          <tbody>
-            ${(group.entries || []).map((entry) => `
-              <tr>
-                <td>${esc(String(entry.completion_date || '').slice(0, 10))}</td>
-                <td>
-                  <strong>${esc(entry.title_snapshot || '')}</strong>
-                  <div class="wp-pq-panel-note">${esc(entry.work_summary || '')}</div>
-                </td>
-                <td>${esc(entry.owner_name || 'Unassigned')}</td>
-                <td>${esc(entry.invoice_status || 'unbilled')}</td>
-                <td>
-                  <select
-                    class="wp-pq-rollup-job-select"
-                    data-action="assign-rollup-job"
-                    data-ledger-entry-id="${entry.ledger_entry_id}"
-                    data-task-id="${entry.task_id || 0}"
-                    data-current-bucket-id="${entry.billing_bucket_id || 0}"
-                  >${(group.bucket_options || []).map((bucket) => `<option value="${bucket.id}"${Number(bucket.id) === Number(entry.billing_bucket_id) ? ' selected' : ''}>${esc(bucket.bucket_name || 'Job')}</option>`).join('')}</select>
-                </td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </section>
-    `).join('') || '<div class="wp-pq-empty-state">No completed work in this period.</div>';
+  function rollupDatePresets() {
+    var now = new Date();
+    var y = now.getFullYear();
+    var m = now.getMonth();
+    var thisStart = new Date(y, m, 1);
+    var thisEnd = new Date(y, m + 1, 0);
+    var lastStart = new Date(y, m - 1, 1);
+    var lastEnd = new Date(y, m, 0);
+    var qStart = new Date(y, Math.floor(m / 3) * 3, 1);
+    var qEnd = new Date(y, Math.floor(m / 3) * 3 + 3, 0);
+    function fmt(d) { return d.toISOString().slice(0, 10); }
+    return [
+      { label: 'This Month', start: fmt(thisStart), end: fmt(thisEnd) },
+      { label: 'Last Month', start: fmt(lastStart), end: fmt(lastEnd) },
+      { label: 'This Quarter', start: fmt(qStart), end: fmt(qEnd) },
+    ];
   }
 
-  // ── Monthly Statements ───────────────────────────────────────────────
+  function rollupStatusSelect(entry) {
+    var status = String(entry.invoice_status || 'pending_review');
+    var locked = status === 'invoiced' || status === 'paid';
+    if (locked) return esc(invoiceStatusLabel(status));
+    return '<select class="wp-pq-rollup-status-select" data-ledger-entry-id="' + entry.ledger_entry_id + '">' +
+      '<option value="pending_review"' + (status === 'pending_review' ? ' selected' : '') + '>Pending Review</option>' +
+      '<option value="billable"' + (status === 'billable' ? ' selected' : '') + '>Billable</option>' +
+      '<option value="no_charge"' + (status === 'no_charge' ? ' selected' : '') + '>No Charge</option>' +
+      '</select>';
+  }
 
-  function monthlyStatementCsv(groups) {
-    const rows = [['Client', 'Job', 'Month', 'Completion Date', 'Title', 'Work Summary', 'Owner', 'Billing Mode', 'Billing Category', 'Hours', 'Rate', 'Amount', 'Invoice Status']];
-    groups.forEach((group) => {
-      (group.entries || []).forEach((entry) => {
+  function billingRollupCsv(groups) {
+    var rows = [['Date', 'Customer/Client', 'Description', 'Work Summary', 'Owner', 'Job', 'Hours', 'Rate', 'Amount', 'Category', 'Billing Mode', 'Invoice Status']];
+    (groups || []).forEach(function (group) {
+      (group.entries || []).forEach(function (entry) {
         rows.push([
-          group.client_name || '',
-          group.job_name || '',
-          group.month || '',
           String(entry.completion_date || '').slice(0, 10),
+          group.client_name || '',
           entry.title_snapshot || '',
           entry.work_summary || '',
-          entry.owner_name || '',
-          entry.billing_mode || '',
-          entry.billing_category || '',
+          entry.owner_name || 'Unassigned',
+          group.bucket_name || '',
           entry.hours || '',
           entry.rate || '',
           entry.amount || '',
+          entry.billing_category || '',
+          entry.billing_mode || '',
           invoiceStatusLabel(entry.invoice_status),
         ]);
       });
@@ -101,106 +72,269 @@
     return rowsToCsv(rows);
   }
 
-  async function renderMonthlyStatements() {
-    renderManagerFrame('monthly-statements');
-    el.managerContent.innerHTML = '<div class="wp-pq-empty-state">Loading monthly statements…</div>';
+  async function renderBillingQueue() {
+    renderManagerFrame('billing-queue');
+    el.managerContent.innerHTML = '<div class="wp-pq-empty-state">Loading billing queue…</div>';
     await ensureClients();
-    const params = new URLSearchParams(window.location.search);
-    const month = params.get('month') || new Date().toISOString().slice(0, 7);
-    const clientId = params.get('client_id') || '0';
-    const jobId = params.get('billing_bucket_id') || '0';
-    const status = params.get('invoice_status') || '';
-    const data = await api(`manager/monthly-statements?month=${encodeURIComponent(month)}&client_id=${encodeURIComponent(clientId)}&billing_bucket_id=${encodeURIComponent(jobId)}&invoice_status=${encodeURIComponent(status)}`);
+    // On re-render, preserve current form values; fall back to URL params on initial load
+    var existingForm = document.getElementById('wp-pq-rollup-filter-form');
+    var params = new URLSearchParams(window.location.search);
+    var startDate = existingForm
+      ? (existingForm.querySelector('[name="start_date"]') || {}).value || ''
+      : params.get('start_date') || '';
+    var endDate = existingForm
+      ? (existingForm.querySelector('[name="end_date"]') || {}).value || ''
+      : params.get('end_date') || '';
+    var month = existingForm
+      ? (existingForm.querySelector('[name="month"]') || {}).value || new Date().toISOString().slice(0, 7)
+      : params.get('month') || new Date().toISOString().slice(0, 7);
+    var clientId = existingForm
+      ? (existingForm.querySelector('[name="client_id"]') || {}).value || '0'
+      : params.get('client_id') || '0';
 
-    el.managerToolbar.innerHTML = `
-      <form id="wp-pq-monthly-filter-form" class="wp-pq-period-form">
-        <label>Month <input type="month" name="month" value="${esc(data.month)}"></label>
-        <label>Client
-          <select name="client_id">${clientOptions(clientId, true)}</select>
-        </label>
-        <label>Job
-          <select name="billing_bucket_id" id="wp-pq-monthly-job-filter">${Number(clientId || 0) > 0 ? clientJobOptions(clientId, jobId, true) : '<option value="0">All jobs</option>'}</select>
-        </label>
-        <label>Invoice status
-          <select name="invoice_status">
-            <option value="">All statuses</option>
-            <option value="unbilled"${status === 'unbilled' ? ' selected' : ''}>Unbilled</option>
-            <option value="invoiced"${status === 'invoiced' ? ' selected' : ''}>Invoiced</option>
-            <option value="paid"${status === 'paid' ? ' selected' : ''}>Paid</option>
-            <option value="written_off"${status === 'written_off' ? ' selected' : ''}>No Charge</option>
-          </select>
-        </label>
-        <button class="button wp-pq-secondary-action" type="button" id="wp-pq-monthly-export-csv">Export CSV</button>
-        <button class="button wp-pq-secondary-action" type="button" id="wp-pq-monthly-print">Print PDF</button>
-      </form>
-    `;
+    var invoiceStatusParam = existingForm
+      ? (existingForm.querySelector('[name="invoice_status"]') || {}).value || ''
+      : params.get('invoice_status') || 'pending_review';
 
-    el.managerContent.innerHTML = (data.groups || []).map((group) => `
-      <section class="wp-pq-panel wp-pq-manager-card">
-        <div class="wp-pq-section-heading">
-          <div>
-            <h3>${esc(group.client_name || 'Client')} · ${esc(group.job_name || 'Job')}</h3>
-            <p class="wp-pq-panel-note">${esc(group.month || data.month)} · Unbilled ${Number(group.counts?.unbilled || 0)} · Invoiced ${Number(group.counts?.invoiced || 0)} · Paid ${Number(group.counts?.paid || 0)} · No Charge ${Number(group.counts?.written_off || 0)}</p>
-          </div>
-        </div>
-        <table class="wp-pq-admin-table wp-pq-manager-table">
-          <thead><tr><th>Date</th><th>Work</th><th>Owner</th><th>Billing</th><th>Hours / Rate / Amount</th><th>Invoice Status</th></tr></thead>
-          <tbody>
-            ${(group.entries || []).map((entry) => `
-              <tr>
-                <td>${esc(String(entry.completion_date || '').slice(0, 10))}</td>
-                <td><strong>${esc(entry.title_snapshot || '')}</strong><div class="wp-pq-panel-note">${esc(entry.work_summary || '')}</div></td>
-                <td>${esc(entry.owner_name || 'Unassigned')}</td>
-                <td>${esc(entry.billing_mode || '')} · ${esc(entry.billing_category || '')}</td>
-                <td>${esc(entry.hours || '')} ${entry.hours ? 'hrs · ' : ''}${esc(entry.rate || '')}${entry.rate ? ' rate · ' : ''}${esc(entry.amount || '')}</td>
-                <td>${esc(invoiceStatusLabel(entry.invoice_status))}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </section>
-    `).join('') || '<div class="wp-pq-empty-state">No ledger entries matched those filters.</div>';
-
-    const clientFilter = el.managerToolbar.querySelector('select[name="client_id"]');
-    const jobFilter = document.getElementById('wp-pq-monthly-job-filter');
-    if (clientFilter && jobFilter) {
-      const syncJobFilter = () => {
-        jobFilter.innerHTML = Number(clientFilter.value || 0) > 0
-          ? clientJobOptions(clientFilter.value, jobFilter.value || jobId, true)
-          : '<option value="0">All jobs</option>';
-      };
-      clientFilter.addEventListener('change', syncJobFilter);
-      syncJobFilter();
+    // Build API query — prefer custom dates, fall back to month
+    var apiQuery = 'manager/rollups?client_id=' + encodeURIComponent(clientId);
+    if (startDate && endDate) {
+      apiQuery += '&start_date=' + encodeURIComponent(startDate) + '&end_date=' + encodeURIComponent(endDate);
+    } else {
+      apiQuery += '&month=' + encodeURIComponent(month);
     }
+    if (invoiceStatusParam) {
+      apiQuery += '&invoice_status=' + encodeURIComponent(invoiceStatusParam);
+    }
+    var data = await api(apiQuery);
 
-    const csvBtn = document.getElementById('wp-pq-monthly-export-csv');
+    // Resolve display dates from the API response
+    var rangeStart = data.range.custom_start || data.range.start || '';
+    var rangeEnd = data.range.custom_end || data.range.end || '';
+
+    var presets = rollupDatePresets();
+    var presetsHtml = presets.map(function (p) {
+      return '<button type="button" class="button wp-pq-rollup-preset" data-start="' + p.start + '" data-end="' + p.end + '">' + esc(p.label) + '</button>';
+    }).join('');
+
+    var invoiceStatus = invoiceStatusParam;
+
+    el.managerToolbar.innerHTML =
+      '<form id="wp-pq-rollup-filter-form" class="wp-pq-period-form">' +
+      '  <label>Start <input type="date" name="start_date" value="' + esc(rangeStart) + '"></label>' +
+      '  <label>End <input type="date" name="end_date" value="' + esc(rangeEnd) + '"></label>' +
+      '  <label>Client <select name="client_id">' + clientOptions(clientId, true) + '</select></label>' +
+      '  <label>Status <select name="invoice_status">' +
+      '    <option value=""' + (invoiceStatus === '' ? ' selected' : '') + '>All statuses</option>' +
+      '    <option value="pending_review"' + (invoiceStatus === 'pending_review' ? ' selected' : '') + '>Pending Review</option>' +
+      '    <option value="billable"' + (invoiceStatus === 'billable' ? ' selected' : '') + '>Billable</option>' +
+      '    <option value="no_charge"' + (invoiceStatus === 'no_charge' ? ' selected' : '') + '>No Charge</option>' +
+      '    <option value="invoiced"' + (invoiceStatus === 'invoiced' ? ' selected' : '') + '>Invoiced</option>' +
+      '    <option value="paid"' + (invoiceStatus === 'paid' ? ' selected' : '') + '>Paid</option>' +
+      '  </select></label>' +
+      '  <div class="wp-pq-rollup-presets">' + presetsHtml + '</div>' +
+      '  <button class="button wp-pq-secondary-action" type="button" id="wp-pq-rollup-export-csv">Export CSV</button>' +
+      '  <button class="button wp-pq-secondary-action" type="button" id="wp-pq-rollup-print">Print</button>' +
+      '</form>';
+
+    // Bulk action bar
+    var bulkHtml =
+      '<div class="wp-pq-rollup-bulk-bar" id="wp-pq-rollup-bulk-bar" hidden>' +
+      '  <span id="wp-pq-rollup-bulk-count">0 selected</span>' +
+      '  <button type="button" class="button" data-action="bulk-billable">Mark Billable</button>' +
+      '  <button type="button" class="button" data-action="bulk-no-charge">Mark No Charge</button>' +
+      '</div>';
+
+    var groupsHtml = (data.groups || []).map(function (group) {
+      var summaryParts = [];
+      summaryParts.push(Number(group.entry_count || (group.entries || []).length) + ' entries');
+      if (group.billable_count > 0) summaryParts.push(group.billable_count + ' billable');
+      if (group.no_charge_count > 0) summaryParts.push(group.no_charge_count + ' no-charge');
+      if (Number(group.total_amount || 0) > 0) summaryParts.push('$' + Number(group.total_amount).toFixed(2));
+
+      var rowsHtml = (group.entries || []).map(function (entry) {
+        var status = String(entry.invoice_status || 'pending_review');
+        var isLocked = status === 'invoiced' || status === 'paid';
+        return '<tr' + (status === 'no_charge' ? ' class="wp-pq-rollup-no-charge"' : '') + '>' +
+          '<td><input type="checkbox" class="wp-pq-rollup-check" data-ledger-entry-id="' + entry.ledger_entry_id + '"' +
+          (isLocked ? ' disabled' : '') + '></td>' +
+          '<td>' + esc(String(entry.completion_date || '').slice(0, 10)) + '</td>' +
+          '<td><strong>' + esc(entry.title_snapshot || '') + '</strong>' +
+          '<div class="wp-pq-panel-note">' + esc(entry.work_summary || '') + '</div></td>' +
+          '<td>' + esc(entry.owner_name || 'Unassigned') + '</td>' +
+          '<td>' + rollupStatusSelect(entry) + '</td>' +
+          '<td><select class="wp-pq-rollup-job-select" data-action="assign-rollup-job"' +
+          ' data-ledger-entry-id="' + entry.ledger_entry_id + '"' +
+          ' data-task-id="' + (entry.task_id || 0) + '"' +
+          ' data-current-bucket-id="' + (entry.billing_bucket_id || 0) + '">' +
+          (group.bucket_options || []).map(function (bucket) {
+            return '<option value="' + bucket.id + '"' +
+              (Number(bucket.id) === Number(entry.billing_bucket_id) ? ' selected' : '') + '>' +
+              esc(bucket.bucket_name || 'Job') + '</option>';
+          }).join('') +
+          '</select></td>' +
+          '</tr>';
+      }).join('');
+
+      return '<section class="wp-pq-panel wp-pq-manager-card">' +
+        '<div class="wp-pq-section-heading"><div>' +
+        '<h3>' + esc(group.client_name || 'Client') + ' · ' + esc(group.bucket_name || 'Job') + '</h3>' +
+        '<p class="wp-pq-panel-note">' + esc(summaryParts.join(' · ')) + '</p>' +
+        '</div></div>' +
+        '<table class="wp-pq-admin-table wp-pq-manager-table">' +
+        '<thead><tr>' +
+        '<th><input type="checkbox" class="wp-pq-rollup-check-all"></th>' +
+        '<th>Date</th><th>Title</th><th>Owner</th><th>Billing</th><th>Job</th>' +
+        '</tr></thead>' +
+        '<tbody>' + rowsHtml + '</tbody>' +
+        '</table></section>';
+    }).join('');
+
+    el.managerContent.innerHTML = bulkHtml + (groupsHtml || '<div class="wp-pq-empty-state">No entries match these filters.</div>');
+
+    // ── Wire events ──
+
+    // Preset buttons
+    el.managerToolbar.querySelectorAll('.wp-pq-rollup-preset').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var form = document.getElementById('wp-pq-rollup-filter-form');
+        if (!form) return;
+        form.querySelector('[name="start_date"]').value = btn.dataset.start;
+        form.querySelector('[name="end_date"]').value = btn.dataset.end;
+        var formData = Object.fromEntries(new FormData(form).entries());
+        replaceSectionUrl('billing-queue', formData);
+        renderBillingQueue();
+      });
+    });
+
+    // CSV export
+    var csvBtn = document.getElementById('wp-pq-rollup-export-csv');
     if (csvBtn) {
-      csvBtn.onclick = () => downloadCsv(`monthly-statements-${data.month}.csv`, monthlyStatementCsv(data.groups || []));
+      csvBtn.addEventListener('click', function () {
+        downloadCsv('billing-queue-' + rangeStart + '-to-' + rangeEnd + '.csv', billingRollupCsv(data.groups || []));
+      });
     }
-    const printBtn = document.getElementById('wp-pq-monthly-print');
+
+    // Print
+    var printBtn = document.getElementById('wp-pq-rollup-print');
     if (printBtn) {
-      printBtn.onclick = () => {
-        const html = (data.groups || []).map((group) => `
-          <section>
-            <h2>${esc(group.client_name || 'Client')} · ${esc(group.job_name || 'Job')}</h2>
-            <p class="note">${esc(group.month || data.month)}</p>
-            <table>
-              <thead><tr><th>Date</th><th>Work</th><th>Owner</th><th>Billing</th><th>Hours / Rate / Amount</th><th>Status</th></tr></thead>
-              <tbody>${(group.entries || []).map((entry) => `
-                <tr>
-                  <td>${esc(String(entry.completion_date || '').slice(0, 10))}</td>
-                  <td><strong>${esc(entry.title_snapshot || '')}</strong><div>${esc(entry.work_summary || '')}</div></td>
-                  <td>${esc(entry.owner_name || 'Unassigned')}</td>
-                  <td>${esc(entry.billing_mode || '')} · ${esc(entry.billing_category || '')}</td>
-                  <td>${esc(entry.hours || '')} ${entry.hours ? 'hrs ' : ''}${esc(entry.rate || '')} ${entry.rate ? 'rate ' : ''}${esc(entry.amount || '')}</td>
-                  <td>${esc(invoiceStatusLabel(entry.invoice_status))}</td>
-                </tr>
-              `).join('')}</tbody>
-            </table>
-          </section>
-        `).join('');
-        printHtml(`Monthly Statements ${data.month}`, `<h1>Monthly Statements ${esc(data.month)}</h1>${html}`);
-      };
+      printBtn.addEventListener('click', function () {
+        var html = (data.groups || []).map(function (group) {
+          var rows = (group.entries || []).map(function (entry) {
+            return '<tr>' +
+              '<td>' + esc(String(entry.completion_date || '').slice(0, 10)) + '</td>' +
+              '<td>' + esc(entry.title_snapshot || '') + '</td>' +
+              '<td>' + esc(entry.owner_name || '') + '</td>' +
+              '<td>' + esc(entry.hours || '') + '</td>' +
+              '<td>' + (entry.amount ? '$' + Number(entry.amount).toFixed(2) : '') + '</td>' +
+              '<td>' + esc(invoiceStatusLabel(entry.invoice_status)) + '</td></tr>';
+          }).join('');
+          return '<h2>' + esc(group.client_name || 'Client') + ' · ' + esc(group.bucket_name || 'Job') + '</h2>' +
+            '<table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;">' +
+            '<thead><tr style="background:#f5f5f4;"><th>Date</th><th>Title</th><th>Owner</th><th>Hours</th><th>Amount</th><th>Status</th></tr></thead>' +
+            '<tbody>' + rows + '</tbody></table>';
+        }).join('');
+        printHtml('Billing Queue ' + rangeStart + ' to ' + rangeEnd, '<h1>Billing Queue</h1><p>' + rangeStart + ' to ' + rangeEnd + '</p>' + html);
+      });
+    }
+
+    // Invoice status filter change → re-render
+    var statusFilter = el.managerToolbar.querySelector('[name="invoice_status"]');
+    if (statusFilter) {
+      statusFilter.addEventListener('change', function () {
+        var form = document.getElementById('wp-pq-rollup-filter-form');
+        if (!form) return;
+        var formData = Object.fromEntries(new FormData(form).entries());
+        replaceSectionUrl('billing-queue', formData);
+        renderBillingQueue();
+      });
+    }
+
+    // Client filter change → re-render
+    var clientFilter = el.managerToolbar.querySelector('[name="client_id"]');
+    if (clientFilter) {
+      clientFilter.addEventListener('change', function () {
+        var form = document.getElementById('wp-pq-rollup-filter-form');
+        if (!form) return;
+        var formData = Object.fromEntries(new FormData(form).entries());
+        replaceSectionUrl('billing-queue', formData);
+        renderBillingQueue();
+      });
+    }
+
+    // Select-all checkboxes
+    el.managerContent.querySelectorAll('.wp-pq-rollup-check-all').forEach(function (allCb) {
+      allCb.addEventListener('change', function () {
+        var table = allCb.closest('table');
+        if (!table) return;
+        table.querySelectorAll('.wp-pq-rollup-check:not(:disabled)').forEach(function (cb) {
+          cb.checked = allCb.checked;
+        });
+        updateBulkBar();
+      });
+    });
+
+    // Individual checkboxes → update bulk bar
+    el.managerContent.addEventListener('change', function (e) {
+      if (e.target.classList.contains('wp-pq-rollup-check')) {
+        updateBulkBar();
+      }
+    });
+
+    // Inline status change
+    el.managerContent.addEventListener('change', async function (e) {
+      if (!e.target.classList.contains('wp-pq-rollup-status-select')) return;
+      var entryId = Number(e.target.dataset.ledgerEntryId || 0);
+      var newStatus = e.target.value;
+      if (!entryId) return;
+      try {
+        await submitJson('manager/rollups/update-status', 'POST', {
+          entry_ids: [entryId],
+          invoice_status: newStatus,
+        });
+        await renderBillingQueue();
+      } catch (err) {
+        alert('Failed: ' + err.message);
+      }
+    });
+
+    // Bulk action buttons
+    var bulkBar = document.getElementById('wp-pq-rollup-bulk-bar');
+    if (bulkBar) {
+      bulkBar.addEventListener('click', async function (e) {
+        var btn = e.target.closest('[data-action]');
+        if (!btn) return;
+        var action = btn.dataset.action;
+        var newStatus = action === 'bulk-no-charge' ? 'no_charge' : 'billable';
+        var ids = getCheckedEntryIds();
+        if (!ids.length) return;
+        try {
+          await submitJson('manager/rollups/update-status', 'POST', {
+            entry_ids: ids,
+            invoice_status: newStatus,
+          });
+          await renderBillingQueue();
+        } catch (err) {
+          alert('Failed: ' + err.message);
+        }
+      });
+    }
+
+    function getCheckedEntryIds() {
+      var ids = [];
+      el.managerContent.querySelectorAll('.wp-pq-rollup-check:checked').forEach(function (cb) {
+        var id = Number(cb.dataset.ledgerEntryId || 0);
+        if (id > 0) ids.push(id);
+      });
+      return ids;
+    }
+
+    function updateBulkBar() {
+      var ids = getCheckedEntryIds();
+      var bar = document.getElementById('wp-pq-rollup-bulk-bar');
+      var count = document.getElementById('wp-pq-rollup-bulk-count');
+      if (bar) bar.hidden = ids.length === 0;
+      if (count) count.textContent = ids.length + ' selected';
     }
   }
 
@@ -342,7 +476,7 @@
                   <td>${esc(workflowStatusLabel(task.status || ''))}</td>
                   <td>${esc(task.bucket_name || '')}</td>
                   <td>${esc(formatDate(task.updated_at || ''))}</td>
-                  <td>${esc(task.invoice_status || task.billing_status || '')}</td>
+                  <td>${esc(task.billing_status || '')}</td>
                 </tr>
               `).join('')}
             </tbody>
@@ -597,8 +731,7 @@
     }
   }
 
-  m.render['billing-rollup'] = renderBillingRollup;
-  m.render['monthly-statements'] = renderMonthlyStatements;
+  m.render['billing-queue'] = renderBillingQueue;
   m.render['work-statements'] = renderWorkStatements;
   m.render['invoice-drafts'] = renderInvoiceDrafts;
 })(window._pqMgr);

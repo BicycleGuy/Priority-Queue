@@ -333,7 +333,7 @@ class WP_PQ_Portal
 <head>
 <meta charset="<?php bloginfo('charset'); ?>">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign In — Switchboard</title>
+<title>Sign In — <?php echo esc_html(WP_PQ_Admin::portal_heading()); ?></title>
 <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -445,7 +445,7 @@ class WP_PQ_Portal
 <body>
 <div class="pq-login-shell">
     <div class="pq-login-brand">
-        <h1>Switchboard</h1>
+        <h1><?php echo esc_html(WP_PQ_Admin::portal_heading()); ?></h1>
         <p>Sign in to your workspace</p>
     </div>
     <div class="pq-login-card">
@@ -491,7 +491,7 @@ class WP_PQ_Portal
         $full_name = trim("{$first} {$last}") ?: esc_html($invite['email']);
         $email = esc_html($invite['email']);
         $is_new = ! $existing_user;
-        $heading = $is_new ? 'Welcome to Switchboard' : 'Accept your invitation';
+        $heading = $is_new ? 'Welcome to ' . WP_PQ_Admin::portal_heading() : 'Accept your invitation';
         $subheading = $is_new
             ? "Set a password to create your account, {$first}."
             : "Log in to accept your invitation, {$first}.";
@@ -503,7 +503,7 @@ class WP_PQ_Portal
 <head>
 <meta charset="<?php bloginfo('charset'); ?>">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?php echo $heading; ?> — Switchboard</title>
+<title><?php echo $heading; ?> — <?php echo esc_html(WP_PQ_Admin::portal_heading()); ?></title>
 <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -598,7 +598,7 @@ class WP_PQ_Portal
 <body>
 <div class="pq-invite-shell">
     <div class="pq-invite-brand">
-        <h1>Switchboard</h1>
+        <h1><?php echo esc_html(WP_PQ_Admin::portal_heading()); ?></h1>
         <p><?php echo esc_html($heading); ?></p>
     </div>
     <div class="pq-invite-card">
@@ -664,7 +664,7 @@ class WP_PQ_Portal
 <head>
 <meta charset="<?php bloginfo('charset'); ?>">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Switchboard</title>
+<title><?php echo esc_html(WP_PQ_Admin::portal_heading()); ?></title>
 <?php wp_head(); ?>
 <style>
     /* Reset for standalone — no theme chrome. */
@@ -718,8 +718,8 @@ class WP_PQ_Portal
             $login_url = wp_login_url(get_permalink());
 
             return '<div class="wp-pq-wrap wp-pq-guest">'
-                . '<h2>Switchboard</h2>'
-                . '<p>Requests, approvals, files, and scheduling in one place.</p>'
+                . '<h2>' . esc_html(WP_PQ_Admin::portal_heading()) . '</h2>'
+                . '<p>' . esc_html(WP_PQ_Admin::portal_tagline()) . '</p>'
                 . '<div class="wp-pq-guest-card">'
                 . '<h3>Sign in required</h3>'
                 . '<p>Please sign in to access your workspace.</p>'
@@ -754,6 +754,8 @@ class WP_PQ_Portal
             'googleConnected' => ! empty(get_user_meta(get_current_user_id(), 'wp_pq_google_tokens', true)),
             'isClientAdmin' => false,
             'clientAdminClients' => [],
+            'portalHeading' => WP_PQ_Admin::portal_heading(),
+            'portalTagline' => WP_PQ_Admin::portal_tagline(),
         ];
 
         // Detect client_admin memberships and expose to portal config
@@ -789,7 +791,7 @@ class WP_PQ_Portal
         echo '  <div class="wp-pq-onboarding-overlay" id="wp-pq-onboarding-overlay" hidden>';
         echo '    <div class="wp-pq-onboarding-card">';
         echo '      <h2>Connect Your Google Account</h2>';
-        echo '      <p>Switchboard needs access to your Google account so calendar events, Meet links, and email notifications come from <strong>your</strong> address.</p>';
+        echo '      <p>' . esc_html(WP_PQ_Admin::portal_heading()) . ' needs access to your Google account so calendar events, Meet links, and email notifications come from <strong>your</strong> address.</p>';
         echo '      <ul>';
         echo '        <li>Google Calendar — events and Meet invites</li>';
         echo '        <li>Gmail — send status notifications</li>';
@@ -810,9 +812,8 @@ class WP_PQ_Portal
         echo '  <div class="wp-pq-app-shell">';
         echo '    <aside class="wp-pq-binder" id="wp-pq-binder">';
         echo '      <div class="wp-pq-binder-head">';
-        echo '        <p class="wp-pq-kicker">Readspear</p>';
-        echo '        <h2>Switchboard</h2>';
-        echo '        <p class="wp-pq-panel-note">Requests, approvals, and scheduling in one calm workspace.</p>';
+        echo '        <h2>' . esc_html(WP_PQ_Admin::portal_heading()) . '</h2>';
+        echo '        <p class="wp-pq-panel-note">' . esc_html(WP_PQ_Admin::portal_tagline()) . '</p>';
         echo '      </div>';
         echo '      <div class="wp-pq-binder-section wp-pq-binder-section-action">';
         echo '        <button class="button button-primary wp-pq-primary-action" type="button" id="wp-pq-open-create">New Request</button>';
@@ -863,9 +864,8 @@ class WP_PQ_Portal
             echo '        <details class="wp-pq-admin-group" id="wp-pq-admin-group">';
             echo '          <summary><svg class="wp-pq-summary-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Administration</summary>';
             echo '          <div id="wp-pq-manager-nav" class="wp-pq-filter-nav wp-pq-manager-nav">';
-            echo '            <button class="button" type="button" data-pq-section="clients"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span>Clients</span></span></button>';
-            echo '            <button class="button" type="button" data-pq-section="billing-rollup"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><span>Billing Rollup</span></span></button>';
-            echo '            <button class="button" type="button" data-pq-section="monthly-statements"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span><span>Monthly Statements</span></span></button>';
+            echo '            <button class="button" type="button" data-pq-section="clients"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span>Clients and Jobs</span></span></button>';
+            echo '            <button class="button" type="button" data-pq-section="billing-queue"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><span>Billing Queue</span></span></button>';
             echo '            <button class="button" type="button" data-pq-section="work-statements"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg></span><span>Work Statements</span></span></button>';
             echo '            <button class="button" type="button" data-pq-section="ai-import"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.8h6l-4.9 3.6 1.9 5.8-5-3.6-5 3.6 1.9-5.8-4.9-3.6h6z"/></svg></span><span>AI Import</span></span></button>';
             echo '            <button class="button" type="button" data-pq-section="files"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span><span>Files &amp; Links</span></span></button>';
@@ -908,6 +908,10 @@ class WP_PQ_Portal
         echo '      <label class="wp-pq-manager-only" id="wp-pq-create-client-wrap" hidden>Client';
         echo '        <select name="client_id" id="wp-pq-create-client"></select>';
         echo '      </label>';
+        echo '      <div class="wp-pq-manager-only wp-pq-create-new-client-wrap" id="wp-pq-create-new-client-wrap" hidden>';
+        echo '        <label>Client name <input type="text" id="wp-pq-create-new-client-name" placeholder="Acme Corp"></label>';
+        echo '        <label>Client email <input type="email" id="wp-pq-create-new-client-email" placeholder="name@example.com"></label>';
+        echo '      </div>';
         echo '      <label>Job';
         echo '        <select name="billing_bucket_id" id="wp-pq-create-bucket"></select>';
         echo '      </label>';
@@ -968,15 +972,46 @@ class WP_PQ_Portal
         echo '      </div>';
         echo '    </section>';
 
-        echo '    <section class="wp-pq-pref-section">';
-        echo '      <div class="wp-pq-pref-section-head">';
-        echo '        <div>';
-        echo '          <h4>More Soon</h4>';
-        echo '          <p class="wp-pq-panel-note">Appearance, type size, and layout controls will land here as the portal grows.</p>';
-        echo '        </div>';
-      echo '      </div>';
-        echo '      <div class="wp-pq-empty-state">Preferences will keep growing here without turning into a separate admin screen.</div>';
-        echo '    </section>';
+        if (current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
+            echo '    <section class="wp-pq-pref-section" id="wp-pq-branding-section">';
+            echo '      <div class="wp-pq-pref-section-head">';
+            echo '        <div>';
+            echo '          <h4>Branding</h4>';
+            echo '          <p class="wp-pq-panel-note">Set the name and tagline shown in the portal sidebar and sign-in pages.</p>';
+            echo '        </div>';
+            echo '      </div>';
+            echo '      <label class="wp-pq-pref-card">Portal heading<input type="text" id="wp-pq-branding-heading" placeholder="Switchboard"></label>';
+            echo '      <label class="wp-pq-pref-card">Portal tagline<input type="text" id="wp-pq-branding-tagline" placeholder="Requests, approvals, and scheduling in one calm workspace."></label>';
+            echo '      <button class="button button-primary" type="button" id="wp-pq-save-branding">Save Branding</button>';
+            echo '    </section>';
+
+            echo '    <section class="wp-pq-pref-section" id="wp-pq-ai-section">';
+            echo '      <div class="wp-pq-pref-section-head">';
+            echo '        <div>';
+            echo '          <h4>AI Import</h4>';
+            echo '          <p class="wp-pq-panel-note">API keys and model for parsing task lists, CSVs, and documents into draft tasks.</p>';
+            echo '        </div>';
+            echo '      </div>';
+            echo '      <label class="wp-pq-pref-card">OpenAI key<input type="password" id="wp-pq-ai-openai-key" placeholder="sk-..." autocomplete="off"></label>';
+            echo '      <label class="wp-pq-pref-card">Anthropic key<input type="password" id="wp-pq-ai-anthropic-key" placeholder="sk-ant-..." autocomplete="off"></label>';
+            echo '      <label class="wp-pq-pref-card">Model<select id="wp-pq-ai-model">';
+            echo '        <optgroup label="OpenAI">';
+            echo '          <option value="gpt-4o-mini">GPT-4o Mini</option>';
+            echo '          <option value="gpt-4o">GPT-4o</option>';
+            echo '          <option value="gpt-4.1-mini">GPT-4.1 Mini</option>';
+            echo '          <option value="gpt-4.1">GPT-4.1</option>';
+            echo '          <option value="gpt-4.1-nano">GPT-4.1 Nano</option>';
+            echo '          <option value="o4-mini">o4-mini</option>';
+            echo '        </optgroup>';
+            echo '        <optgroup label="Anthropic">';
+            echo '          <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>';
+            echo '          <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku</option>';
+            echo '        </optgroup>';
+            echo '      </select></label>';
+            echo '      <button class="button button-primary" type="button" id="wp-pq-save-ai">Save AI Settings</button>';
+            echo '    </section>';
+        }
+
         echo '  </section>';
 
         // Documents panel removed.
@@ -1038,7 +1073,8 @@ class WP_PQ_Portal
             echo '            <select id="wp-pq-lane-select"><option value="0">Uncategorized</option></select>';
             echo '          </label>';
         }
-        echo '          <button class="button" type="button" id="wp-pq-save-task-settings">Update</button>';
+        // Update button removed — each dropdown auto-saves on change.
+        echo '          <button class="button" type="button" id="wp-pq-save-task-settings" hidden>Update</button>';
         echo '        </div>';
         echo '      </div>';
         echo '      <div id="wp-pq-task-empty" class="wp-pq-task-empty">Select a task to open its workspace and review messages, notes, files, and approvals.</div>';
@@ -1227,6 +1263,63 @@ class WP_PQ_Portal
         echo '    </form>';
         echo '  </div>';
         echo '  <div id="wp-pq-tooltip"></div>';
+
+        // ── Phone bottom navigation (hidden on desktop) ──────────────────
+        echo '<nav class="wp-pq-phone-nav" id="wp-pq-phone-nav" aria-label="Main navigation">';
+        echo '  <button type="button" class="wp-pq-phone-nav-item is-on" data-phone-nav="board" aria-current="page">';
+        echo '    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>';
+        echo '    <span>Board</span>';
+        echo '  </button>';
+        echo '  <button type="button" class="wp-pq-phone-nav-item" data-phone-nav="calendar">';
+        echo '    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>';
+        echo '    <span>Calendar</span>';
+        echo '  </button>';
+        echo '  <div class="wp-pq-phone-nav-fab-wrap">';
+        echo '    <button type="button" class="wp-pq-phone-nav-fab" id="wp-pq-phone-fab" aria-label="New request">';
+        echo '      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>';
+        echo '    </button>';
+        echo '  </div>';
+        echo '  <button type="button" class="wp-pq-phone-nav-item" id="wp-pq-phone-lanes-btn">';
+        echo '    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>';
+        echo '    <span id="wp-pq-phone-lanes-label">Lanes</span>';
+        echo '  </button>';
+        echo '  <button type="button" class="wp-pq-phone-nav-item" data-phone-nav="more">';
+        echo '    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>';
+        echo '    <span>More</span>';
+        echo '  </button>';
+        echo '</nav>';
+
+        // ── Phone scope sheet (hidden on desktop) ────────────────────────
+        echo '<div class="wp-pq-phone-sheet-backdrop" id="wp-pq-phone-sheet-bg"></div>';
+        echo '<div class="wp-pq-phone-sheet" id="wp-pq-phone-sheet">';
+        echo '  <div class="wp-pq-phone-sheet-handle"></div>';
+        echo '  <h3>Scope</h3>';
+        echo '  <div class="wp-pq-phone-sheet-body">';
+        echo '    <label class="wp-pq-phone-field"><span>Client</span><select id="wp-pq-phone-client-filter"></select></label>';
+        echo '    <label class="wp-pq-phone-field"><span>Job</span><select id="wp-pq-phone-job-filter"></select></label>';
+        echo '    <button type="button" class="button button-primary wp-pq-phone-sheet-apply" id="wp-pq-phone-sheet-apply">Apply</button>';
+        echo '  </div>';
+        echo '</div>';
+
+        // ── (Phone alerts screen removed — replaced by lanes cycler) ──
+
+        // ── Phone more screen (hidden on desktop) ────────────────────────
+        echo '<section class="wp-pq-phone-screen" id="wp-pq-phone-more" hidden>';
+        echo '  <header class="wp-pq-phone-app-bar"><h1>More</h1></header>';
+        echo '  <div class="wp-pq-phone-scroll">';
+        echo '    <div class="wp-pq-phone-list-group">';
+        echo '      <button type="button" class="wp-pq-phone-list-row" data-phone-section="preferences"><span>Preferences<small>Notifications &amp; Google</small></span><span class="wp-pq-phone-chev">›</span></button>';
+        echo '      <button type="button" class="wp-pq-phone-list-row" id="wp-pq-phone-dark-toggle"><span>Dark mode</span><span class="wp-pq-phone-chev" id="wp-pq-phone-dark-label">Off</span></button>';
+        echo '    </div>';
+        if ($can_approve) {
+            echo '    <p class="wp-pq-phone-section-label">Manager workspace</p>';
+            echo '    <div class="wp-pq-phone-list-group">';
+            echo '      <button type="button" class="wp-pq-phone-list-row" data-phone-section="manager"><span>Clients &amp; billing</span><span class="wp-pq-phone-chev">›</span></button>';
+            echo '    </div>';
+        }
+        echo '  </div>';
+        echo '</section>';
+
         echo '</div>';
 
         return (string) ob_get_clean();

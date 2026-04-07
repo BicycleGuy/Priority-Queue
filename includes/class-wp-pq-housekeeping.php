@@ -123,7 +123,8 @@ class WP_PQ_Housekeeping
         ));
 
         if ($value === null) {
-            return true;
+            $defaults = WP_PQ_Workflow::notification_event_defaults();
+            return $defaults[$event_key] ?? false;
         }
 
         return (int) $value === 1;

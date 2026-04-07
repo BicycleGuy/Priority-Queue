@@ -6,14 +6,25 @@ if (! defined('ABSPATH')) {
 
 class WP_PQ_AI_Importer
 {
+    private static function is_anthropic_model(string $model): bool
+    {
+        return str_starts_with($model, 'claude');
+    }
+
     public static function parse_document(array $args)
     {
-        $api_key = trim((string) ($args['api_key'] ?? ''));
+        $model = trim((string) ($args['model'] ?? 'gpt-4o-mini'));
+        $is_anthropic = self::is_anthropic_model($model);
+
+        $api_key = $is_anthropic
+            ? trim((string) ($args['anthropic_key'] ?? ''))
+            : trim((string) ($args['api_key'] ?? ''));
+
         if ($api_key === '') {
-            return new WP_Error('pq_openai_missing_key', 'Add an OpenAI API key in Switchboard Settings before using the document ingester.');
+            $provider = $is_anthropic ? 'Anthropic' : 'OpenAI';
+            return new WP_Error('pq_ai_missing_key', "Add an {$provider} API key in Preferences before using the document ingester.");
         }
 
-        $model = trim((string) ($args['model'] ?? 'gpt-4o-mini'));
         $client_name = trim((string) ($args['client_name'] ?? 'Client'));
         $known_jobs = array_values(array_filter(array_map('trim', (array) ($args['known_jobs'] ?? []))));
         $source_text = trim((string) ($args['source_text'] ?? ''));
@@ -25,6 +36,17 @@ class WP_PQ_AI_Importer
             return new WP_Error('pq_ai_empty_source', 'Paste a task list or upload a document to parse.');
         }
 
+        if ($is_anthropic) {
+            return self::call_anthropic($api_key, $model, $client_name, $known_jobs, $source_text, $file_path, $file_name, $mime_type);
+        }
+
+        return self::call_openai($api_key, $model, $client_name, $known_jobs, $source_text, $file_path, $file_name, $mime_type);
+    }
+
+    // ── OpenAI Responses API ─────────────────────────────────────────
+
+    private static function call_openai(string $api_key, string $model, string $client_name, array $known_jobs, string $source_text, string $file_path, string $file_name, string $mime_type)
+    {
         $request = self::build_request_payload($model, $client_name, $known_jobs, $source_text, $file_path, $file_name, $mime_type);
 
         $response = wp_remote_post('https://api.openai.com/v1/responses', [
@@ -37,7 +59,7 @@ class WP_PQ_AI_Importer
         ]);
 
         if (is_wp_error($response)) {
-            return new WP_Error('pq_openai_request_failed', 'OpenAI request failed: ' . $response->get_error_message());
+            return new WP_Error('pq_ai_request_failed', 'OpenAI request failed: ' . $response->get_error_message());
         }
 
         $status = (int) wp_remote_retrieve_response_code($response);
@@ -46,12 +68,12 @@ class WP_PQ_AI_Importer
 
         if ($status < 200 || $status >= 300) {
             $message = self::extract_error_message($payload);
-            return new WP_Error('pq_openai_http_error', 'OpenAI returned an error' . ($message !== '' ? ': ' . $message : '.'));
+            return new WP_Error('pq_ai_http_error', 'OpenAI returned an error' . ($message !== '' ? ': ' . $message : '.'));
         }
 
         if (! empty($payload['error'])) {
             $message = self::extract_error_message($payload);
-            return new WP_Error('pq_openai_error', 'OpenAI could not parse this document' . ($message !== '' ? ': ' . $message : '.'));
+            return new WP_Error('pq_ai_error', 'OpenAI could not parse this document' . ($message !== '' ? ': ' . $message : '.'));
         }
 
         $json = trim((string) ($payload['output_text'] ?? ''));
@@ -60,24 +82,107 @@ class WP_PQ_AI_Importer
         }
 
         if ($json === '') {
-            return new WP_Error('pq_openai_empty', 'OpenAI returned an empty parse response.');
+            return new WP_Error('pq_ai_empty', 'OpenAI returned an empty parse response.');
         }
 
         $data = json_decode($json, true);
         if (! is_array($data)) {
-            return new WP_Error('pq_openai_bad_json', 'OpenAI returned a response, but it was not valid JSON.');
+            return new WP_Error('pq_ai_bad_json', 'OpenAI returned a response, but it was not valid JSON.');
         }
 
         return self::normalize_result($data, $client_name, $known_jobs);
     }
 
-    private static function build_request_payload(string $model, string $client_name, array $known_jobs, string $source_text, string $file_path, string $file_name, string $mime_type): array
+    // ── Anthropic Messages API ───────────────────────────────────────
+
+    private static function call_anthropic(string $api_key, string $model, string $client_name, array $known_jobs, string $source_text, string $file_path, string $file_name, string $mime_type)
+    {
+        $instructions = self::build_instructions($client_name, $known_jobs);
+        $user_content = '';
+
+        if ($source_text !== '') {
+            $user_content .= "Source text:\n" . $source_text . "\n\n";
+        }
+
+        if ($file_path !== '' && is_readable($file_path)) {
+            $max_bytes = 20 * 1024 * 1024;
+            if (filesize($file_path) > $max_bytes) {
+                return new WP_Error('pq_file_too_large', 'File exceeds the 20 MB limit for AI import.', ['status' => 413]);
+            }
+            $safe_name = $file_name !== '' ? $file_name : basename($file_path);
+            $text = self::extract_text_from_non_pdf_upload($file_path);
+            if ($text !== '') {
+                $user_content .= "Uploaded file (" . $safe_name . "):\n" . $text;
+            }
+        }
+
+        if ($user_content === '') {
+            return new WP_Error('pq_ai_empty_source', 'No parseable content found.');
+        }
+
+        $request = [
+            'model' => $model,
+            'max_tokens' => 4096,
+            'system' => $instructions . "\n\nReturn ONLY valid JSON matching this schema: {\"summary\": \"string\", \"tasks\": [{\"title\": \"string\", \"description\": \"string\", \"job_name\": \"string\", \"priority\": \"low|normal|high|urgent\", \"requested_deadline\": \"string\", \"needs_meeting\": false, \"action_owner_hint\": \"string\", \"is_billable\": null, \"status_hint\": \"pending_approval\"}]}. No markdown fences, no commentary.",
+            'messages' => [
+                ['role' => 'user', 'content' => $user_content],
+            ],
+        ];
+
+        $response = wp_remote_post('https://api.anthropic.com/v1/messages', [
+            'timeout' => 90,
+            'headers' => [
+                'x-api-key' => $api_key,
+                'anthropic-version' => '2023-06-01',
+                'Content-Type' => 'application/json',
+            ],
+            'body' => wp_json_encode($request),
+        ]);
+
+        if (is_wp_error($response)) {
+            return new WP_Error('pq_ai_request_failed', 'Anthropic request failed: ' . $response->get_error_message());
+        }
+
+        $status = (int) wp_remote_retrieve_response_code($response);
+        $body = (string) wp_remote_retrieve_body($response);
+        $payload = json_decode($body, true);
+
+        if ($status < 200 || $status >= 300) {
+            $message = self::extract_error_message($payload);
+            return new WP_Error('pq_ai_http_error', 'Anthropic returned an error' . ($message !== '' ? ': ' . $message : '.'));
+        }
+
+        // Extract text from first content block
+        $text_out = '';
+        foreach ((array) ($payload['content'] ?? []) as $block) {
+            if (($block['type'] ?? '') === 'text') {
+                $text_out .= trim((string) ($block['text'] ?? ''));
+            }
+        }
+
+        if ($text_out === '') {
+            return new WP_Error('pq_ai_empty', 'Anthropic returned an empty response.');
+        }
+
+        // Strip markdown fences if present
+        $text_out = preg_replace('/^```(?:json)?\s*/i', '', $text_out);
+        $text_out = preg_replace('/\s*```\s*$/', '', $text_out);
+
+        $data = json_decode($text_out, true);
+        if (! is_array($data)) {
+            return new WP_Error('pq_ai_bad_json', 'Anthropic returned a response, but it was not valid JSON.');
+        }
+
+        return self::normalize_result($data, $client_name, $known_jobs);
+    }
+
+    private static function build_instructions(string $client_name, array $known_jobs): string
     {
         $job_guidance = empty($known_jobs)
             ? 'No jobs exist yet for this client. Suggest a sensible job_name for each task.'
             : 'Known jobs for this client: ' . implode(', ', $known_jobs) . '. Reuse these exact names when they fit; only invent a new job_name if the task clearly belongs elsewhere.';
 
-        $instructions = implode("\n", [
+        return implode("\n", [
             'You extract task lists into strict JSON for a project management system.',
             'Return JSON only.',
             'The client account is: ' . $client_name . '.',
@@ -89,6 +194,11 @@ class WP_PQ_AI_Importer
             'If the source marks an item done/completed, capture that in status_hint; otherwise status_hint should usually be pending_approval.',
             'Keep titles concise and descriptions helpful.',
         ]);
+    }
+
+    private static function build_request_payload(string $model, string $client_name, array $known_jobs, string $source_text, string $file_path, string $file_name, string $mime_type): array
+    {
+        $instructions = self::build_instructions($client_name, $known_jobs);
 
         $content = [
             [

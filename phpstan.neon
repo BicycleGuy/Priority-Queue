@@ -1,0 +1,10 @@
+parameters:
+  level: 5
+  paths:
+    - includes/
+    - wp-priority-queue-plugin.php
+  scanDirectories:
+    - includes/
+  ignoreErrors:
+    - '#Function dbDelta not found#'
+  bootstrapFiles: []

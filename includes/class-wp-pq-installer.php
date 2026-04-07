@@ -6,6 +6,14 @@ if (! defined('ABSPATH')) {
 
 class WP_PQ_Installer
 {
+    /**
+     * Strip characters that could inject extra env vars.
+     */
+    private static function sanitize_env_value(string $value): string
+    {
+        return str_replace(["\n", "\r", "\0"], '', $value);
+    }
+
     public static function activate(): void
     {
         WP_PQ_Roles::register_roles_and_caps();
@@ -91,10 +99,10 @@ class WP_PQ_Installer
             $client_id = trim((string) get_option('wp_pq_google_client_id', ''));
             $client_secret = trim((string) get_option('wp_pq_google_client_secret', ''));
 
-            $env_content = "RELAY_GOOGLE_CLIENT_ID={$client_id}\n"
-                . "RELAY_GOOGLE_CLIENT_SECRET={$client_secret}\n"
-                . "RELAY_ENCRYPTION_KEY={$encryption_key}\n"
-                . "RELAY_BASE_URL={$relay_url}\n";
+            $env_content = 'RELAY_GOOGLE_CLIENT_ID=' . self::sanitize_env_value($client_id) . "\n"
+                . 'RELAY_GOOGLE_CLIENT_SECRET=' . self::sanitize_env_value($client_secret) . "\n"
+                . 'RELAY_ENCRYPTION_KEY=' . self::sanitize_env_value($encryption_key) . "\n"
+                . 'RELAY_BASE_URL=' . self::sanitize_env_value($relay_url) . "\n";
 
             @file_put_contents($target . '.env', $env_content);
         }
@@ -133,10 +141,10 @@ class WP_PQ_Installer
         $encryption_key = trim((string) get_option('wp_pq_relay_encryption_key', ''));
         $target = ABSPATH . 'relay/.env';
 
-        $env_content = "RELAY_GOOGLE_CLIENT_ID={$google_client_id}\n"
-            . "RELAY_GOOGLE_CLIENT_SECRET={$google_client_secret}\n"
-            . "RELAY_ENCRYPTION_KEY={$encryption_key}\n"
-            . "RELAY_BASE_URL={$relay_url}\n";
+        $env_content = 'RELAY_GOOGLE_CLIENT_ID=' . self::sanitize_env_value($google_client_id) . "\n"
+            . 'RELAY_GOOGLE_CLIENT_SECRET=' . self::sanitize_env_value($google_client_secret) . "\n"
+            . 'RELAY_ENCRYPTION_KEY=' . self::sanitize_env_value($encryption_key) . "\n"
+            . 'RELAY_BASE_URL=' . self::sanitize_env_value($relay_url) . "\n";
 
         if (! @file_put_contents($target, $env_content)) {
             $errors[] = 'Could not write relay .env file. Check write permissions on ' . ABSPATH . 'relay/';

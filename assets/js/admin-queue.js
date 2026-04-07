@@ -20,19 +20,21 @@
   const TOAST_DURATION_MS = 3200;
   const SORT_ANIMATION_MS = 80;
   const DESKTOP_BREAKPOINT_PX = 901;
+  const PHONE_BREAKPOINT_PX = 480;
   const MEETING_DURATION_30_MS = 30 * 60 * 1000;
   const MEETING_DURATION_60_MS = 60 * 60 * 1000;
   const UNCATEGORIZED_LANE_SORT = 99999;
   const DEEPLINK_POLL_INTERVAL_MS = 250;
   const DEEPLINK_MAX_ATTEMPTS = 20;
+  const NEW_CLIENT_SENTINEL = -99;
 
   const statusColumns = [
-    { key: 'pending_approval', label: 'Pending Approval' },
-    { key: 'needs_clarification', label: 'Needs Clarification' },
-    { key: 'approved', label: 'Approved' },
-    { key: 'in_progress', label: 'In Progress' },
-    { key: 'needs_review', label: 'Needs Review' },
-    { key: 'delivered', label: 'Delivered' },
+    { key: STATUS_PENDING_APPROVAL, label: 'Pending Approval', tip: 'New requests waiting for manager approval before work begins.' },
+    { key: STATUS_NEEDS_CLARIFICATION, label: 'Needs Clarification', tip: 'Sent back to the client — more detail or direction is needed before work can proceed.' },
+    { key: STATUS_APPROVED, label: 'Approved', tip: 'Approved and ready to be picked up. Work has not started yet.' },
+    { key: STATUS_IN_PROGRESS, label: 'In Progress', tip: 'Actively being worked on.' },
+    { key: STATUS_NEEDS_REVIEW, label: 'Needs Review', tip: 'Work is done but needs a second look before delivering to the client.' },
+    { key: STATUS_DELIVERED, label: 'Delivered', tip: 'Sent to the client for review. Mark Done to capture billing details, or reopen if revisions are needed.' },
   ];
 
   const tokenLabels = {
@@ -83,6 +85,9 @@
   const createBucketEl = document.getElementById('wp-pq-create-bucket');
   const createNewBucketWrap = document.getElementById('wp-pq-create-new-bucket-wrap');
   const createNewBucketEl = document.getElementById('wp-pq-create-new-bucket');
+  const createNewClientWrap = document.getElementById('wp-pq-create-new-client-wrap');
+  const createNewClientNameEl = document.getElementById('wp-pq-create-new-client-name');
+  const createNewClientEmailEl = document.getElementById('wp-pq-create-new-client-email');
   const createNeedsMeetingEl = document.getElementById('wp-pq-create-needs-meeting');
   const createMeetingFieldsEl = document.getElementById('wp-pq-create-meeting-fields');
   const createMeetingStartEl = document.getElementById('wp-pq-create-meeting-start');
@@ -230,12 +235,12 @@
   }
 
   const dragTransitions = {
-    pending_approval: [STATUS_APPROVED, STATUS_NEEDS_CLARIFICATION],
-    needs_clarification: [STATUS_APPROVED, STATUS_IN_PROGRESS],
-    approved: [STATUS_IN_PROGRESS, STATUS_NEEDS_CLARIFICATION],
-    in_progress: [STATUS_NEEDS_CLARIFICATION, STATUS_NEEDS_REVIEW, STATUS_DELIVERED],
-    needs_review: [STATUS_IN_PROGRESS, STATUS_DELIVERED],
-    delivered: [STATUS_IN_PROGRESS, STATUS_NEEDS_CLARIFICATION, STATUS_NEEDS_REVIEW],
+    [STATUS_PENDING_APPROVAL]: [STATUS_APPROVED, STATUS_NEEDS_CLARIFICATION],
+    [STATUS_NEEDS_CLARIFICATION]: [STATUS_APPROVED, STATUS_IN_PROGRESS],
+    [STATUS_APPROVED]: [STATUS_IN_PROGRESS, STATUS_NEEDS_CLARIFICATION],
+    [STATUS_IN_PROGRESS]: [STATUS_NEEDS_CLARIFICATION, STATUS_NEEDS_REVIEW, STATUS_DELIVERED],
+    [STATUS_NEEDS_REVIEW]: [STATUS_IN_PROGRESS, STATUS_DELIVERED],
+    [STATUS_DELIVERED]: [STATUS_IN_PROGRESS, STATUS_NEEDS_CLARIFICATION, STATUS_NEEDS_REVIEW],
   };
 
   let suppressedDragAlerts;
@@ -341,20 +346,22 @@
     }
   }
 
-  function formatDateTime(value) {
-    if (!value) return '';
+  function parseDateTime(value) {
+    if (!value) return null;
     const normalized = String(value).includes('T') ? String(value) : String(value).replace(' ', 'T') + 'Z';
     const parsed = new Date(normalized);
-    if (Number.isNaN(parsed.getTime())) return String(value);
-    return parsed.toLocaleString();
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  function formatDateTime(value, options) {
+    if (!value) return '';
+    const parsed = parseDateTime(value);
+    if (!parsed) return String(value);
+    return parsed.toLocaleString(undefined, options);
   }
 
   function formatCardDateTime(value) {
-    if (!value) return '';
-    const normalized = String(value).includes('T') ? String(value) : String(value).replace(' ', 'T') + 'Z';
-    const parsed = new Date(normalized);
-    if (Number.isNaN(parsed.getTime())) return String(value);
-    return parsed.toLocaleString(undefined, {
+    return formatDateTime(value, {
       month: 'short',
       day: 'numeric',
       hour: 'numeric',
@@ -532,8 +539,13 @@
       if (canViewAll) {
         createClientEl.innerHTML = '<option value="0">Select client</option>' + clientOptions.map((client) => (
           '<option value="' + escapeHtml(client.id) + '">' + escapeHtml(client.label || client.name || ('Client #' + client.id)) + '</option>'
-        )).join('');
+        )).join('') +
+          (window.wpPqConfig.canApprove ? '<option value="' + NEW_CLIENT_SENTINEL + '">+ New client</option>' : '');
         createClientEl.value = String(createFormState.clientUserId || 0);
+
+        if (createNewClientWrap) {
+          createNewClientWrap.hidden = !(createFormState.clientUserId === NEW_CLIENT_SENTINEL);
+        }
       }
     }
 
@@ -625,7 +637,7 @@
     const visibleTasks = applyTaskFilter(scopedTasks);
 
     if (boardEl) {
-      renderBoard(visibleTasks);
+      renderBoard(visibleTasks, scopedTasks);
       initBoardSort();
     } else {
       renderTaskList(visibleTasks);
@@ -646,29 +658,14 @@
       const myId = parseInt(window.wpPqConfig.currentUserId || 0, 10);
       return tasks.filter((task) => !!task.action_owner_is_client && parseInt(task.action_owner_id || 0, 10) !== myId && ![STATUS_DELIVERED, STATUS_DONE, STATUS_ARCHIVED].includes(normalizeStatus(task.status)));
     }
-    if (taskFilter.mode === 'status' && taskFilter.value === STATUS_PENDING_APPROVAL) {
-      return tasks.filter((task) => normalizeStatus(task.status) === STATUS_PENDING_APPROVAL);
-    }
-    if (taskFilter.mode === 'status' && taskFilter.value === STATUS_NEEDS_CLARIFICATION) {
-      return tasks.filter((task) => normalizeStatus(task.status) === STATUS_NEEDS_CLARIFICATION);
-    }
-    if (taskFilter.mode === 'status' && taskFilter.value === STATUS_APPROVED) {
-      return tasks.filter((task) => normalizeStatus(task.status) === STATUS_APPROVED);
-    }
-    if (taskFilter.mode === 'status' && taskFilter.value === STATUS_IN_PROGRESS) {
-      return tasks.filter((task) => normalizeStatus(task.status) === STATUS_IN_PROGRESS);
-    }
-    if (taskFilter.mode === 'status' && taskFilter.value === STATUS_NEEDS_REVIEW) {
-      return tasks.filter((task) => normalizeStatus(task.status) === STATUS_NEEDS_REVIEW);
-    }
-    if (taskFilter.mode === 'status' && taskFilter.value === STATUS_DELIVERED) {
-      return tasks.filter((task) => normalizeStatus(task.status) === STATUS_DELIVERED);
-    }
-    if (taskFilter.mode === 'status' && taskFilter.value === 'unbilled') {
-      return tasks.filter((task) => normalizeStatus(task.status) === STATUS_DELIVERED && !!task.is_billable && String(task.billing_status || '') === 'unbilled');
-    }
-    if (taskFilter.mode === 'status' && taskFilter.value === 'urgent') {
-      return tasks.filter((task) => String(task.priority || '') === 'urgent');
+    if (taskFilter.mode === 'status') {
+      if (taskFilter.value === 'unbilled') {
+        return tasks.filter((task) => normalizeStatus(task.status) === STATUS_DELIVERED && !!task.is_billable && String(task.billing_status || '') === 'unbilled');
+      }
+      if (taskFilter.value === 'urgent') {
+        return tasks.filter((task) => String(task.priority || '') === 'urgent');
+      }
+      return tasks.filter((task) => normalizeStatus(task.status) === taskFilter.value);
     }
     return tasks;
   }
@@ -715,7 +712,6 @@
       if (!binderClientContext._pqBound) {
         binderClientContext._pqBound = true;
         binderClientContext.addEventListener('click', async function (e) {
-          // Toggle collapse
           var toggleBtn = e.target.closest('[data-toggle-section]');
           if (toggleBtn) {
             var section = toggleBtn.dataset.toggleSection;
@@ -781,7 +777,6 @@
       if (!binderJobContext._pqBound) {
         binderJobContext._pqBound = true;
         binderJobContext.addEventListener('click', async function (e) {
-          // Toggle collapse
           var toggleBtn = e.target.closest('[data-toggle-section]');
           if (toggleBtn) {
             var section = toggleBtn.dataset.toggleSection;
@@ -903,7 +898,6 @@
 
     filterListEl.innerHTML = html;
 
-    // Re-wire lane mode select after DOM rebuild.
     var inlineSelect = document.getElementById('wp-pq-lane-mode-select');
     if (inlineSelect) {
       inlineSelect.addEventListener('change', function () {
@@ -1041,7 +1035,7 @@
     if (status === STATUS_DELIVERED) return task.billing_status === 'batched'
       ? 'This delivered task has already been added to an invoice draft.'
       : (!task.is_billable
-        ? 'Delivered and ready to close. This task is marked non-billable, so it will stay out of billing rollups.'
+        ? 'Delivered and ready to close. This task is marked non-billable, so it will stay out of the billing queue.'
         : 'Delivered work stays here until you mark it done, add it to an invoice draft, or reopen it.');
     if (status === STATUS_DONE) return 'This task is complete. A manager can archive it or reopen it.';
     if (status === STATUS_ARCHIVED) return 'This task is archived and no longer appears in active workflow views.';
@@ -1373,10 +1367,10 @@
     }
     if (canOperate && status === STATUS_DELIVERED) {
       if (window.wpPqModals && window.wpPqModals.completionModal) {
-        buttons.push(buttonHtml(task.id, STATUS_DONE, 'Mark Done'));
+        buttons.push(buttonHtml(task.id, STATUS_DONE, 'Mark Done', 'Capture billing details and finalize this task. Creates or updates the ledger entry.'));
       }
       if (window.wpPqConfig.canApprove) {
-        buttons.push(buttonHtml(task.id, STATUS_ARCHIVED, 'Archive'));
+        buttons.push(buttonHtml(task.id, STATUS_ARCHIVED, 'Archive', 'Permanently remove from all active views. This cannot be undone.'));
       }
       if (!billingLocked) {
         buttons.push(buttonHtml(task.id, STATUS_IN_PROGRESS, 'In Progress'));
@@ -1390,8 +1384,9 @@
     return buttons.join(' ');
   }
 
-  function buttonHtml(taskId, status, label) {
-    return '<button type="button" class="button wp-pq-status-btn" data-task-id="' + taskId + '" data-status="' + status + '">' + label + '</button>';
+  function buttonHtml(taskId, status, label, tip) {
+    var titleAttr = tip ? ' title="' + escapeHtml(tip) + '"' : '';
+    return '<button type="button" class="button wp-pq-status-btn"' + titleAttr + ' data-task-id="' + taskId + '" data-status="' + status + '">' + label + '</button>';
   }
 
   function deleteButtonHtml(taskId) {
@@ -1431,9 +1426,10 @@
     } catch (e) { /* ignore */ }
   }
 
-  function renderBoard(tasks) {
+  function renderBoard(tasks, allTasks) {
     if (!boardEl) return;
     boardEl.innerHTML = '';
+    var badgeTasks = allTasks || tasks;
 
     // Determine effective lanes based on mode.
     var effectiveLanes = [];
@@ -1446,11 +1442,14 @@
     // If no lanes to show, render the classic flat board.
     if (!effectiveLanes.length) {
       boardEl.classList.remove('has-lanes');
-      renderBoardFlat(tasks);
+      renderBoardFlat(tasks, badgeTasks);
       return;
     }
 
     boardEl.classList.add('has-lanes');
+    if (window.innerWidth <= PHONE_BREAKPOINT_PX) {
+      boardEl.classList.add('wp-pq-phone-list-mode');
+    }
 
     // Swimlane mode: group tasks into lanes.
     var laneOrder = effectiveLanes.slice().sort(function (a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
@@ -1464,10 +1463,13 @@
     headerRow.className = 'wp-pq-board-lane-header-row';
     statusColumns.forEach(function (column) {
       var isActiveFilter = taskFilter.mode === 'status' && taskFilter.value === column.key;
+      var totalInColumn = badgeTasks.filter(function (task) { return normalizeStatus(task.status) === column.key; }).length;
       var colHead = document.createElement('div');
       colHead.className = 'wp-pq-board-lane-col-head' + (isActiveFilter ? ' is-filtered' : '');
       colHead.dataset.filterStatus = column.key;
-      colHead.innerHTML = '<h4>' + escapeHtml(column.label) + '</h4>';
+      colHead.dataset.status = column.key;
+      colHead.innerHTML = '<h4 title="' + escapeHtml(column.tip || '') + '">' + escapeHtml(column.label) + '</h4>' +
+        '<span>' + totalInColumn + '</span>';
       headerRow.appendChild(colHead);
     });
     boardEl.appendChild(headerRow);
@@ -1511,46 +1513,111 @@
       });
       boardEl.appendChild(laneHeaderEl);
 
-      // Lane body (the grid row of columns) — hidden when collapsed.
       if (!isCollapsed) {
-        var laneRow = document.createElement('div');
-        laneRow.className = 'wp-pq-board-lane-row';
-        laneRow.dataset.laneId = lane.id;
+        var isPhone = window.innerWidth <= PHONE_BREAKPOINT_PX;
 
-        statusColumns.forEach(function (column) {
-          var cellTasks = laneTasks.filter(function (task) { return normalizeStatus(task.status) === column.key; });
-          var cellEl = document.createElement('div');
-          cellEl.className = 'wp-pq-board-lane-cell';
-          cellEl.dataset.status = column.key;
-          cellEl.dataset.laneId = lane.id;
+        if (isPhone) {
+          renderPhoneStatusList(boardEl, laneTasks, { extraClass: 'wp-pq-phone-lane-sub', laneId: lane.id });
+        } else {
+          var laneRow = document.createElement('div');
+          laneRow.className = 'wp-pq-board-lane-row';
+          laneRow.dataset.laneId = lane.id;
 
-          var listEl = document.createElement('div');
-          listEl.className = 'wp-pq-board-column-list';
-          listEl.dataset.status = column.key;
-          listEl.dataset.laneId = lane.id;
+          statusColumns.forEach(function (column) {
+            var cellTasks = laneTasks.filter(function (task) { return normalizeStatus(task.status) === column.key; });
 
-          if (!cellTasks.length) {
-            var emptyEl = document.createElement('p');
-            emptyEl.className = 'wp-pq-empty-state';
-            emptyEl.textContent = '\u00A0';
-            listEl.appendChild(emptyEl);
-          } else {
-            cellTasks.forEach(function (task) { listEl.appendChild(boardCard(task)); });
-          }
+            var cellEl = document.createElement('div');
+            cellEl.className = 'wp-pq-board-lane-cell';
+            cellEl.dataset.status = column.key;
+            cellEl.dataset.laneId = lane.id;
 
-          cellEl.appendChild(listEl);
-          laneRow.appendChild(cellEl);
-        });
+            var listEl = document.createElement('div');
+            listEl.className = 'wp-pq-board-column-list';
+            listEl.dataset.status = column.key;
+            listEl.dataset.laneId = lane.id;
 
-        boardEl.appendChild(laneRow);
+            if (!cellTasks.length) {
+              var emptyEl = document.createElement('p');
+              emptyEl.className = 'wp-pq-empty-state';
+              emptyEl.textContent = '\u00A0';
+              listEl.appendChild(emptyEl);
+            } else {
+              cellTasks.forEach(function (task) { listEl.appendChild(boardCard(task)); });
+            }
+
+            cellEl.appendChild(listEl);
+            laneRow.appendChild(cellEl);
+          });
+
+          boardEl.appendChild(laneRow);
+        }
       }
+    });
+
+    // (Swipe arrow logic removed — phone now uses vertical list for lanes)
+  }
+
+  var phoneStatusOrder = [STATUS_IN_PROGRESS, STATUS_NEEDS_REVIEW, STATUS_APPROVED, STATUS_PENDING_APPROVAL, STATUS_NEEDS_CLARIFICATION, STATUS_DELIVERED];
+  var phoneColumns = phoneStatusOrder.map(function (key) {
+    return statusColumns.find(function (c) { return c.key === key; });
+  }).filter(Boolean);
+
+  function renderPhoneStatusList(parentEl, tasks, opts) {
+    var options = opts || {};
+    phoneColumns.forEach(function (column) {
+      var cellTasks = tasks.filter(function (task) { return normalizeStatus(task.status) === column.key; });
+      if (!cellTasks.length) return;
+
+      var divider = document.createElement('div');
+      divider.className = 'wp-pq-phone-status-divider' + (options.extraClass ? ' ' + options.extraClass : '');
+      divider.dataset.status = column.key;
+      divider.innerHTML =
+        '<span class="wp-pq-phone-status-dot"></span>' +
+        '<span class="wp-pq-phone-status-name">' + escapeHtml(column.label) + '</span>' +
+        '<span class="wp-pq-phone-status-count">' + cellTasks.length + '</span>';
+      if (options.onDividerClick) divider.addEventListener('click', function () { options.onDividerClick(column); });
+      parentEl.appendChild(divider);
+
+      var listEl = document.createElement('div');
+      listEl.className = 'wp-pq-board-column-list';
+      listEl.dataset.status = column.key;
+      if (options.laneId) listEl.dataset.laneId = options.laneId;
+      cellTasks.forEach(function (task) { listEl.appendChild(boardCard(task)); });
+      parentEl.appendChild(listEl);
     });
   }
 
-  function renderBoardFlat(tasks) {
+  function renderBoardFlat(tasks, allTasks) {
+    var badgeTasks = allTasks || tasks;
     boardEl.classList.remove('has-lanes');
+
+    if (window.innerWidth <= PHONE_BREAKPOINT_PX) {
+      boardEl.classList.add('wp-pq-phone-list-mode');
+
+      renderPhoneStatusList(boardEl, tasks, {
+        onDividerClick: function (column) {
+          if (taskFilter.mode === 'status' && taskFilter.value === column.key) {
+            taskFilter = { mode: 'all', value: 'all' };
+          } else {
+            taskFilter = { mode: 'status', value: column.key };
+          }
+          renderBoardFlat(tasks, allTasks);
+        },
+      });
+
+      if (!boardEl.children.length) {
+        var emptyEl = document.createElement('p');
+        emptyEl.className = 'wp-pq-empty-state';
+        emptyEl.textContent = 'No tasks match current filters.';
+        boardEl.appendChild(emptyEl);
+      }
+      return;
+    }
+
+    boardEl.classList.remove('wp-pq-phone-list-mode');
     statusColumns.forEach((column) => {
       const tasksInColumn = tasks.filter((task) => normalizeStatus(task.status) === column.key);
+      const totalInColumn = badgeTasks.filter((task) => normalizeStatus(task.status) === column.key).length;
       const columnEl = document.createElement('section');
       const shouldCollapse = tasksInColumn.length === 0;
       columnEl.className = 'wp-pq-board-column' + (shouldCollapse ? ' is-collapsed' : '');
@@ -1562,8 +1629,8 @@
       var isActiveFilter = taskFilter.mode === 'status' && taskFilter.value === column.key;
       columnEl.innerHTML =
         '<header class="wp-pq-board-column-head' + (isActiveFilter ? ' is-filtered' : '') + '" data-filter-status="' + escapeHtml(column.key) + '">' +
-        '<h4>' + escapeHtml(column.label) + '</h4>' +
-        '<span>' + tasksInColumn.length + '</span>' +
+        '<h4 title="' + escapeHtml(column.tip || '') + '">' + escapeHtml(column.label) + '</h4>' +
+        '<span>' + totalInColumn + '</span>' +
         archiveAllBtn +
         '</header>';
 
@@ -1851,7 +1918,8 @@
   }
 
   function highlightSelected() {
-    document.querySelectorAll('.wp-pq-task, .wp-pq-task-card').forEach((el) => {
+    var scope = boardEl || document;
+    scope.querySelectorAll('.wp-pq-task, .wp-pq-task-card').forEach((el) => {
       el.classList.toggle('active', parseInt(el.dataset.id, 10) === selectedTaskId);
     });
   }
@@ -1927,6 +1995,9 @@
         if (createNewBucketEl) {
           createNewBucketEl.value = '';
         }
+        if (createNewClientWrap) {
+          createNewClientWrap.hidden = !(createFormState.clientUserId === NEW_CLIENT_SENTINEL);
+        }
         syncCreateFormContext();
       });
     }
@@ -1967,7 +2038,38 @@
   async function handleCreateFormSubmit(e) {
     e.preventDefault();
     const formData = new FormData(createForm);
-    const createClientId = currentCreateClientId();
+    var createClientId = currentCreateClientId();
+
+    if (createClientId === NEW_CLIENT_SENTINEL) {
+      var newName = (createNewClientNameEl ? createNewClientNameEl.value : '').trim();
+      var newEmail = (createNewClientEmailEl ? createNewClientEmailEl.value : '').trim();
+      if (!newName || !newEmail) {
+        alert('Enter a name and email for the new client.');
+        return;
+      }
+      try {
+        var clientResult = await api('manager/clients', {
+          method: 'POST',
+          body: JSON.stringify({ client_name: newName, client_email: newEmail }),
+        });
+        createClientId = clientResult.client ? clientResult.client.id : (clientResult.client_id || 0);
+        if (!createClientId) {
+          alert('Client creation succeeded but no ID was returned.');
+          return;
+        }
+        createFormState.clientUserId = createClientId;
+        if (createClientEl) createClientEl.value = '0'; // will be refreshed
+        if (createNewClientWrap) createNewClientWrap.hidden = true;
+        if (createNewClientNameEl) createNewClientNameEl.value = '';
+        if (createNewClientEmailEl) createNewClientEmailEl.value = '';
+        // Reload tasks to pick up the new client in filter options
+        await loadTasks();
+      } catch (clientErr) {
+        alert('Failed to create client: ' + clientErr.message);
+        return;
+      }
+    }
+
     if (window.wpPqConfig.canViewAll && createClientId <= 0) {
       alert('Choose a client before creating a task.');
       return;
@@ -2425,77 +2527,60 @@
     });
   }
 
-  // ── Unified task-settings save button ────────────────────────────
-  function wireTaskSettings() {
-    if (!taskSettingsSaveBtn) return;
-
-    taskSettingsSaveBtn.addEventListener('click', async () => {
-      if (!selectedTaskId || !activeTaskRecord) return;
-      taskSettingsSaveBtn.disabled = true;
-
-      try {
-        const calls = [];
-
-        // Check if assignment changed.
-        if (assignmentSelectEl && window.wpPqConfig.canAssign) {
-          const newOwner = parseInt(assignmentSelectEl.value || '0', 10) || 0;
-          const oldOwner = parseInt(activeTaskRecord.action_owner_id || 0, 10) || 0;
-          if (newOwner !== oldOwner) {
-            calls.push(api('tasks/' + selectedTaskId + '/assignment', {
-              method: 'POST',
-              body: JSON.stringify({ action_owner_id: newOwner }),
-            }));
-          }
-        }
-
-        // Check if priority changed.
-        if (prioritySelectEl && window.wpPqConfig.canApprove) {
-          const newPriority = String(prioritySelectEl.value || 'normal');
-          const oldPriority = String(activeTaskRecord.priority || 'normal');
-          if (newPriority !== oldPriority) {
-            calls.push(api('tasks/' + selectedTaskId + '/priority', {
-              method: 'POST',
-              body: JSON.stringify({ priority: newPriority }),
-            }));
-          }
-        }
-
-        // Check if lane changed.
-        if (laneSelectEl && !lanePanelEl.hidden) {
-          const newLane = parseInt(laneSelectEl.value || '0', 10);
-          const oldLane = parseInt(activeTaskRecord.lane_id || 0, 10);
-          if (newLane !== oldLane) {
-            calls.push(api('tasks/' + selectedTaskId + '/lane', {
-              method: 'POST',
-              body: JSON.stringify({ lane_id: newLane }),
-            }));
-          }
-        }
-
-        if (!calls.length) {
-          taskSettingsSaveBtn.disabled = false;
-          return;
-        }
-
-        const results = await Promise.all(calls);
-        const lastResult = results[results.length - 1];
-        if (lastResult && lastResult.task) {
-          upsertTask(lastResult.task);
-          await refreshFromCache({ reloadActivePane: false, refreshCalendar: false, forceSelect: true });
-          await selectTask(selectedTaskId, drawerIsOpen(), {
-            preservePanelState: true,
-            loadParticipants: false,
-            loadWorkspace: false,
-          });
-        } else {
-          await loadTasks();
-        }
-      } catch (err) {
-        alert(err.message);
-      } finally {
-        taskSettingsSaveBtn.disabled = false;
+  // ── Auto-save task settings on dropdown change ─────────────────
+  async function applySettingChange(endpoint, payload) {
+    if (!selectedTaskId || !activeTaskRecord) return;
+    try {
+      const result = await api('tasks/' + selectedTaskId + '/' + endpoint, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      if (result && result.task) {
+        upsertTask(result.task);
+        await refreshFromCache({ reloadActivePane: false, refreshCalendar: false, forceSelect: true });
+      } else {
+        await loadTasks();
       }
-    });
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  function wireTaskSettings() {
+    if (taskSettingsSaveBtn) taskSettingsSaveBtn.hidden = true;
+
+    if (assignmentSelectEl) {
+      assignmentSelectEl.addEventListener('change', () => {
+        if (!window.wpPqConfig.canAssign) return;
+        const newOwner = parseInt(assignmentSelectEl.value || '0', 10) || 0;
+        const oldOwner = parseInt(activeTaskRecord.action_owner_id || 0, 10) || 0;
+        if (newOwner !== oldOwner) {
+          applySettingChange('assignment', { action_owner_id: newOwner });
+        }
+      });
+    }
+
+    if (prioritySelectEl) {
+      prioritySelectEl.addEventListener('change', () => {
+        if (!window.wpPqConfig.canApprove) return;
+        const newPriority = String(prioritySelectEl.value || 'normal');
+        const oldPriority = String(activeTaskRecord.priority || 'normal');
+        if (newPriority !== oldPriority) {
+          applySettingChange('priority', { priority: newPriority });
+        }
+      });
+    }
+
+    if (laneSelectEl) {
+      laneSelectEl.addEventListener('change', () => {
+        if (!lanePanelEl || lanePanelEl.hidden) return;
+        const newLane = parseInt(laneSelectEl.value || '0', 10);
+        const oldLane = parseInt(activeTaskRecord.lane_id || 0, 10);
+        if (newLane !== oldLane) {
+          applySettingChange('lane', { lane_id: newLane });
+        }
+      });
+    }
   }
 
   function setActiveView(showBoard) {
@@ -3031,4 +3116,335 @@
   })();
 
   loadTasks().catch(console.error);
+
+  /* ════════════════════════════════════════════════════════════════════
+     Phone UI — bottom nav, screen switching, scope sheet
+     ════════════════════════════════════════════════════════════════════ */
+  (function initPhoneUI() {
+    if (!window.matchMedia('(max-width: ' + PHONE_BREAKPOINT_PX + 'px)').matches) return;
+
+    // Hide WordPress theme elements above the plugin wrapper on phone.
+    var pqWrap = document.querySelector('.wp-pq-wrap');
+    if (pqWrap) {
+      var el = pqWrap.parentElement;
+      while (el && el !== document.body) {
+        // Hide all preceding siblings (theme header, nav, etc.)
+        var sib = el.previousElementSibling;
+        while (sib) {
+          sib.style.display = 'none';
+          sib = sib.previousElementSibling;
+        }
+        el = el.parentElement;
+      }
+    }
+
+    var phoneNav = document.getElementById('wp-pq-phone-nav');
+    var phoneFab = document.getElementById('wp-pq-phone-fab');
+    var phoneMore = document.getElementById('wp-pq-phone-more');
+    var phoneSheetBg = document.getElementById('wp-pq-phone-sheet-bg');
+    var phoneSheet = document.getElementById('wp-pq-phone-sheet');
+    var phoneSheetApply = document.getElementById('wp-pq-phone-sheet-apply');
+    var phoneClientFilter = document.getElementById('wp-pq-phone-client-filter');
+    var phoneJobFilter = document.getElementById('wp-pq-phone-job-filter');
+    var phoneDarkToggle = document.getElementById('wp-pq-phone-dark-toggle');
+    var phoneDarkLabel = document.getElementById('wp-pq-phone-dark-label');
+    var phoneLanesBtn = document.getElementById('wp-pq-phone-lanes-btn');
+    var phoneLanesLabel = document.getElementById('wp-pq-phone-lanes-label');
+    if (!phoneNav) return;
+
+    var phoneScreens = { more: phoneMore };
+    var activePhoneScreen = 'board'; // board is the default (shown via main DOM)
+
+    // Board/calendar are the main DOM sections — hide/show them directly
+    var queueSections = document.getElementById('wp-pq-queue-main-sections');
+    var boardShell = queueSections ? queueSections.querySelector('.wp-pq-board-shell') : null;
+
+    function showPhoneScreen(key, options) {
+      var opts = options || {};
+      activePhoneScreen = key;
+
+      // Hide all phone overlay screens
+      Object.keys(phoneScreens).forEach(function (k) {
+        if (phoneScreens[k]) phoneScreens[k].hidden = (k !== key);
+      });
+
+      // Board/calendar visibility
+      if (boardShell) boardShell.style.display = (key === 'board' || key === 'calendar') ? '' : 'none';
+
+      // Calendar vs board toggle
+      if (key === 'calendar') {
+        setActiveView(false);
+        if (typeof calendar !== 'undefined' && calendar) calendar.render();
+        loadCalendarEvents().catch(console.error);
+      } else if (key === 'board') {
+        setActiveView(true);
+        // Reset binder to queue view unless a specific section is being shown
+        if (!opts.keepSection) {
+          var queueNavBtn = document.querySelector('[data-pq-section="queue"]');
+          if (queueNavBtn) queueNavBtn.click();
+        }
+      }
+
+      // Create panel
+      if (key === 'new') {
+        if (createPanel) createPanel.hidden = false;
+        // Hide other screens
+        Object.keys(phoneScreens).forEach(function (k) {
+          if (phoneScreens[k]) phoneScreens[k].hidden = true;
+        });
+        if (boardShell) boardShell.style.display = 'none';
+      } else {
+        if (createPanel) createPanel.hidden = true;
+      }
+
+      // Close drawer if open
+      if (key !== 'board' && key !== 'calendar') closeDrawer();
+
+      // Update nav active state
+      phoneNav.querySelectorAll('.wp-pq-phone-nav-item').forEach(function (el) {
+        el.classList.toggle('is-on', el.dataset.phoneNav === key);
+      });
+    }
+
+    // Wire bottom nav tabs
+    phoneNav.querySelectorAll('[data-phone-nav]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        showPhoneScreen(el.dataset.phoneNav);
+      });
+    });
+
+    // FAB → new request
+    if (phoneFab) {
+      phoneFab.addEventListener('click', function () {
+        showPhoneScreen('new');
+        phoneNav.querySelectorAll('.wp-pq-phone-nav-item').forEach(function (el) {
+          el.classList.remove('is-on');
+        });
+      });
+    }
+
+    // ── Lanes cycler (3-step: off → manual → auto_job → off) ──
+    var laneCycle = ['off', 'manual', 'auto_job'];
+    var laneLabels = { off: 'Lanes', manual: 'Manual', auto_job: 'By Job' };
+
+    function updatePhoneLanesLabel() {
+      if (phoneLanesLabel) {
+        phoneLanesLabel.textContent = laneLabels[laneMode] || 'Lanes';
+      }
+      if (phoneLanesBtn) {
+        phoneLanesBtn.classList.toggle('is-on', laneMode !== 'off');
+      }
+    }
+    updatePhoneLanesLabel();
+
+    if (phoneLanesBtn) {
+      phoneLanesBtn.addEventListener('click', function () {
+        var idx = laneCycle.indexOf(laneMode);
+        laneMode = laneCycle[(idx + 1) % laneCycle.length];
+        try { localStorage.setItem('wp_pq_lane_mode', laneMode); } catch (e) { /* */ }
+        updatePhoneLanesLabel();
+        // Make sure we're on the board screen
+        showPhoneScreen('board');
+        // Re-render the board with the new lane mode
+        renderTaskCollections();
+        // Also sync the desktop lane select if it exists
+        var inlineSelect = document.getElementById('wp-pq-lane-mode-select');
+        if (inlineSelect) inlineSelect.value = laneMode;
+      });
+    }
+
+    // ── Scope sheet ──
+    function openPhoneSheet() {
+      if (phoneSheet) phoneSheet.classList.add('is-open');
+      if (phoneSheetBg) phoneSheetBg.classList.add('is-open');
+      // Sync selects from main filter state
+      syncPhoneSheetSelects();
+    }
+
+    function closePhoneSheet() {
+      if (phoneSheet) phoneSheet.classList.remove('is-open');
+      if (phoneSheetBg) phoneSheetBg.classList.remove('is-open');
+    }
+
+    function syncPhoneSheetSelects() {
+      // Copy options from the main binder selects if available
+      if (phoneClientFilter && clientFilterEl) {
+        phoneClientFilter.innerHTML = clientFilterEl.innerHTML;
+        phoneClientFilter.value = clientFilterEl.value;
+      }
+      // Job filter — copy from binder job nav options
+      if (phoneJobFilter && filterOptions.buckets) {
+        var jobOpts = '<option value="0">All jobs</option>';
+        (Array.isArray(filterOptions.buckets) ? filterOptions.buckets : []).forEach(function (b) {
+          jobOpts += '<option value="' + escapeHtml(b.id) + '">' + escapeHtml(b.label || b.bucket_name || 'Job') + '</option>';
+        });
+        phoneJobFilter.innerHTML = jobOpts;
+        phoneJobFilter.value = String(filterState.billingBucketId || 0);
+      }
+    }
+
+    if (phoneSheetBg) phoneSheetBg.addEventListener('click', closePhoneSheet);
+    if (phoneSheetApply) {
+      phoneSheetApply.addEventListener('click', async function () {
+        closePhoneSheet();
+        var newClientId = phoneClientFilter ? parseInt(phoneClientFilter.value || '0', 10) : 0;
+        var newJobId = phoneJobFilter ? parseInt(phoneJobFilter.value || '0', 10) : 0;
+        taskFilter = { mode: 'all', value: 'all' };
+        setFilterState({ clientUserId: newClientId, billingBucketId: newJobId });
+        syncFilterControls();
+        selectedTaskId = null;
+        await loadTasks();
+      });
+    }
+
+    // ── Dark mode toggle on phone ──
+    if (phoneDarkToggle) {
+      var wrap = document.querySelector('.wp-pq-wrap');
+      phoneDarkToggle.addEventListener('click', function () {
+        if (!wrap) return;
+        var isDark = wrap.getAttribute('data-theme') === 'dark';
+        if (isDark) {
+          wrap.removeAttribute('data-theme');
+        } else {
+          wrap.setAttribute('data-theme', 'dark');
+        }
+        if (phoneDarkLabel) phoneDarkLabel.textContent = isDark ? 'Off' : 'On';
+        try { localStorage.setItem('wp_pq_theme', isDark ? 'light' : 'dark'); } catch (e) {}
+      });
+      // Sync initial state
+      var savedTheme = null;
+      try { savedTheme = localStorage.getItem('wp_pq_theme'); } catch (e) {}
+      if (phoneDarkLabel && savedTheme === 'dark') phoneDarkLabel.textContent = 'On';
+    }
+
+    // ── Phone More → section navigation ──
+    if (phoneMore) {
+      phoneMore.addEventListener('click', function (e) {
+        var row = e.target.closest('[data-phone-section]');
+        if (!row) return;
+        var section = row.dataset.phoneSection;
+        // Trigger existing binder nav buttons
+        var navBtn = document.querySelector('[data-pq-section="' + section + '"]');
+        if (navBtn) navBtn.click();
+        // Show the main workspace (but don't reset section back to queue)
+        showPhoneScreen('board', { keepSection: true });
+      });
+    }
+
+    // ── Phone diagnostic (triple-tap Board nav label) ──
+    (function () {
+      var diagTaps = 0;
+      var diagTimer = null;
+      var boardBtn = phoneNav.querySelector('[data-phone-nav="board"]');
+      if (!boardBtn) return;
+
+      boardBtn.addEventListener('click', function () {
+        diagTaps++;
+        clearTimeout(diagTimer);
+        diagTimer = setTimeout(function () { diagTaps = 0; }, 800);
+        if (diagTaps >= 3) {
+          diagTaps = 0;
+          showPhoneDiag();
+        }
+      });
+
+      function showPhoneDiag() {
+        var board = document.querySelector('.wp-pq-board');
+        var shell = document.querySelector('.wp-pq-board-shell');
+        var queueMain = document.getElementById('wp-pq-queue-main-sections');
+        var queueBinder = document.getElementById('wp-pq-queue-binder-sections');
+        var prefPanel = document.getElementById('wp-pq-pref-panel');
+        var managerPanel = document.getElementById('wp-pq-manager-panel');
+        var appShell = document.querySelector('.wp-pq-app-shell');
+
+        function vis(el, label) {
+          if (!el) return label + ': NOT FOUND';
+          var cs = window.getComputedStyle(el);
+          var rect = el.getBoundingClientRect();
+          return label + ': ' +
+            (el.hidden ? 'HIDDEN' : 'visible') +
+            ' | display:' + cs.display +
+            ' | size:' + Math.round(rect.width) + 'x' + Math.round(rect.height) +
+            ' | top:' + Math.round(rect.top);
+        }
+
+        function childSummary(el, label) {
+          if (!el) return label + ': NOT FOUND';
+          var children = el.children;
+          var tags = [];
+          for (var i = 0; i < Math.min(children.length, 10); i++) {
+            var c = children[i];
+            var cls = c.className ? ('.' + c.className.split(' ').slice(0, 2).join('.')) : '';
+            var h = c.hidden ? ' [HIDDEN]' : '';
+            var cs = window.getComputedStyle(c);
+            var d = cs.display === 'none' ? ' [display:none]' : '';
+            tags.push(c.tagName.toLowerCase() + cls + h + d);
+          }
+          if (children.length > 10) tags.push('...' + (children.length - 10) + ' more');
+          return label + ' children (' + children.length + '): ' + tags.join(', ');
+        }
+
+        var boardChildren = '';
+        if (board) {
+          var bc = board.children;
+          var items = [];
+          for (var i = 0; i < bc.length; i++) {
+            var c = bc[i];
+            var cls = c.className || '';
+            var cs = window.getComputedStyle(c);
+            var status = c.dataset.status || '';
+            var rect = c.getBoundingClientRect();
+            items.push(
+              (cls.indexOf('phone-status-divider') >= 0 ? 'DIVIDER[' + status + ']' :
+               cls.indexOf('board-column') >= 0 ? 'COL[' + status + ']' :
+               cls.indexOf('column-list') >= 0 ? 'LIST[' + status + ']' :
+               cls.indexOf('lane-head') >= 0 ? 'LANE-HEAD' :
+               cls.indexOf('lane-row') >= 0 ? 'LANE-ROW' :
+               c.tagName) +
+              ' ' + Math.round(rect.height) + 'px' +
+              (cs.display === 'none' ? ' HIDDEN' : '') +
+              (c.hidden ? ' [hidden]' : '')
+            );
+          }
+          boardChildren = items.join('\n');
+        }
+
+        var lines = [
+          '=== PHONE DIAGNOSTIC v' + (window.wpPqConfig.version || '?') + ' ===',
+          'Screen: ' + window.innerWidth + 'x' + window.innerHeight,
+          'activePhoneScreen: ' + activePhoneScreen,
+          'laneMode: ' + laneMode,
+          'taskFilter: ' + taskFilter.mode + '/' + taskFilter.value,
+          'tasks loaded: ' + tasksCache.length,
+          '',
+          vis(appShell, 'appShell'),
+          vis(queueMain, 'queueMain'),
+          vis(queueBinder, 'queueBinder'),
+          vis(shell, 'boardShell'),
+          vis(board, 'board'),
+          vis(prefPanel, 'prefPanel'),
+          vis(managerPanel, 'managerPanel'),
+          vis(createPanel, 'createPanel'),
+          '',
+          'board classes: ' + (board ? board.className : 'N/A'),
+          'board childCount: ' + (board ? board.children.length : 'N/A'),
+          '',
+          '--- Board children ---',
+          boardChildren || '(empty)',
+        ];
+
+        var overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.92);color:#0f0;font:12px/1.6 monospace;padding:16px;overflow:auto;-webkit-overflow-scrolling:touch;white-space:pre-wrap;';
+        overlay.textContent = lines.join('\n');
+
+        var closeBtn = document.createElement('button');
+        closeBtn.textContent = 'CLOSE DIAGNOSTIC';
+        closeBtn.style.cssText = 'position:sticky;top:0;display:block;width:100%;padding:12px;background:#333;color:#fff;border:1px solid #666;border-radius:8px;font:14px/1 sans-serif;margin-bottom:12px;cursor:pointer;';
+        closeBtn.addEventListener('click', function () { overlay.remove(); });
+        overlay.insertBefore(closeBtn, overlay.firstChild);
+
+        document.body.appendChild(overlay);
+      }
+    })();
+  })();
 })();

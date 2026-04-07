@@ -41,6 +41,30 @@
   const cancelDeleteBtn = document.getElementById('wp-pq-cancel-delete');
   const confirmDeleteBtn = document.getElementById('wp-pq-confirm-delete');
 
+  // --- Modal helpers ---
+
+  function showModal(modal, backdrop) {
+    if (modal) {
+      modal.hidden = false;
+      modal.setAttribute('aria-hidden', 'false');
+    }
+    if (backdrop) backdrop.hidden = false;
+  }
+
+  function hideModal(modal, backdrop) {
+    if (modal) {
+      modal.hidden = true;
+      modal.setAttribute('aria-hidden', 'true');
+    }
+    if (backdrop) backdrop.hidden = true;
+  }
+
+  function wireModalClose(closeFn, ...buttons) {
+    buttons.forEach(function (btn) {
+      if (btn) btn.addEventListener('click', closeFn);
+    });
+  }
+
   // --- Modal state variables ---
   let pendingMove = null;
   let pendingStatusAction = null;
@@ -66,18 +90,12 @@
     }
     if (textarea) textarea.value = '';
     if (checkbox) checkbox.checked = true;
-    revisionModal.hidden = false;
-    revisionModal.setAttribute('aria-hidden', 'false');
-    revisionModalBackdrop.hidden = false;
+    showModal(revisionModal, revisionModalBackdrop);
     if (textarea) textarea.focus();
   }
 
   async function closeRevisionModal(shouldResetBoard) {
-    if (revisionModal) {
-      revisionModal.hidden = true;
-      revisionModal.setAttribute('aria-hidden', 'true');
-    }
-    if (revisionModalBackdrop) revisionModalBackdrop.hidden = true;
+    hideModal(revisionModal, revisionModalBackdrop);
     const resetBoard = (!!pendingRevisionAction || !!pendingMove || !!pendingStatusAction) && shouldResetBoard;
     pendingRevisionAction = null;
     pendingMove = null;
@@ -290,7 +308,7 @@
     const swapDueDates = moveForm ? moveForm.querySelector('input[name="swap_due_dates"]') : null;
     if (keepPriority) keepPriority.checked = true;
     if (requestMeeting) requestMeeting.checked = false;
-    if (sendUpdateEmail) sendUpdateEmail.checked = !!window.wpPqConfig.canViewAll;
+    if (sendUpdateEmail) sendUpdateEmail.checked = false;
     if (swapDueDates) swapDueDates.checked = false;
 
     // Show date-swap option only on demotion when both tasks have dates.
@@ -313,17 +331,11 @@
       moveEmailOption.hidden = !window.wpPqConfig.canViewAll || !movedTask || !parseInt(movedTask.client_id || 0, 10);
     }
 
-    moveModal.hidden = false;
-    moveModal.setAttribute('aria-hidden', 'false');
-    moveModalBackdrop.hidden = false;
+    showModal(moveModal, moveModalBackdrop);
   }
 
   async function closeMoveModal(shouldResetBoard) {
-    if (moveModal) {
-      moveModal.hidden = true;
-      moveModal.setAttribute('aria-hidden', 'true');
-    }
-    if (moveModalBackdrop) moveModalBackdrop.hidden = true;
+    hideModal(moveModal, moveModalBackdrop);
 
     const resetBoard = (!!pendingMove || !!pendingStatusAction) && shouldResetBoard;
     pendingMove = null;
@@ -502,33 +514,17 @@
     }
 
     syncCompletionForm(defaultMode);
-    completionModal.hidden = false;
-    completionModal.setAttribute('aria-hidden', 'false');
-    completionModalBackdrop.hidden = false;
+    showModal(completionModal, completionModalBackdrop);
     if (completionWorkSummaryEl) completionWorkSummaryEl.focus();
   }
 
   function closeCompletionModal() {
     pendingCompletionTaskId = 0;
-    if (completionModal) {
-      completionModal.hidden = true;
-      completionModal.setAttribute('aria-hidden', 'true');
-    }
-    if (completionModalBackdrop) completionModalBackdrop.hidden = true;
+    hideModal(completionModal, completionModalBackdrop);
   }
 
   function wireCompletionModal() {
-    if (closeCompletionModalBtn) {
-      closeCompletionModalBtn.addEventListener('click', closeCompletionModal);
-    }
-
-    if (cancelCompletionBtn) {
-      cancelCompletionBtn.addEventListener('click', closeCompletionModal);
-    }
-
-    if (completionModalBackdrop) {
-      completionModalBackdrop.addEventListener('click', closeCompletionModal);
-    }
+    wireModalClose(closeCompletionModal, closeCompletionModalBtn, cancelCompletionBtn, completionModalBackdrop);
 
     if (completionBillingModeEl) {
       completionBillingModeEl.addEventListener('change', () => {
@@ -584,34 +580,16 @@
         ? 'Delete "' + task.title + '" and remove its related messages, notes, files, meetings, and notifications.'
         : 'This removes the task and its related messages, notes, files, meetings, and notifications.';
     }
-    deleteModal.hidden = false;
-    deleteModal.setAttribute('aria-hidden', 'false');
-    deleteModalBackdrop.hidden = false;
+    showModal(deleteModal, deleteModalBackdrop);
   }
 
   function closeDeleteModal() {
     pendingDeleteTaskId = 0;
-    if (deleteModal) {
-      deleteModal.hidden = true;
-      deleteModal.setAttribute('aria-hidden', 'true');
-    }
-    if (deleteModalBackdrop) {
-      deleteModalBackdrop.hidden = true;
-    }
+    hideModal(deleteModal, deleteModalBackdrop);
   }
 
   function wireDeleteModal() {
-    if (closeDeleteModalBtn) {
-      closeDeleteModalBtn.addEventListener('click', closeDeleteModal);
-    }
-
-    if (cancelDeleteBtn) {
-      cancelDeleteBtn.addEventListener('click', closeDeleteModal);
-    }
-
-    if (deleteModalBackdrop) {
-      deleteModalBackdrop.addEventListener('click', closeDeleteModal);
-    }
+    wireModalClose(closeDeleteModal, closeDeleteModalBtn, cancelDeleteBtn, deleteModalBackdrop);
 
     if (!confirmDeleteBtn) return;
 

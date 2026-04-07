@@ -122,21 +122,32 @@ class WP_PQ_Workflow
 
     public static function notification_events(): array
     {
+        return array_keys(self::notification_event_defaults());
+    }
+
+    /**
+     * Default on/off for each notification event.
+     *
+     * Only events marked TRUE here will send emails when a user
+     * has never touched their notification preferences.
+     */
+    public static function notification_event_defaults(): array
+    {
         return [
-            'task_created',
-            'task_assigned',
-            'task_approved',
-            'task_clarification_requested',
-            'task_mentioned',
-            'task_reprioritized',
-            'task_schedule_changed',
-            'task_returned_to_work',
-            'task_delivered',
-            'task_archived',
-            'statement_batched',
-            'client_status_updates',
-            'client_daily_digest',
-            'retention_day_300',
+            'task_created'                 => false,
+            'task_assigned'                => true,
+            'task_approved'                => false,
+            'task_clarification_requested' => false,
+            'task_mentioned'               => true,
+            'task_reprioritized'           => false,
+            'task_schedule_changed'        => false,
+            'task_returned_to_work'        => false,
+            'task_delivered'               => false,
+            'task_archived'                => false,
+            'statement_batched'            => false,
+            'client_status_updates'        => false,
+            'client_daily_digest'          => false,
+            'retention_day_300'            => true,
         ];
     }
 }

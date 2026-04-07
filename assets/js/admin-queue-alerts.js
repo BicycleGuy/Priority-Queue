@@ -50,6 +50,10 @@
   const prefPanel = document.getElementById('wp-pq-pref-panel');
   const prefList = document.getElementById('wp-pq-pref-list');
   const prefSaveBtn = document.getElementById('wp-pq-save-prefs');
+  const brandingHeadingInput = document.getElementById('wp-pq-branding-heading');
+  const brandingTaglineInput = document.getElementById('wp-pq-branding-tagline');
+  const brandingSaveBtn = document.getElementById('wp-pq-save-branding');
+  // AI settings — DOM lookups deferred to function calls (elements may render late)
 
   // State
   let prefState = {};
@@ -346,6 +350,92 @@
     });
   }
 
+  // Branding — manager-only section inside Preferences
+  function loadBranding() {
+    if (!brandingHeadingInput || !brandingTaglineInput) return;
+    var cfg = window.wpPqConfig || {};
+    brandingHeadingInput.value = cfg.portalHeading || '';
+    brandingTaglineInput.value = cfg.portalTagline || '';
+  }
+
+  function wireBranding() {
+    if (!brandingSaveBtn || !brandingHeadingInput) return;
+    brandingSaveBtn.addEventListener('click', async function () {
+      try {
+        var result = await bridge.api('branding', {
+          method: 'POST',
+          body: JSON.stringify({
+            heading: brandingHeadingInput.value.trim(),
+            tagline: brandingTaglineInput.value.trim(),
+          }),
+        });
+        // Update the live sidebar heading + tagline without a reload
+        var sidebarHeading = document.querySelector('.wp-pq-binder-head h2');
+        var sidebarTagline = document.querySelector('.wp-pq-binder-head .wp-pq-panel-note');
+        if (sidebarHeading && result.heading) sidebarHeading.textContent = result.heading;
+        if (sidebarTagline && result.tagline) sidebarTagline.textContent = result.tagline;
+        bridge.alert('Branding saved.', 'success');
+      } catch (err) {
+        bridge.alert(err.message || 'Failed to save branding.', true);
+      }
+    });
+  }
+
+  // AI Import — manager-only section inside Preferences (lazy lookups)
+  function aiEl(id) { return document.getElementById(id); }
+
+  async function loadAiSettings() {
+    var openaiKey = aiEl('wp-pq-ai-openai-key');
+    var anthropicKey = aiEl('wp-pq-ai-anthropic-key');
+    var modelSelect = aiEl('wp-pq-ai-model');
+    if (!openaiKey || !modelSelect) return;
+    try {
+      var data = await bridge.api('openai-settings', { method: 'GET' });
+      openaiKey.value = '';
+      openaiKey.placeholder = data.openai_key_set ? data.openai_key_masked : 'sk-...';
+      if (anthropicKey) {
+        anthropicKey.value = '';
+        anthropicKey.placeholder = data.anthropic_key_set ? data.anthropic_key_masked : 'sk-ant-...';
+      }
+      modelSelect.value = data.model || 'gpt-4o-mini';
+    } catch (err) {
+      // silently fail — section shows defaults
+    }
+  }
+
+  // Use event delegation on the pref panel to avoid DOM timing issues
+  function wireAiSettings() {
+    if (!prefPanel) return;
+    prefPanel.addEventListener('click', async function (e) {
+      if (!e.target.closest('#wp-pq-save-ai')) return;
+      var openaiKey = aiEl('wp-pq-ai-openai-key');
+      var anthropicKey = aiEl('wp-pq-ai-anthropic-key');
+      var modelSelect = aiEl('wp-pq-ai-model');
+      try {
+        var result = await bridge.api('openai-settings', {
+          method: 'POST',
+          body: JSON.stringify({
+            openai_key: openaiKey ? openaiKey.value.trim() : '',
+            anthropic_key: anthropicKey ? anthropicKey.value.trim() : '',
+            model: modelSelect ? modelSelect.value : 'gpt-4o-mini',
+          }),
+        });
+        if (openaiKey) {
+          openaiKey.value = '';
+          openaiKey.placeholder = result.openai_key_set ? result.openai_key_masked : 'sk-...';
+        }
+        if (anthropicKey) {
+          anthropicKey.value = '';
+          anthropicKey.placeholder = result.anthropic_key_set ? result.anthropic_key_masked : 'sk-ant-...';
+        }
+        if (modelSelect) modelSelect.value = result.model || 'gpt-4o-mini';
+        bridge.alert('AI settings saved.', 'success');
+      } catch (err) {
+        bridge.alert(err.message || 'Failed to save AI settings.', true);
+      }
+    });
+  }
+
   // Wire inbox click handlers
   function wireInbox() {
     const stack = portalAlertStack();
@@ -384,6 +474,10 @@
 
   // Wire and initialize
   wirePrefs();
+  wireBranding();
+  loadBranding();
+  wireAiSettings();
+  loadAiSettings();
   wireInbox();
   if (openPrefsBtn && prefPanel) {
     openPrefsBtn.addEventListener('click', function (event) {
@@ -423,7 +517,7 @@
           var overlay = document.getElementById('wp-pq-onboarding-overlay');
           if (overlay) overlay.hidden = true;
           if (typeof openPreferencesPanel === 'function') openPreferencesPanel().catch(console.error);
-          refreshGcalStatus();
+          refreshGcalStatus().catch(console.error);
         } else if (attempts < maxAttempts) {
           setTimeout(checkConnection, 1000);
         } else {

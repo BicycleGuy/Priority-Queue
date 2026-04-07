@@ -43,17 +43,40 @@ class WP_PQ_DB
         $ledger_entries = $wpdb->prefix . 'pq_work_ledger_entries';
         $invites = $wpdb->prefix . 'pq_invites';
 
+        $contact_info = $wpdb->prefix . 'pq_contact_info';
+
         dbDelta("CREATE TABLE {$clients} (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             name VARCHAR(190) NOT NULL,
             slug VARCHAR(190) NOT NULL,
             primary_contact_user_id BIGINT UNSIGNED NULL,
+            tax_id VARCHAR(100) NULL,
+            address_line1 VARCHAR(255) NULL,
+            address_line2 VARCHAR(255) NULL,
+            city VARCHAR(100) NULL,
+            state VARCHAR(100) NULL,
+            zip VARCHAR(20) NULL,
+            country VARCHAR(100) NULL,
             created_by BIGINT UNSIGNED NOT NULL,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
             PRIMARY KEY (id),
             UNIQUE KEY slug (slug),
             KEY primary_contact_user_id (primary_contact_user_id)
+        ) {$charset_collate};");
+
+        dbDelta("CREATE TABLE {$contact_info} (
+            id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            entity_type VARCHAR(20) NOT NULL,
+            entity_id BIGINT UNSIGNED NOT NULL,
+            contact_type VARCHAR(20) NOT NULL,
+            label VARCHAR(40) NOT NULL DEFAULT 'work',
+            value VARCHAR(255) NOT NULL,
+            is_primary TINYINT(1) NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL,
+            PRIMARY KEY (id),
+            KEY entity_lookup (entity_type, entity_id),
+            KEY contact_type (contact_type)
         ) {$charset_collate};");
 
         dbDelta("CREATE TABLE {$client_members} (
@@ -363,7 +386,7 @@ class WP_PQ_DB
             billing_mode VARCHAR(40) NULL,
             billing_category VARCHAR(80) NULL,
             is_closed TINYINT(1) NOT NULL DEFAULT 1,
-            invoice_status VARCHAR(30) NOT NULL DEFAULT 'unbilled',
+            invoice_status VARCHAR(30) NOT NULL DEFAULT 'pending_review',
             statement_month VARCHAR(7) NULL,
             invoice_draft_id BIGINT UNSIGNED NULL,
             hours DECIMAL(10,2) NULL,
@@ -1051,5 +1074,90 @@ class WP_PQ_DB
             $map[(int) $row['id']] = (string) $row['label'];
         }
         return $map;
+    }
+
+    // ── Contact info helpers ──────────────────────────
+
+    public static function get_contact_info(string $entity_type, int $entity_id): array
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'pq_contact_info';
+        return (array) $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$table} WHERE entity_type = %s AND entity_id = %d ORDER BY is_primary DESC, id ASC",
+            $entity_type,
+            $entity_id
+        ), ARRAY_A);
+    }
+
+    public static function get_contact_info_bulk(string $entity_type, array $entity_ids): array
+    {
+        global $wpdb;
+        if (empty($entity_ids)) {
+            return [];
+        }
+        $table = $wpdb->prefix . 'pq_contact_info';
+        $ids_in = implode(',', array_map('intval', $entity_ids));
+        $rows = (array) $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM {$table} WHERE entity_type = %s AND entity_id IN ({$ids_in}) ORDER BY is_primary DESC, id ASC",
+            $entity_type
+        ), ARRAY_A);
+
+        $grouped = [];
+        foreach ($rows as $row) {
+            $grouped[(int) $row['entity_id']][] = $row;
+        }
+        return $grouped;
+    }
+
+    public static function save_contact_info(int $id, array $data): int
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'pq_contact_info';
+
+        $entity_type = sanitize_key($data['entity_type'] ?? '');
+        $entity_id = (int) ($data['entity_id'] ?? 0);
+        $contact_type = sanitize_key($data['contact_type'] ?? '');
+        $label = sanitize_text_field($data['label'] ?? 'work');
+        $value = sanitize_text_field($data['value'] ?? '');
+        $is_primary = (int) ! empty($data['is_primary']);
+
+        if ($entity_type === '' || $entity_id <= 0 || $contact_type === '' || $value === '') {
+            return 0;
+        }
+
+        // Enforce single primary per entity + contact_type.
+        if ($is_primary) {
+            $wpdb->query($wpdb->prepare(
+                "UPDATE {$table} SET is_primary = 0 WHERE entity_type = %s AND entity_id = %d AND contact_type = %s",
+                $entity_type,
+                $entity_id,
+                $contact_type
+            ));
+        }
+
+        $payload = [
+            'entity_type'  => $entity_type,
+            'entity_id'    => $entity_id,
+            'contact_type' => $contact_type,
+            'label'        => $label,
+            'value'        => $value,
+            'is_primary'   => $is_primary,
+        ];
+
+        if ($id > 0) {
+            $wpdb->update($table, $payload, ['id' => $id]);
+            return $id;
+        }
+
+        $payload['created_at'] = current_time('mysql', true);
+        $wpdb->insert($table, $payload);
+        return (int) $wpdb->insert_id;
+    }
+
+    public static function delete_contact_info(int $id): bool
+    {
+        global $wpdb;
+        $table = $wpdb->prefix . 'pq_contact_info';
+        return $wpdb->delete($table, ['id' => $id]) !== false;
     }
 }

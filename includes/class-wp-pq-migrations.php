@@ -828,4 +828,31 @@ class WP_PQ_Migrations
 
         update_option('wp_pq_invite_tracking_migration_applied', 1, true);
     }
+
+    /**
+     * Split the overloaded 'unbilled' invoice_status into explicit billing decisions.
+     *
+     * unbilled    → billable   (existing entries were already in the rollup — implicitly triaged)
+     * written_off → no_charge
+     * Column default changes to 'pending_review' for new entries.
+     */
+    public static function migrate_billing_status_redesign(): void
+    {
+        global $wpdb;
+
+        if (get_option('wp_pq_billing_status_redesign_applied')) {
+            return;
+        }
+
+        $table = $wpdb->prefix . 'pq_work_ledger_entries';
+
+        // Rename status values.
+        $wpdb->query("UPDATE {$table} SET invoice_status = 'billable'  WHERE invoice_status = 'unbilled'");
+        $wpdb->query("UPDATE {$table} SET invoice_status = 'no_charge' WHERE invoice_status = 'written_off'");
+
+        // Change column default for new entries.
+        $wpdb->query("ALTER TABLE {$table} ALTER COLUMN invoice_status SET DEFAULT 'pending_review'");
+
+        update_option('wp_pq_billing_status_redesign_applied', 1, true);
+    }
 }

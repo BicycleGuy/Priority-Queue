@@ -14,9 +14,9 @@ Current commit:
 
 - `d9705f0`
 
-Current live plugin version:
+Current live plugin version (as of handoff):
 
-- `0.12.7`
+- `0.12.7` (now v0.48.0 — see `wp-priority-queue-plugin.php`)
 
 ## Repo / Backup Locations
 

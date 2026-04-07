@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Org Chart Mockup — Switchboard Clients</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f3f0; color: #2c2c2c; padding: 24px; overflow-x: auto; }
+
+  .toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 32px; flex-wrap: wrap; }
+  .toolbar h1 { font-size: 22px; font-weight: 700; margin-right: auto; }
+  .toolbar input[type="search"] { padding: 6px 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; width: 200px; }
+  .btn { padding: 7px 14px; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .btn-primary { background: #8b2d2d; color: #fff; }
+  .btn-secondary { background: #333; color: #fff; }
+  .btn-ghost { background: transparent; border: 1px solid #bbb; color: #555; }
+  .btn-small { padding: 4px 10px; font-size: 11px; }
+  .btn-link { background: none; border: none; color: #999; font-size: 11px; cursor: pointer; padding: 0; }
+  .btn-link:hover { color: #8b2d2d; text-decoration: underline; }
+
+  /* ── Tree structure ── */
+  .tree { padding-left: 0; }
+  .tree, .tree ul {
+    list-style: none;
+    position: relative;
+  }
+  .tree ul { padding-left: 24px; margin-top: 0; }
+
+  /* Vertical connector from parent to children area */
+  .tree ul::before {
+    content: '';
+    position: absolute;
+    left: 11px;
+    top: 0;
+    bottom: 12px;
+    width: 1px;
+    background: #ccc;
+  }
+
+  /* Horizontal connector from vertical line to node */
+  .tree li {
+    position: relative;
+    padding: 3px 0 3px 24px;
+  }
+  .tree > li { padding-left: 0; } /* root nodes have no connector */
+
+  .tree ul li::before {
+    content: '';
+    position: absolute;
+    left: -13px;
+    top: 14px;
+    width: 22px;
+    height: 1px;
+    background: #ccc;
+  }
+
+  /* Hide line after last child */
+  .tree ul li:last-child::after {
+    content: '';
+    position: absolute;
+    left: -13px;
+    top: 14px;
+    bottom: 0;
+    width: 1px;
+    background: #f5f3f0; /* covers the vertical line below last item */
+  }
+
+  /* ── Node items (borderless, compact) ── */
+  .node {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 2px 0;
+    background: none;
+    border: none;
+    cursor: default;
+    position: relative;
+  }
+  .node:hover { background: rgba(0,0,0,0.03); border-radius: 4px; }
+
+  /* Client root node */
+  .node-client { padding: 2px 0; }
+  .node-client .node-icon {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 11px; color: #fff; flex-shrink: 0;
+  }
+  .node-client .node-icon.red { background: #8b2d2d; }
+  .node-client .node-icon.green { background: #2d6b4f; }
+  .node-client .node-icon.blue { background: #2d4a8b; }
+  .node-client .node-name { font-size: 14px; font-weight: 700; }
+  .node-client .node-meta { font-size: 11px; color: #888; }
+
+  .node-badge {
+    font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 8px; margin-left: 4px;
+  }
+  .badge-warn { background: #fef3cd; color: #856404; }
+  .badge-ok { background: #d4edda; color: #155724; }
+
+  .node-actions { margin-left: 8px; display: flex; gap: 4px; }
+
+  /* Group node (People / Jobs header) */
+  .node-group {
+    border: none;
+    background: none;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #999;
+    padding: 2px 0;
+    min-width: auto;
+    cursor: pointer;
+  }
+  .node-group .count {
+    background: #e0ddd8;
+    padding: 0 5px;
+    border-radius: 8px;
+    font-size: 10px;
+    margin-left: 2px;
+  }
+
+  /* Member node */
+  .node-member {
+    cursor: grab;
+  }
+  .node-member:active { cursor: grabbing; }
+  .node-member.is-dragging { opacity: 0.35; }
+  .node-member .member-avatar {
+    width: 22px; height: 22px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700; color: #fff; flex-shrink: 0;
+  }
+  .member-avatar.cl { background: #27ae60; }
+  .member-avatar.wo { background: #2980b9; }
+  .member-avatar.ma { background: #8b2d2d; }
+  .node-member .node-name { font-size: 13px; font-weight: 600; }
+  .node-member .node-role { font-size: 11px; color: #888; }
+
+  /* Job node */
+  .node-job { cursor: grab; }
+  .node-job .job-icon { font-size: 14px; }
+  .node-job .node-name { font-size: 13px; font-weight: 600; }
+  .node-job .node-meta { font-size: 11px; color: #888; }
+  .node-job .job-default {
+    font-size: 9px; background: #d4edda; color: #155724;
+    padding: 1px 5px; border-radius: 5px; font-weight: 700; margin-left: 4px;
+  }
+
+  /* Add node */
+  .node-add {
+    border: none;
+    background: transparent;
+    color: #8b2d2d;
+    font-weight: 600;
+    font-size: 12px;
+    cursor: pointer;
+    min-width: auto;
+    padding: 2px 0;
+  }
+  .node-add:hover { color: #a83939; text-decoration: underline; }
+
+  /* Drop zone */
+  .drop-target { border-color: #2980b9 !important; background: #e8f4fd !important; }
+
+  /* ── Collapse toggle ── */
+  .tree li.is-collapsed > ul { display: none; }
+  .is-collapsed > .node .collapse-indicator { transform: rotate(-90deg); }
+
+  /* ── Detail drawer ── */
+  .detail-drawer {
+    position: fixed; top: 0; right: 0; width: 480px; height: 100vh;
+    background: #fff; box-shadow: -4px 0 24px rgba(0,0,0,0.12);
+    transform: translateX(100%); transition: transform 0.25s ease;
+    z-index: 100; overflow-y: auto; padding: 24px;
+  }
+  .detail-drawer.is-open { transform: translateX(0); }
+  .detail-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 99; display: none; }
+  .detail-backdrop.is-open { display: block; }
+  .drawer-header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+  .drawer-header h2 { flex: 1; font-size: 18px; }
+  .drawer-close { background: none; border: none; font-size: 22px; cursor: pointer; color: #999; }
+
+  .field-group { margin-bottom: 20px; }
+  .field-group-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #999; margin-bottom: 8px; }
+  .field-row { display: flex; gap: 8px; margin-bottom: 6px; }
+  .field-row label { font-size: 12px; color: #666; display: flex; flex-direction: column; gap: 3px; flex: 1; }
+  .field-row input, .field-row select { padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
+  .field-row input:focus { outline: none; border-color: #8b2d2d; }
+  .contact-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .contact-row select { width: 90px; padding: 5px 8px; border: 1px solid #ddd; border-radius: 6px; font-size: 12px; }
+  .contact-row input { flex: 1; padding: 5px 8px; border: 1px solid #ddd; border-radius: 6px; font-size: 12px; }
+  .contact-row .remove-contact { background: none; border: none; color: #c0392b; cursor: pointer; font-size: 14px; }
+  .contact-primary { font-size: 14px; cursor: pointer; }
+  .contact-primary.is-primary { color: #f39c12; }
+  .contact-primary:not(.is-primary) { color: #ddd; }
+  .add-row { color: #8b2d2d; font-size: 12px; font-weight: 600; cursor: pointer; padding: 4px 0; }
+  .add-row:hover { text-decoration: underline; }
+
+  /* Invite dialog */
+  dialog { border: none; border-radius: 12px; padding: 24px; max-width: 420px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.15); }
+  dialog::backdrop { background: rgba(0,0,0,0.4); }
+  dialog h3 { font-size: 16px; margin-bottom: 16px; }
+  dialog .dialog-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+  /* Spacing between root clients */
+  .tree > li { margin-bottom: 20px; }
+
+  /* Collapse indicator — smaller, subtler */
+  .collapse-indicator {
+    display: inline-block; width: 14px; height: 14px; line-height: 14px;
+    text-align: center; font-size: 8px; color: #aaa;
+    margin-right: 2px; cursor: pointer; user-select: none;
+    vertical-align: middle;
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>Clients</h1>
+  <input type="search" placeholder="Search clients...">
+  <button class="btn btn-primary" onclick="document.getElementById('invite-dialog').showModal()">+ Invite Member</button>
+  <button class="btn btn-secondary">+ New Client</button>
+</div>
+
+<ul class="tree">
+
+  <!-- ═══ Client: Nikki Eisinger ═══ -->
+  <li>
+    <div class="node node-client">
+      <span class="collapse-indicator" onclick="this.closest('li').classList.toggle('is-collapsed')">&#9660;</span>
+      <div class="node-icon red">NE</div>
+      <div>
+        <div class="node-name">Nikki Eisinger <span class="node-badge badge-warn">2 unbilled</span></div>
+        <div class="node-meta">donaldreaspear@gmail.com</div>
+      </div>
+      <div class="node-actions">
+        <button class="btn-link" onclick="openDrawer()">details</button>
+      </div>
+    </div>
+    <ul>
+      <!-- People branch -->
+      <li>
+        <div class="node node-group" onclick="this.closest('li').classList.toggle('is-collapsed')">
+          <span class="collapse-indicator">&#9660;</span>
+          People <span class="count">2</span>
+        </div>
+        <ul id="drop-people-1">
+          <li>
+            <div class="node node-member" draggable="true">
+              <div class="member-avatar cl">NE</div>
+              <div>
+                <div class="node-name">Nikki Eisinger</div>
+                <div class="node-role">Client Admin</div>
+              </div>
+            </div>
+          </li>
+          <li>
+            <div class="node node-member" draggable="true">
+              <div class="member-avatar wo">RS</div>
+              <div>
+                <div class="node-name">Read</div>
+                <div class="node-role">Worker</div>
+              </div>
+            </div>
+          </li>
+          <li>
+            <div class="node node-add" onclick="document.getElementById('invite-dialog').showModal()">+ Invite member</div>
+          </li>
+        </ul>
+      </li>
+      <!-- Jobs branch -->
+      <li>
+        <div class="node node-group" onclick="this.closest('li').classList.toggle('is-collapsed')">
+          <span class="collapse-indicator">&#9660;</span>
+          Jobs <span class="count">3</span>
+        </div>
+        <ul>
+          <li>
+            <div class="node node-job">
+                            <div>
+                <div class="node-name">Access &amp; Credentials <span class="job-default">Default</span></div>
+                <div class="node-meta">2 members &middot; 5 tasks</div>
+              </div>
+            </div>
+            <ul>
+              <li><div class="node node-member"><div class="member-avatar cl">NE</div><div><div class="node-name">Nikki Eisinger</div></div></div></li>
+              <li><div class="node node-member"><div class="member-avatar wo">RS</div><div><div class="node-name">Read</div></div></div></li>
+            </ul>
+          </li>
+          <li>
+            <div class="node node-job">
+                            <div>
+                <div class="node-name">Tobacco River Ranch</div>
+                <div class="node-meta">2 members &middot; 4 tasks</div>
+              </div>
+            </div>
+            <ul>
+              <li><div class="node node-member"><div class="member-avatar cl">NE</div><div><div class="node-name">Nikki Eisinger</div></div></div></li>
+              <li><div class="node node-member"><div class="member-avatar wo">RS</div><div><div class="node-name">Read</div></div></div></li>
+            </ul>
+          </li>
+          <li>
+            <div class="node node-job">
+                            <div>
+                <div class="node-name">The Sacred Wild</div>
+                <div class="node-meta">1 member &middot; 3 tasks</div>
+              </div>
+            </div>
+            <ul>
+              <li><div class="node node-member"><div class="member-avatar cl">NE</div><div><div class="node-name">Nikki Eisinger</div></div></div></li>
+            </ul>
+          </li>
+          <li>
+            <div class="node node-add">+ Add job</div>
+          </li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+
+  <!-- ═══ Client: Read ═══ -->
+  <li>
+    <div class="node node-client">
+      <span class="collapse-indicator" onclick="this.closest('li').classList.toggle('is-collapsed')">&#9660;</span>
+      <div class="node-icon green">R</div>
+      <div>
+        <div class="node-name">Read <span class="node-badge badge-ok">Up to date</span></div>
+        <div class="node-meta">readspear@gmail.com</div>
+      </div>
+      <div class="node-actions">
+        <button class="btn-link" onclick="openDrawer()">details</button>
+      </div>
+    </div>
+    <ul>
+      <li>
+        <div class="node node-group" onclick="this.closest('li').classList.toggle('is-collapsed')">
+          <span class="collapse-indicator">&#9660;</span>
+          People <span class="count">1</span>
+        </div>
+        <ul>
+          <li>
+            <div class="node node-member" draggable="true">
+              <div class="member-avatar ma">RS</div>
+              <div>
+                <div class="node-name">Read</div>
+                <div class="node-role">Client Admin</div>
+              </div>
+            </div>
+          </li>
+          <li><div class="node node-add" onclick="document.getElementById('invite-dialog').showModal()">+ Invite member</div></li>
+        </ul>
+      </li>
+      <li>
+        <div class="node node-group" onclick="this.closest('li').classList.toggle('is-collapsed')">
+          <span class="collapse-indicator">&#9660;</span>
+          Jobs <span class="count">1</span>
+        </div>
+        <ul>
+          <li>
+            <div class="node node-job">
+                            <div>
+                <div class="node-name">Read - Main <span class="job-default">Default</span></div>
+                <div class="node-meta">1 member &middot; 0 tasks</div>
+              </div>
+            </div>
+          </li>
+          <li><div class="node node-add">+ Add job</div></li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+
+  <!-- ═══ Client: Readspear Internal (collapsed) ═══ -->
+  <li class="is-collapsed">
+    <div class="node node-client">
+      <span class="collapse-indicator" onclick="this.closest('li').classList.toggle('is-collapsed')">&#9660;</span>
+      <div class="node-icon blue">RI</div>
+      <div>
+        <div class="node-name">Readspear Internal <span class="node-badge badge-ok">Up to date</span></div>
+        <div class="node-meta">readspear@gmail.com</div>
+      </div>
+      <div class="node-actions">
+        <button class="btn-link" onclick="openDrawer()">details</button>
+      </div>
+    </div>
+    <ul>
+      <li>
+        <div class="node node-group">People <span class="count">1</span></div>
+        <ul>
+          <li>
+            <div class="node node-member" draggable="true">
+              <div class="member-avatar wo">RS</div>
+              <div><div class="node-name">Read</div><div class="node-role">Client Admin</div></div>
+            </div>
+          </li>
+        </ul>
+      </li>
+      <li>
+        <div class="node node-group">Jobs <span class="count">1</span></div>
+        <ul>
+          <li>
+            <div class="node node-job">
+                            <div><div class="node-name">Debug <span class="job-default">Default</span></div><div class="node-meta">2 members &middot; 2 tasks</div></div>
+            </div>
+          </li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+
+</ul>
+
+<!-- Detail Drawer -->
+<div class="detail-backdrop" id="drawer-backdrop" onclick="closeDrawer()"></div>
+<div class="detail-drawer" id="detail-drawer">
+  <div class="drawer-header">
+    <h2>Nikki Eisinger</h2>
+    <button class="drawer-close" onclick="closeDrawer()">&times;</button>
+  </div>
+  <div class="field-group">
+    <div class="field-group-label">Identity</div>
+    <div class="field-row">
+      <label>Client Name <input type="text" value="Nikki Eisinger"></label>
+      <label>Tax ID / EIN <input type="text" placeholder="XX-XXXXXXX"></label>
+    </div>
+  </div>
+  <div class="field-group">
+    <div class="field-group-label">Mailing Address</div>
+    <div class="field-row"><label>Address <input type="text" placeholder="123 Main St"></label></div>
+    <div class="field-row">
+      <label>City <input type="text" placeholder="Austin"></label>
+      <label>State <input type="text" placeholder="TX"></label>
+      <label>ZIP <input type="text" placeholder="78701"></label>
+    </div>
+  </div>
+  <div class="field-group">
+    <div class="field-group-label">Contact Info</div>
+    <div class="contact-row">
+      <span class="contact-primary is-primary">&#9733;</span>
+      <select><option>Email</option><option>Phone</option></select>
+      <select><option>Work</option><option>Personal</option></select>
+      <input type="text" value="donaldreaspear@gmail.com">
+      <button class="remove-contact">&times;</button>
+    </div>
+    <div class="contact-row">
+      <span class="contact-primary">&#9733;</span>
+      <select><option>Phone</option><option>Email</option></select>
+      <select><option>Mobile</option><option>Work</option><option>Home</option></select>
+      <input type="text" placeholder="(555) 123-4567">
+      <button class="remove-contact">&times;</button>
+    </div>
+    <div class="add-row">+ Add contact</div>
+  </div>
+  <div style="display:flex;gap:8px;margin-top:24px;">
+    <button class="btn btn-primary">Save Changes</button>
+    <button class="btn btn-ghost">Cancel</button>
+  </div>
+</div>
+
+<!-- Invite Dialog -->
+<dialog id="invite-dialog">
+  <h3>Invite New Member</h3>
+  <div class="field-row"><label>First Name <input type="text"></label><label>Last Name <input type="text"></label></div>
+  <div class="field-row"><label>Email <input type="email" placeholder="jane@example.com"></label></div>
+  <div class="field-row">
+    <label>Client <select><option>Nikki Eisinger</option><option>Read</option><option>Readspear Internal</option></select></label>
+    <label>Role <select><option>Client Contributor</option><option>Client Admin</option><option>Client Viewer</option></select></label>
+  </div>
+  <div class="dialog-actions">
+    <button class="btn btn-ghost" onclick="this.closest('dialog').close()">Cancel</button>
+    <button class="btn btn-primary" onclick="this.closest('dialog').close()">Send Invite</button>
+  </div>
+</dialog>
+
+<script>
+function openDrawer() {
+  document.getElementById('detail-drawer').classList.add('is-open');
+  document.getElementById('drawer-backdrop').classList.add('is-open');
+}
+function closeDrawer() {
+  document.getElementById('detail-drawer').classList.remove('is-open');
+  document.getElementById('drawer-backdrop').classList.remove('is-open');
+}
+
+// Drag and drop
+document.querySelectorAll('.node-member[draggable]').forEach(card => {
+  card.addEventListener('dragstart', e => {
+    card.classList.add('is-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  card.addEventListener('dragend', () => card.classList.remove('is-dragging'));
+});
+
+document.querySelectorAll('ul').forEach(zone => {
+  zone.addEventListener('dragover', e => { e.preventDefault(); });
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    const dragging = document.querySelector('.is-dragging');
+    if (dragging) {
+      const li = document.createElement('li');
+      li.appendChild(dragging.cloneNode(true));
+      zone.appendChild(li);
+      dragging.closest('li').remove();
+      // re-bind drag on new node
+      li.querySelector('.node-member').addEventListener('dragstart', ev => {
+        ev.target.classList.add('is-dragging');
+        ev.dataTransfer.effectAllowed = 'move';
+      });
+      li.querySelector('.node-member').addEventListener('dragend', () => {
+        li.querySelector('.node-member').classList.remove('is-dragging');
+      });
+    }
+  });
+});
+</script>
+</body>
+</html>

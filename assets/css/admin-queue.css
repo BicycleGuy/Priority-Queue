@@ -301,6 +301,39 @@ body .wp-pq-wrap .button.is-active {
   margin-top: 12px;
 }
 
+.wp-pq-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px 14px;
+  margin-bottom: 12px;
+}
+
+.wp-pq-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+}
+
+.wp-pq-form-grid label.span-2 {
+  grid-column: span 2;
+}
+
+.wp-pq-form-grid input {
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 13px;
+  width: 100%;
+}
+
+.wp-pq-form-grid input:focus {
+  outline: none;
+  border-color: #8b2d2d;
+}
+
 .wp-pq-admin-stack {
   display: grid;
   gap: 14px;
@@ -1091,27 +1124,23 @@ body .wp-pq-binder-section-bottom > .button:hover {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
+  gap: 6px;
+  padding: 2px 0;
   font-size: 13px;
   color: var(--pq-muted);
-  background: var(--pq-surface);
-  border: 1px solid var(--pq-border);
-  border-radius: var(--pq-radius);
-  box-shadow: var(--pq-shadow);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .wp-pq-filter-check {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   cursor: pointer;
   user-select: none;
   font-size: 12px;
   font-weight: 600;
   color: var(--pq-ink);
-  padding: 6px 12px;
+  padding: 4px 10px;
   border-radius: 999px;
   background: var(--pq-soft);
   border: 1px solid var(--pq-border);
@@ -1326,6 +1355,26 @@ body .wp-pq-filter-list .button {
 
 .wp-pq-span-2 {
   grid-column: 1 / -1;
+}
+
+.wp-pq-create-new-client-wrap {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 10px;
+  padding: 8px 10px 4px;
+  background: var(--pq-input-bg, #f4f5f7);
+  border: none;
+  border-radius: 5px;
+  margin: 2px 0 4px;
+  grid-column: 1 / -1;
+}
+
+.wp-pq-create-new-client-wrap label {
+  margin-bottom: 4px;
+}
+
+.wp-pq-create-new-client-wrap input {
+  background: var(--pq-surface, #fff);
 }
 
 .wp-pq-create-meeting-fields {
@@ -1620,6 +1669,30 @@ body .wp-pq-wrap .wp-pq-manager-list-item small {
   padding-top: 6px;
 }
 
+.wp-pq-modal-details {
+  margin: 4px 0 0;
+}
+
+.wp-pq-modal-details summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--pq-muted, #999);
+}
+
+.wp-pq-modal-details summary:hover {
+  color: var(--pq-ink, #333);
+}
+
+.wp-pq-modal-details[open] > summary {
+  margin-bottom: 8px;
+}
+
+.wp-pq-modal-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 12px;
+}
+
 /* --- Client tabs --- */
 .wp-pq-client-tabs {
   display: flex;
@@ -1745,6 +1818,39 @@ body .wp-pq-wrap .wp-pq-client-tab-btn.is-active {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wp-pq-job-move-panel,
+.wp-pq-job-delete-panel {
+  width: 100%;
+  padding: 10px 0 4px;
+  border-top: 1px solid var(--pq-border, #e5e5e5);
+  margin-top: 6px;
+}
+
+.wp-pq-job-delete-panel label,
+.wp-pq-job-move-panel label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.wp-pq-job-delete-panel select,
+.wp-pq-job-delete-panel input,
+.wp-pq-job-move-panel select {
+  width: 100%;
+  margin-top: 2px;
+}
+
+.wp-pq-danger-action {
+  color: #b91c1c !important;
+  border-color: #b91c1c !important;
+}
+
+.wp-pq-danger-action:hover {
+  background: #b91c1c !important;
+  color: #fff !important;
 }
 
 .wp-pq-manager-detail-copy {
@@ -1786,6 +1892,45 @@ body .wp-pq-wrap .wp-pq-client-tab-btn.is-active {
 
 .wp-pq-rollup-job-select {
   min-width: 220px;
+}
+
+.wp-pq-rollup-status-select {
+  min-width: 120px;
+}
+
+.wp-pq-rollup-no-charge {
+  opacity: 0.55;
+}
+
+.wp-pq-rollup-presets {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.wp-pq-rollup-presets .button {
+  font-size: 11px;
+  padding: 4px 10px;
+  min-height: 28px;
+}
+
+.wp-pq-rollup-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--pq-surface);
+  border: 1px solid var(--pq-accent);
+  border-radius: var(--pq-radius);
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.wp-pq-rollup-bulk-bar .button {
+  font-size: 12px;
+  min-height: 30px;
+  padding: 4px 12px;
 }
 
 .wp-pq-manager-warning,
@@ -2154,6 +2299,15 @@ body .wp-pq-wrap .wp-pq-archive-all-btn {
   letter-spacing: 0.04em;
 }
 
+.wp-pq-board-column.is-collapsed .wp-pq-board-column-head span {
+  min-width: 26px;
+  height: 24px;
+  font-size: 12px;
+  background: var(--pq-col-dot, #a8a29e);
+  color: #fff;
+  border-color: transparent;
+}
+
 .wp-pq-board-column[data-status="pending_approval"] { --pq-col-dot: #d97706; }
 .wp-pq-board-column[data-status="needs_clarification"] { --pq-col-dot: #dc2626; }
 .wp-pq-board-column[data-status="approved"] { --pq-col-dot: #78716c; }
@@ -2221,9 +2375,12 @@ body .wp-pq-wrap .wp-pq-archive-all-btn {
 }
 
 .wp-pq-board-lane-col-head {
-  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
   border: none;
-  text-align: center;
   cursor: pointer;
   user-select: none;
 }
@@ -2242,10 +2399,43 @@ body .wp-pq-wrap .wp-pq-archive-all-btn {
 
 .wp-pq-board-lane-col-head h4 {
   margin: 0;
-  font-size: 0.8rem;
-  font-weight: 600;
+  font-size: 0.78rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
+  color: var(--pq-muted);
+}
+
+.wp-pq-board-lane-col-head h4::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--pq-col-dot, #a8a29e);
+  margin-right: 7px;
+  vertical-align: 0.5px;
+}
+
+.wp-pq-board-lane-col-head[data-status="pending_approval"] { --pq-col-dot: #d97706; }
+.wp-pq-board-lane-col-head[data-status="needs_clarification"] { --pq-col-dot: #dc2626; }
+.wp-pq-board-lane-col-head[data-status="approved"] { --pq-col-dot: #78716c; }
+.wp-pq-board-lane-col-head[data-status="in_progress"] { --pq-col-dot: #991b1b; }
+.wp-pq-board-lane-col-head[data-status="needs_review"] { --pq-col-dot: #7c3aed; }
+.wp-pq-board-lane-col-head[data-status="delivered"] { --pq-col-dot: #15803d; }
+
+.wp-pq-board-lane-col-head span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--pq-soft);
+  border: 1px solid var(--pq-border);
+  font-size: 10px;
+  font-weight: 700;
   color: var(--pq-muted);
 }
 
@@ -2777,6 +2967,17 @@ body .wp-pq-wrap .wp-pq-archive-all-btn {
 .wp-pq-toast.is-leaving {
   opacity: 0;
   transform: translateY(8px);
+}
+
+/* Dark mode: ensure button text is legible */
+.wp-pq-wrap[data-theme="dark"] .button:not(.button-primary) {
+  color: var(--pq-ink);
+}
+
+.wp-pq-wrap[data-theme="dark"] .button.button-primary {
+  color: #1c1917;
+  background: var(--pq-accent);
+  border-color: var(--pq-accent);
 }
 
 .wp-pq-wrap[data-theme="dark"] .wp-pq-toast {
@@ -4015,6 +4216,72 @@ body.wp-pq-drawer-open {
     z-index: 5;
   }
 
+  /* ── Phone lane status labels (shown per populated cell) ── */
+  .wp-pq-phone-lane-status-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--pq-muted);
+    padding: 6px 8px 2px;
+    border-bottom: 1px solid var(--pq-border);
+    background: var(--pq-bg);
+  }
+
+  /* ── Swipe arrows on lane rows with multiple populated columns ── */
+  .wp-pq-lane-row-swipeable {
+    position: relative;
+  }
+
+  .wp-pq-lane-row-swipeable::after {
+    content: '›';
+    position: sticky;
+    right: 0;
+    top: 50%;
+    width: 28px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--pq-accent);
+    background: linear-gradient(to right, transparent, var(--pq-bg) 40%);
+    pointer-events: none;
+    z-index: 3;
+    margin-left: -28px;
+    flex-shrink: 0;
+  }
+
+  .wp-pq-lane-row-swipeable.at-end::after {
+    opacity: 0;
+  }
+
+  .wp-pq-lane-row-swipeable::before {
+    content: '‹';
+    position: sticky;
+    left: 0;
+    top: 50%;
+    width: 28px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--pq-accent);
+    background: linear-gradient(to left, transparent, var(--pq-bg) 40%);
+    pointer-events: none;
+    z-index: 3;
+    margin-right: -28px;
+    flex-shrink: 0;
+    opacity: 0;
+  }
+
+  .wp-pq-lane-row-swipeable:not(.at-start)::before {
+    opacity: 1;
+  }
+
   .wp-pq-task-settings-panel {
     flex-direction: column;
     align-items: stretch;
@@ -4023,6 +4290,14 @@ body.wp-pq-drawer-open {
   .wp-pq-setting-field {
     flex: 1 1 100%;
   }
+}
+
+/* ── Phone elements: hidden by default on all widths ── */
+.wp-pq-phone-nav,
+.wp-pq-phone-screen,
+.wp-pq-phone-sheet-backdrop,
+.wp-pq-phone-sheet {
+  display: none;
 }
 
 /* ── Phone-optimised (375px target) ────────────────────────────────── */
@@ -4134,18 +4409,116 @@ body.wp-pq-drawer-open {
     gap: 6px;
   }
 
-  /* ── Create / new request form ── */
+  /* ── Create / new request form (phone full-screen) ── */
+  .wp-pq-compose-panel {
+    position: fixed !important;
+    inset: 0 !important;
+    bottom: 0 !important;
+    z-index: 10002 !important;
+    background: var(--pq-bg) !important;
+    max-width: 100% !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    padding: 0 16px env(safe-area-inset-bottom, 16px) 16px !important;
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  .wp-pq-compose-panel .wp-pq-section-heading {
+    position: sticky;
+    top: 0;
+    background: var(--pq-bg);
+    z-index: 2;
+    padding: 14px 0 8px;
+    flex-direction: row !important;
+    align-items: center !important;
+    border-bottom: 1px solid var(--pq-border);
+    margin-bottom: 14px !important;
+  }
+
+  .wp-pq-compose-panel .wp-pq-section-heading .wp-pq-panel-note {
+    display: none !important;
+  }
+
+  .wp-pq-compose-panel .wp-pq-section-heading h3 {
+    font-size: 18px !important;
+    font-weight: 700 !important;
+  }
+
+  /* Close button → looks like a back arrow / X on phone */
+  .wp-pq-compose-panel .wp-pq-section-heading .button {
+    order: -1;
+    min-height: 36px !important;
+    min-width: 36px !important;
+    width: 36px !important;
+    height: 36px !important;
+    padding: 0 !important;
+    border-radius: 50% !important;
+    background: var(--pq-input-bg, #f4f5f7) !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    font-size: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0;
+    margin-right: 10px;
+  }
+
+  .wp-pq-compose-panel .wp-pq-section-heading .button::before {
+    content: '✕';
+    font-size: 16px;
+    color: var(--pq-ink);
+    line-height: 1;
+  }
+
   .wp-pq-create-grid {
-    grid-template-columns: 1fr;
-    gap: 4px;
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
   }
 
   .wp-pq-create-grid label {
-    font-size: 13px;
+    font-size: 14px !important;
+  }
+
+  .wp-pq-compose-panel select,
+  .wp-pq-compose-panel input[type='text'],
+  .wp-pq-compose-panel input[type='datetime-local'] {
+    height: 44px !important;
+    min-height: 44px !important;
+    font-size: 16px !important;
+    padding: 8px 12px !important;
+    border-radius: 8px !important;
+    text-overflow: ellipsis;
+    -webkit-appearance: none;
+  }
+
+  .wp-pq-compose-panel textarea {
+    min-height: 80px !important;
+    font-size: 16px !important;
+    padding: 10px 12px !important;
+    border-radius: 8px !important;
   }
 
   .wp-pq-create-actions {
-    padding-top: 8px;
+    position: sticky;
+    bottom: 0;
+    background: var(--pq-bg);
+    padding: 12px 0 calc(12px + env(safe-area-inset-bottom, 0px)) !important;
+    margin: 0 -16px;
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+    border-top: 1px solid var(--pq-border);
+    z-index: 2;
+  }
+
+  body .wp-pq-create-actions .button {
+    width: 100% !important;
+    min-height: 48px !important;
+    font-size: 16px !important;
+    border-radius: 10px !important;
+    justify-content: center;
   }
 
   /* ── Workspace tabs ── */
@@ -4230,7 +4603,544 @@ body.wp-pq-drawer-open {
   .wp-pq-span-2 {
     grid-column: auto;
   }
+
+  /* ════════════════════════════════════════════════════════════════════
+     PHONE UI — bottom nav, screen switching, scope sheet, detail overlay
+     ════════════════════════════════════════════════════════════════════ */
+
+  /* Hide WordPress admin bar, theme chrome, and desktop-only elements on phone */
+  #wpadminbar { display: none !important; }
+  html { margin-top: 0 !important; }
+  body.logged-in .site-header,
+  body.logged-in .entry-header,
+  body.logged-in .page-header,
+  body.logged-in header.entry-header,
+  .wp-pq-wrap > h2,
+  .wp-pq-wrap > p,
+  .entry-content > header,
+  .site-branding,
+  .main-navigation,
+  .site-header,
+  .entry-title,
+  #masthead,
+  .page-title {
+    display: none !important;
+  }
+
+  /* Hide lane mode dropdown on phone */
+  .wp-pq-lane-mode-wrap,
+  .wp-pq-lane-mode-inline,
+  #wp-pq-lane-mode-wrap {
+    display: none !important;
+  }
+
+  /* Hide desktop-only elements */
+  .wp-pq-mobile-bar,
+  .wp-pq-binder,
+  .wp-pq-view-toggle {
+    display: none !important;
+  }
+
+  /* App shell becomes full-screen single column */
+  .wp-pq-app-shell {
+    grid-template-columns: 1fr;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    min-height: 100vh;
+  }
+
+  .wp-pq-wrap.wp-pq-portal {
+    padding: 0;
+    max-width: none;
+  }
+
+  .wp-pq-workspace {
+    padding: 0;
+  }
+
+  /* Board scroll area needs bottom padding for nav */
+  .wp-pq-board-shell {
+    padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* ── Phone bottom nav ── */
+  .wp-pq-phone-nav {
+    display: flex !important;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: calc(72px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    background: var(--pq-surface);
+    border-top: 1px solid var(--pq-border);
+    align-items: flex-start;
+    justify-content: space-around;
+    padding-top: 8px;
+    z-index: 10000;
+  }
+
+  /* Hide WordPress theme header on phone */
+  .wp-pq-wrap > header,
+  .wp-pq-wrap > .site-header,
+  .wp-pq-binder-head {
+    display: none !important;
+  }
+
+  .wp-pq-phone-nav-item {
+    flex: 1;
+    display: flex !important;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    border: 0 !important;
+    background: transparent !important;
+    color: var(--pq-muted) !important;
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    min-height: 0 !important;
+    min-width: 0 !important;
+    line-height: 1.2;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  .wp-pq-phone-nav-item.is-on { color: var(--pq-accent) !important; }
+
+  .wp-pq-phone-nav-item svg {
+    width: 24px;
+    height: 24px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2;
+  }
+
+  .wp-pq-phone-nav-fab-wrap {
+    position: relative;
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    margin-top: -22px;
+  }
+
+  .wp-pq-phone-nav-fab {
+    width: 52px !important;
+    height: 52px !important;
+    max-width: 52px !important;
+    max-height: 52px !important;
+    min-width: 0 !important;
+    border-radius: 50% !important;
+    border: 3px solid var(--pq-bg) !important;
+    background: var(--pq-accent) !important;
+    color: #fff !important;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,.18) !important;
+    -webkit-appearance: none;
+    appearance: none;
+    padding: 0 !important;
+    min-height: 0 !important;
+    outline: none !important;
+  }
+
+  .wp-pq-phone-nav-fab svg { width: 26px; height: 26px; }
+
+  /* ── Phone screens ── */
+  .wp-pq-phone-screen {
+    position: fixed;
+    inset: 0;
+    bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+    background: var(--pq-bg);
+    z-index: 9998;
+    display: flex !important;
+    flex-direction: column;
+  }
+
+  .wp-pq-phone-screen[hidden] { display: none !important; }
+
+  .wp-pq-phone-app-bar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px 8px;
+    background: var(--pq-bg);
+    border-bottom: 1px solid var(--pq-border);
+  }
+
+  .wp-pq-phone-app-bar h1 {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    flex: 1;
+  }
+
+  .wp-pq-phone-scroll {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 12px 14px;
+  }
+
+  /* ── Phone scope sheet ── */
+  .wp-pq-phone-sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 10002;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+
+  .wp-pq-phone-sheet-backdrop.is-open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .wp-pq-phone-sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-height: 70vh;
+    background: var(--pq-surface);
+    border-radius: 20px 20px 0 0;
+    z-index: 10003;
+    transform: translateY(100%);
+    transition: transform 0.25s ease;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .wp-pq-phone-sheet.is-open { transform: translateY(0); }
+
+  .wp-pq-phone-sheet-handle {
+    width: 36px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--pq-border);
+    margin: 10px auto 8px;
+  }
+
+  .wp-pq-phone-sheet h3 {
+    margin: 0 16px 12px;
+    font-size: 18px;
+    font-weight: 800;
+  }
+
+  .wp-pq-phone-sheet-body {
+    overflow-y: auto;
+    padding: 0 16px 20px;
+  }
+
+  .wp-pq-phone-field {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--pq-muted);
+    margin-bottom: 16px;
+  }
+
+  .wp-pq-phone-field span {
+    display: block;
+    margin-bottom: 6px;
+  }
+
+  .wp-pq-phone-field select {
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--pq-border);
+    background: var(--pq-surface);
+    color: var(--pq-ink);
+    font: inherit;
+    font-size: 16px;
+  }
+
+  .wp-pq-phone-sheet-apply {
+    width: 100%;
+    padding: 14px;
+    border-radius: 14px;
+    font-size: 16px;
+    font-weight: 800;
+    margin-top: 8px;
+  }
+
+  /* ── Phone More screen ── */
+  .wp-pq-phone-list-group {
+    background: var(--pq-surface);
+    border-radius: var(--pq-radius);
+    border: 1px solid var(--pq-border);
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+
+  .wp-pq-phone-list-row {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    width: 100% !important;
+    padding: 16px 14px !important;
+    border: 0 !important;
+    border-bottom: 1px solid var(--pq-border) !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    font: inherit;
+    font-size: 16px !important;
+    font-weight: 600 !important;
+    text-align: left !important;
+    cursor: pointer;
+    color: var(--pq-ink) !important;
+    box-shadow: none !important;
+    -webkit-appearance: none;
+    appearance: none;
+    min-height: 0 !important;
+    line-height: 1.4 !important;
+  }
+
+  .wp-pq-phone-list-row:last-child { border-bottom: 0; }
+
+  .wp-pq-phone-list-row small {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--pq-muted);
+    margin-top: 2px;
+  }
+
+  .wp-pq-phone-chev { color: var(--pq-muted); font-size: 18px; }
+
+  .wp-pq-phone-section-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--pq-muted);
+    margin: 16px 0 8px;
+  }
+
+  /* ── Phone task detail (drawer override) ── */
+  .wp-pq-drawer {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    min-width: 0;
+    height: 100vh;
+    border-radius: 0;
+    border: 0;
+    transform: translateX(100%);
+    z-index: 10001;
+    top: 0;
+    right: 0;
+    bottom: 0;
+  }
+
+  .wp-pq-drawer.is-open {
+    transform: translateX(0);
+  }
+
+  /* ── Phone filter bar as status strip ── */
+  .wp-pq-board-filter-bar {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    gap: 8px;
+    padding: 8px 14px 12px;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .wp-pq-board-filter-bar::-webkit-scrollbar { display: none; }
+
+  .wp-pq-filter-check {
+    flex-shrink: 0;
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  /* ── Board as vertical card list on phone ── */
+  .wp-pq-board {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 0 14px 12px;
+    overflow-x: visible;
+  }
+
+  .wp-pq-board-column {
+    flex: none;
+    width: 100%;
+  }
+
+  .wp-pq-board-column.is-collapsed {
+    display: none !important;
+  }
+
+  .wp-pq-board-column-head {
+    cursor: pointer;
+    padding: 10px 0 6px;
+  }
+
+  .wp-pq-task-card {
+    padding: 14px;
+  }
+
+  .wp-pq-task-card h4 {
+    font-size: 16px;
+    font-weight: 700;
+  }
+
+  /* ── Phone status-grouped list (Option C) ── */
+  .wp-pq-phone-list-mode {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0 !important;
+    min-height: auto !important;
+    overflow: visible !important;
+  }
+
+  .wp-pq-phone-list-mode .wp-pq-board-column-list {
+    min-height: 0;
+    padding: 4px 0 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .wp-pq-phone-status-divider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 4px 6px;
+    border-bottom: 1px solid var(--pq-border);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .wp-pq-phone-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .wp-pq-phone-status-divider[data-status="pending_approval"] .wp-pq-phone-status-dot { background: #d97706; }
+  .wp-pq-phone-status-divider[data-status="needs_clarification"] .wp-pq-phone-status-dot { background: #dc2626; }
+  .wp-pq-phone-status-divider[data-status="approved"] .wp-pq-phone-status-dot { background: #78716c; }
+  .wp-pq-phone-status-divider[data-status="in_progress"] .wp-pq-phone-status-dot { background: #991b1b; }
+  .wp-pq-phone-status-divider[data-status="needs_review"] .wp-pq-phone-status-dot { background: #7c3aed; }
+  .wp-pq-phone-status-divider[data-status="delivered"] .wp-pq-phone-status-dot { background: #15803d; }
+
+  .wp-pq-phone-status-name {
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--pq-ink);
+    flex: 1;
+  }
+
+  .wp-pq-phone-status-count {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--pq-muted);
+    background: var(--pq-input-bg, #f4f5f7);
+    border-radius: 10px;
+    padding: 2px 8px;
+    min-width: 20px;
+    text-align: center;
+  }
+
+  /* Lane sub-dividers (status groups within a lane) — indented slightly */
+  .wp-pq-phone-lane-sub {
+    padding-left: 12px;
+  }
+
+  /* Phone lane mode: use vertical layout, not horizontal scroll */
+  .wp-pq-phone-list-mode .wp-pq-board-lane-row,
+  .has-lanes .wp-pq-board-lane-row {
+    display: none !important;
+  }
+
+  .has-lanes .wp-pq-board-lane-header-row {
+    display: none !important;
+  }
+
+  /* ── Preferences panel phone overrides ── */
+  .wp-pq-pref-panel {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 10002 !important;
+    background: var(--pq-bg) !important;
+    max-width: 100% !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    padding: 0 16px calc(16px + env(safe-area-inset-bottom, 0px)) 16px !important;
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  .wp-pq-pref-panel .wp-pq-section-heading {
+    position: sticky;
+    top: 0;
+    background: var(--pq-bg);
+    z-index: 2;
+    padding: 14px 0 8px;
+    flex-direction: row !important;
+    align-items: center !important;
+    border-bottom: 1px solid var(--pq-border);
+    margin-bottom: 14px !important;
+  }
+
+  .wp-pq-pref-panel .wp-pq-section-heading .wp-pq-panel-note {
+    display: none !important;
+  }
+
+  .wp-pq-pref-panel .wp-pq-section-heading h3 {
+    font-size: 18px !important;
+    font-weight: 700 !important;
+  }
+
+  .wp-pq-pref-panel .wp-pq-section-heading .button {
+    order: -1;
+    min-height: 36px !important;
+    min-width: 36px !important;
+    width: 36px !important;
+    height: 36px !important;
+    padding: 0 !important;
+    border-radius: 50% !important;
+    background: var(--pq-input-bg, #f4f5f7) !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    font-size: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    flex-shrink: 0;
+    margin-right: 10px;
+  }
+
+  .wp-pq-pref-panel .wp-pq-section-heading .button::before {
+    content: '✕';
+    font-size: 16px;
+    color: var(--pq-ink);
+    line-height: 1;
+  }
 }
+
+/* (Phone hide rules moved above media queries) */
 
 /* ── Google Calendar status ────────────────────────────────────────── */
 
@@ -4351,4 +5261,353 @@ body.wp-pq-drawer-open {
 .wp-pq-files-link-form input[type="url"] {
   width: 100%;
   margin-top: 4px;
+}
+
+/* ── Org Tree ── */
+.wp-pq-tree-layout {
+  padding: 0;
+}
+
+.wp-pq-tree-search {
+  padding: 6px 12px;
+  border: 1px solid var(--pq-border, #ccc);
+  border-radius: 6px;
+  font-size: 14px;
+  width: 200px;
+}
+
+.wp-pq-tree,
+.wp-pq-tree ul {
+  list-style: none;
+  position: relative;
+  margin: 0;
+  padding: 0;
+}
+
+.wp-pq-tree ul {
+  padding-left: 24px;
+}
+
+/* Vertical connector from parent to children */
+.wp-pq-tree ul::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 0;
+  bottom: 12px;
+  width: 1px;
+  background: var(--pq-border, #ccc);
+}
+
+/* Horizontal connector to each child node */
+.wp-pq-tree li {
+  position: relative;
+  padding: 3px 0 3px 24px;
+}
+
+.wp-pq-tree > li {
+  padding-left: 0;
+  margin-bottom: 20px;
+}
+
+.wp-pq-tree ul li::before {
+  content: '';
+  position: absolute;
+  left: -13px;
+  top: 14px;
+  width: 22px;
+  height: 1px;
+  background: var(--pq-border, #ccc);
+}
+
+/* Hide vertical line below last child */
+.wp-pq-tree ul li:last-child::after {
+  content: '';
+  position: absolute;
+  left: -13px;
+  top: 14px;
+  bottom: 0;
+  width: 1px;
+  background: var(--pq-bg, #faf9f7);
+}
+
+/* ── Tree nodes ── */
+.wp-pq-tree-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  cursor: default;
+  position: relative;
+}
+
+.wp-pq-tree-node:hover {
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 4px;
+}
+
+/* Client root node */
+.wp-pq-tree-node-client {
+  padding: 2px 0;
+}
+
+.wp-pq-tree-client-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 11px;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.wp-pq-tree-client-icon.red { background: #8b2d2d; }
+.wp-pq-tree-client-icon.green { background: #2d6b4f; }
+.wp-pq-tree-client-icon.blue { background: #2d4a8b; }
+
+.wp-pq-tree-node-name {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.wp-pq-tree-node-meta {
+  font-size: 11px;
+  color: var(--pq-muted, #888);
+}
+
+.wp-pq-tree-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  margin-left: 4px;
+}
+
+.wp-pq-tree-badge-warn { background: #fef3cd; color: #856404; }
+.wp-pq-tree-badge-ok { background: #d4edda; color: #155724; }
+
+.wp-pq-tree-node-actions {
+  margin-left: 8px;
+  display: flex;
+  gap: 4px;
+}
+
+.wp-pq-tree-details-link {
+  background: transparent;
+  border: 1px solid var(--pq-border, #ddd);
+  border-radius: 4px;
+  color: var(--pq-ink, #333);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 10px;
+  line-height: 1.4;
+  white-space: nowrap;
+  outline: none;
+  box-shadow: none;
+}
+
+.wp-pq-tree-details-link:focus,
+.wp-pq-tree-details-link:active {
+  outline: none;
+  box-shadow: none;
+}
+
+.wp-pq-tree-details-link:hover {
+  background: var(--pq-accent, #8b2d2d);
+  border-color: var(--pq-accent, #8b2d2d);
+  color: #fff;
+  text-decoration: none;
+}
+
+/* Group header (People / Jobs) */
+.wp-pq-tree-node-group {
+  border: none;
+  background: none;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--pq-muted, #999);
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+.wp-pq-tree-count {
+  background: var(--pq-soft-2, #e0ddd8);
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 10px;
+  margin-left: 2px;
+}
+
+/* Member node */
+.wp-pq-tree-node-member .wp-pq-tree-node-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.wp-pq-tree-node-role {
+  font-size: 11px;
+  color: var(--pq-muted, #888);
+}
+
+.wp-pq-tree-member-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.wp-pq-tree-member-avatar.cl { background: #27ae60; }
+.wp-pq-tree-member-avatar.wo { background: #2980b9; }
+.wp-pq-tree-member-avatar.ma { background: #8b2d2d; }
+
+/* Job node */
+.wp-pq-tree-node-job .wp-pq-tree-node-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.wp-pq-tree-job-default {
+  font-size: 9px;
+  background: #d4edda;
+  color: #155724;
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-weight: 700;
+  margin-left: 4px;
+}
+
+/* Add node */
+.wp-pq-tree-node-add {
+  border: none;
+  background: transparent;
+  color: var(--pq-accent, #8b2d2d);
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.wp-pq-tree-node-add:hover {
+  color: #a83939;
+  text-decoration: underline;
+}
+
+/* Two-column layout: People + Jobs side by side under each client */
+.wp-pq-tree > li > ul {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 32px;
+  padding-left: 24px;
+}
+
+.wp-pq-tree > li > ul > li {
+  padding-left: 0;
+}
+
+/* Remove horizontal connector on the two top-level branches */
+.wp-pq-tree > li > ul > li::before {
+  display: none;
+}
+
+/* Vertical connector spans both grid rows */
+.wp-pq-tree > li > ul::before {
+  display: none;
+}
+
+/* Collapse */
+.wp-pq-tree li.is-collapsed > ul {
+  display: none;
+}
+
+.wp-pq-tree .is-collapsed > .wp-pq-tree-node .wp-pq-tree-collapse-indicator {
+  transform: rotate(-90deg);
+}
+
+.wp-pq-tree .is-collapsed > .wp-pq-tree-node-group .wp-pq-tree-collapse-indicator {
+  transform: rotate(-90deg);
+}
+
+.wp-pq-tree-collapse-indicator {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  line-height: 14px;
+  text-align: center;
+  font-size: 8px;
+  color: #aaa;
+  margin-right: 2px;
+  cursor: pointer;
+  user-select: none;
+  vertical-align: middle;
+  transition: transform 0.15s ease;
+}
+
+/* ── Detail drawer ── */
+.wp-pq-tree-drawer {
+  position: fixed;
+  top: 32px;
+  right: 0;
+  width: 500px;
+  max-width: 90vw;
+  height: calc(100vh - 32px);
+  background: var(--pq-surface, #fff);
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.12);
+  transform: translateX(100%);
+  transition: transform 0.25s ease;
+  z-index: 100;
+  overflow-y: auto;
+  padding: 24px;
+}
+
+.wp-pq-tree-drawer.is-open {
+  transform: translateX(0);
+}
+
+.wp-pq-tree-drawer-backdrop {
+  position: fixed;
+  inset: 32px 0 0 0;
+  background: rgba(0, 0, 0, 0.3);
+  z-index: 99;
+  display: none;
+}
+
+.wp-pq-tree-drawer.is-open ~ .wp-pq-tree-drawer-backdrop,
+.wp-pq-tree-drawer-backdrop.is-open {
+  display: block;
+}
+
+.wp-pq-tree-drawer-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.wp-pq-tree-drawer-header h3 {
+  flex: 1;
+  font-size: 18px;
+  margin: 0;
+}
+
+.wp-pq-tree-drawer-close {
+  background: none;
+  border: none;
+  font-size: 22px;
+  cursor: pointer;
+  color: var(--pq-muted, #999);
+  line-height: 1;
 }

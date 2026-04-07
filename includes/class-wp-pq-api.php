@@ -6,6 +6,14 @@ if (! defined('ABSPATH')) {
 
 class WP_PQ_API
 {
+    // ── Table name constants ──────────────────────────────────────────
+    private const TABLE_TASKS = 'pq_tasks';
+    private const TABLE_HISTORY = 'pq_task_status_history';
+    private const TABLE_MESSAGES = 'pq_task_messages';
+    private const TABLE_COMMENTS = 'pq_task_comments';
+    private const TABLE_MEETINGS = 'pq_task_meetings';
+    private const TABLE_LEDGER = 'pq_work_ledger';
+
     /** @var array<int, \WP_User|false> */
     private static array $user_cache = [];
 
@@ -168,6 +176,50 @@ class WP_PQ_API
     public static function sanitize_int_array($input): array
     {
         return array_values(array_unique(array_filter(array_map('intval', (array) $input))));
+    }
+
+    // ── Response helpers ──────────────────────────────────────────────
+
+    private static function error_response(string $message, int $status = 422): WP_REST_Response
+    {
+        return new WP_REST_Response(['message' => $message], $status);
+    }
+
+    private static function task_response(int $task_id, array $extra = [], int $status = 200): WP_REST_Response
+    {
+        return new WP_REST_Response(array_merge([
+            'ok' => true,
+            'task' => self::get_enriched_task($task_id),
+        ], $extra), $status);
+    }
+
+    /**
+     * Load a task row and verify the current user can access it.
+     *
+     * @return array|WP_REST_Response The task row on success, or an error response.
+     */
+    private static function require_task_access(int $task_id, ?int $user_id = null): array|WP_REST_Response
+    {
+        $task = self::get_task_row($task_id);
+        if (! $task) {
+            return self::error_response('Task not found.', 404);
+        }
+
+        $user_id = $user_id ?? get_current_user_id();
+        if (! self::can_access_task($task, $user_id)) {
+            return self::error_response('Forbidden.', 403);
+        }
+
+        return $task;
+    }
+
+    /**
+     * Get the prefixed table name for a table constant.
+     */
+    private static function table(string $name): string
+    {
+        global $wpdb;
+        return $wpdb->prefix . $name;
     }
 
     public static function init(): void
@@ -408,6 +460,32 @@ class WP_PQ_API
             'permission_callback' => static fn() => is_user_logged_in(),
         ]);
 
+        register_rest_route('pq/v1', '/branding', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [self::class, 'get_branding'],
+                'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'update_branding'],
+                'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
+            ],
+        ]);
+
+        register_rest_route('pq/v1', '/openai-settings', [
+            [
+                'methods' => WP_REST_Server::READABLE,
+                'callback' => [self::class, 'get_openai_settings'],
+                'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
+            ],
+            [
+                'methods' => WP_REST_Server::CREATABLE,
+                'callback' => [self::class, 'update_openai_settings'],
+                'permission_callback' => static fn() => current_user_can(WP_PQ_Roles::CAP_APPROVE),
+            ],
+        ]);
+
         register_rest_route('pq/v1', '/workers', [
             'methods' => WP_REST_Server::READABLE,
             'callback' => [self::class, 'get_workers'],
@@ -447,10 +525,10 @@ class WP_PQ_API
         $table = $wpdb->prefix . 'pq_tasks';
 
         $user_id = get_current_user_id();
-        $title = sanitize_text_field((string) $request->get_param('title'));
+        $title = WP_PQ_Sanitizer::text($request, 'title');
 
         if ($title === '') {
-            return new WP_REST_Response(['message' => 'Task title is required.'], 422);
+            return self::error_response('Task title is required.');
         }
 
         $allowed_assign = current_user_can(WP_PQ_Roles::CAP_ASSIGN);
@@ -463,7 +541,7 @@ class WP_PQ_API
         $client_id = self::resolve_client_id($request, $submitter_id);
         $client_user_id = self::resolve_client_primary_contact_id($client_id, $user_id);
         $billing_bucket_id = self::resolve_billing_bucket_id($request, $client_id);
-        $new_bucket_name = sanitize_text_field((string) $request->get_param('new_bucket_name'));
+        $new_bucket_name = WP_PQ_Sanitizer::text($request, 'new_bucket_name');
         if ($new_bucket_name !== '' && current_user_can(WP_PQ_Roles::CAP_APPROVE)) {
             $billing_bucket_id = self::create_bucket_for_client($client_id, $new_bucket_name);
         }
@@ -477,7 +555,7 @@ class WP_PQ_API
 
         $inserted = $wpdb->insert($table, [
             'title' => $title,
-            'description' => sanitize_textarea_field((string) $request->get_param('description')),
+            'description' => WP_PQ_Sanitizer::textarea($request, 'description'),
             'status' => 'pending_approval',
             'priority' => self::sanitize_priority((string) $request->get_param('priority')),
             'queue_position' => $max_position + 1,
@@ -498,7 +576,7 @@ class WP_PQ_API
         ]);
 
         if (! $inserted) {
-            return new WP_REST_Response(['message' => 'Failed to create task.'], 500);
+            return self::error_response('Failed to create task.', 500);
         }
 
         $task_id = (int) $wpdb->insert_id;
@@ -561,12 +639,12 @@ class WP_PQ_API
         $task_id = (int) $request->get_param('id');
         $task = self::get_task_row($task_id);
         if (! $task) {
-            return new WP_REST_Response(['message' => 'Task not found.'], 404);
+            return self::error_response('Task not found.', 404);
         }
 
         $action_owner_id = max(0, (int) $request->get_param('action_owner_id'));
         if ($action_owner_id > 0 && ! self::get_cached_user($action_owner_id)) {
-            return new WP_REST_Response(['message' => 'Assigned user not found.'], 422);
+            return self::error_response('Assigned user not found.');
         }
         $previous_action_owner_id = (int) ($task['action_owner_id'] ?? 0);
 
@@ -577,14 +655,14 @@ class WP_PQ_API
 
         $billing_sync = self::billing_sync_for_assignment($task, $action_owner_id);
 
-        $wpdb->update($wpdb->prefix . 'pq_tasks', array_merge([
+        $wpdb->update(self::table(self::TABLE_TASKS), array_merge([
             'action_owner_id' => $action_owner_id > 0 ? $action_owner_id : null,
             'owner_ids' => wp_json_encode($owner_ids),
             'updated_at' => current_time('mysql', true),
         ], $billing_sync), ['id' => $task_id]);
 
         self::insert_history_note(
-            $wpdb->prefix . 'pq_task_status_history',
+            self::table(self::TABLE_HISTORY),
             $task_id,
             (string) $task['status'],
             get_current_user_id(),
@@ -593,10 +671,7 @@ class WP_PQ_API
 
         self::emit_assignment_event($task_id, $previous_action_owner_id, $action_owner_id);
 
-        return new WP_REST_Response([
-            'ok' => true,
-            'task' => self::get_enriched_task($task_id),
-        ], 200);
+        return self::task_response($task_id);
     }
 
     public static function update_priority(WP_REST_Request $request): WP_REST_Response
@@ -604,32 +679,25 @@ class WP_PQ_API
         global $wpdb;
 
         $task_id = (int) $request->get_param('id');
-        $task = self::get_task_row($task_id);
-        if (! $task) {
-            return new WP_REST_Response(['message' => 'Task not found.'], 404);
+        $task = self::require_task_access($task_id);
+        if ($task instanceof WP_REST_Response) {
+            return $task;
         }
 
         $user_id = get_current_user_id();
-        if (! self::can_access_task($task, $user_id)) {
-            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
-        }
-
         $current_priority = (string) ($task['priority'] ?? 'normal');
         $new_priority = self::sanitize_priority((string) $request->get_param('priority'));
         if ($new_priority === $current_priority) {
-            return new WP_REST_Response([
-                'ok' => true,
-                'task' => self::get_enriched_task($task_id),
-            ], 200);
+            return self::task_response($task_id);
         }
 
-        $wpdb->update($wpdb->prefix . 'pq_tasks', [
+        $wpdb->update(self::table(self::TABLE_TASKS), [
             'priority' => $new_priority,
             'updated_at' => current_time('mysql', true),
         ], ['id' => $task_id]);
 
         self::insert_history_note(
-            $wpdb->prefix . 'pq_task_status_history',
+            self::table(self::TABLE_HISTORY),
             $task_id,
             (string) $task['status'],
             $user_id,
@@ -638,10 +706,7 @@ class WP_PQ_API
 
         self::emit_event($task_id, 'task_reprioritized');
 
-        return new WP_REST_Response([
-            'ok' => true,
-            'task' => self::get_enriched_task($task_id),
-        ], 200);
+        return self::task_response($task_id);
     }
 
     public static function update_task_lane(WP_REST_Request $request): WP_REST_Response
@@ -649,66 +714,194 @@ class WP_PQ_API
         global $wpdb;
 
         $task_id = (int) $request->get_param('id');
-        $task = self::get_task_row($task_id);
-        if (! $task) {
-            return new WP_REST_Response(['message' => 'Task not found.'], 404);
-        }
-
-        $user_id = get_current_user_id();
-        if (! self::can_access_task($task, $user_id)) {
-            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        $task = self::require_task_access($task_id);
+        if ($task instanceof WP_REST_Response) {
+            return $task;
         }
 
         $new_lane_id = (int) $request->get_param('lane_id');
         $old_lane_id = (int) ($task['lane_id'] ?? 0);
 
         if ($new_lane_id === $old_lane_id) {
-            return new WP_REST_Response([
-                'ok' => true,
-                'task' => self::get_enriched_task($task_id),
-            ], 200);
+            return self::task_response($task_id);
         }
 
         // Validate lane exists (unless clearing to Uncategorized).
         if ($new_lane_id > 0) {
             $lane = WP_PQ_DB::get_lane($new_lane_id);
             if (! $lane) {
-                return new WP_REST_Response(['message' => 'Lane not found.'], 404);
+                return self::error_response('Lane not found.', 404);
             }
         }
 
-        $wpdb->update($wpdb->prefix . 'pq_tasks', [
+        $wpdb->update(self::table(self::TABLE_TASKS), [
             'lane_id' => $new_lane_id > 0 ? $new_lane_id : null,
             'updated_at' => current_time('mysql', true),
         ], ['id' => $task_id]);
 
         self::insert_history_note(
-            $wpdb->prefix . 'pq_task_status_history',
+            self::table(self::TABLE_HISTORY),
             $task_id,
             (string) $task['status'],
-            $user_id,
+            get_current_user_id(),
             'lane:' . $old_lane_id . '->' . $new_lane_id
         );
 
-        return new WP_REST_Response([
-            'ok' => true,
-            'task' => self::get_enriched_task($task_id),
-        ], 200);
+        return self::task_response($task_id);
     }
 
     public static function move_task(WP_REST_Request $request): WP_REST_Response
     {
         self::perf_start('move_task_total');
         global $wpdb;
-        $tasks_table = $wpdb->prefix . 'pq_tasks';
-        $history_table = $wpdb->prefix . 'pq_task_status_history';
+        $tasks_table = self::table(self::TABLE_TASKS);
+        $history_table = self::table(self::TABLE_HISTORY);
 
+        // ── Parse & validate request params ──────────────────────────
         $user_id = get_current_user_id();
         $task_id = (int) $request->get_param('task_id');
         $target_task_id = (int) $request->get_param('target_task_id');
-        $position = sanitize_key((string) $request->get_param('position'));
-        $target_status = sanitize_key((string) $request->get_param('target_status'));
-        $action = sanitize_key((string) $request->get_param('action'));
+        $position = WP_PQ_Sanitizer::key($request, 'position');
+        $target_status = WP_PQ_Sanitizer::key($request, 'target_status');
+
+        [$priority_direction, $swap_due_dates] = self::resolve_move_actions($request);
+
+        $validation_error = self::validate_move_params($task_id, $target_task_id, $position);
+        if ($validation_error) {
+            return $validation_error;
+        }
+
+        $task = self::get_task_row($task_id);
+        $target_task = $target_task_id > 0 ? self::get_task_row($target_task_id) : null;
+
+        if (! $task) {
+            return self::error_response('Task not found.', 404);
+        }
+
+        if ($target_task_id > 0 && ! $target_task) {
+            return self::error_response('Move target not found.', 404);
+        }
+
+        if (! current_user_can(WP_PQ_Roles::CAP_REORDER_ALL)) {
+            if ((int) $task['submitter_id'] !== $user_id || ($target_task && (int) $target_task['submitter_id'] !== $user_id)) {
+                return self::error_response('Forbidden.', 403);
+            }
+        }
+
+        // ── Validate status transition ───────────────────────────────
+        $current_status = WP_PQ_Workflow::normalize_status((string) $task['status']);
+        $resolved_target_status = $target_status !== ''
+            ? WP_PQ_Workflow::normalize_status($target_status)
+            : ($target_task ? WP_PQ_Workflow::normalize_status((string) $target_task['status']) : $current_status);
+
+        $status_error = self::validate_move_status($task, $current_status, $resolved_target_status, $user_id);
+        if ($status_error) {
+            return $status_error;
+        }
+
+        // ── Reorder visible queue ────────────────────────────────────
+        $reorder_error = self::reorder_queue_for_move($wpdb, $tasks_table, $task_id, $target_task_id, $position, $user_id);
+        if ($reorder_error) {
+            return $reorder_error;
+        }
+
+        // ── Apply changes (status, priority, lane, dates) ────────────
+        $meeting_requested = (bool) $request->get_param('needs_meeting');
+        $change_note = trim((string) $request->get_param('note'));
+        $message_body = trim((string) $request->get_param('message_body'));
+        $raw_send_email = $request->get_param('send_update_email');
+        $send_update_email = $raw_send_email === null ? true : self::request_truthy($raw_send_email);
+        $notes = ['board_move'];
+        $priority_changed = false;
+        $schedule_changed = false;
+        $status_changed = false;
+
+        self::perf_start('status_change');
+
+        if ($resolved_target_status !== $current_status) {
+            self::apply_move_status_change($wpdb, $tasks_table, $task_id, $task, $current_status, $resolved_target_status, $meeting_requested, $notes, $status_changed);
+        }
+
+        if ($priority_direction !== 'keep') {
+            self::apply_move_priority_change($wpdb, $tasks_table, $task_id, $task, $priority_direction, $notes, $priority_changed);
+        }
+
+        self::apply_move_lane_change($wpdb, $tasks_table, $task_id, $task, $request, $notes);
+
+        if ($swap_due_dates && $target_task) {
+            self::apply_move_date_swap($wpdb, $tasks_table, $task_id, $target_task_id, $task, $target_task, $notes, $schedule_changed);
+        }
+
+        // ── Record history & messages ────────────────────────────────
+        if ($change_note !== '') {
+            $notes[] = 'note:' . $change_note;
+        }
+
+        if ($status_changed) {
+            $reason_code = self::transition_reason_code($current_status, $resolved_target_status);
+            self::insert_status_history($history_table, $task_id, $current_status, $resolved_target_status, $user_id, implode(';', $notes), $reason_code);
+            self::emit_status_event($task_id, $current_status, $resolved_target_status);
+        } else {
+            self::insert_history_note($history_table, $task_id, (string) $task['status'], $user_id, implode(';', $notes));
+        }
+
+        self::perf_start('store_message');
+        if ($message_body !== '') {
+            self::store_task_message($task_id, $user_id, $message_body, $task);
+        }
+        self::perf_end('store_message');
+        self::perf_end('status_change');
+
+        // ── Post-move side effects ───────────────────────────────────
+        if ($schedule_changed && $target_task_id > 0) {
+            self::insert_history_note($history_table, $target_task_id, (string) $target_task['status'], $user_id, 'date_swap_with:' . $task_id);
+        }
+
+        self::perf_start('emit_events');
+        if ($priority_changed) {
+            self::emit_event($task_id, 'task_reprioritized');
+        }
+        if ($schedule_changed) {
+            self::emit_event($task_id, 'task_schedule_changed');
+            if ($target_task_id > 0) {
+                self::emit_event($target_task_id, 'task_schedule_changed');
+            }
+        }
+        self::perf_end('emit_events');
+
+        WP_PQ_Calendar::sync_task_calendar_event((array) self::get_task_row($task_id));
+        if ($schedule_changed && $target_task_id > 0) {
+            WP_PQ_Calendar::sync_task_calendar_event((array) self::get_task_row($target_task_id));
+        }
+        if ($status_changed && $resolved_target_status === 'delivered') {
+            self::upsert_work_ledger_entry((array) self::get_task_row($task_id), false);
+        }
+        if ($status_changed && $send_update_email) {
+            self::send_client_status_update($task_id, $resolved_target_status);
+        }
+
+        self::perf_start('enrich_response');
+        $response = self::task_response($task_id, [
+            'target_task' => $target_task_id > 0 ? self::get_enriched_task($target_task_id) : null,
+        ]);
+        self::perf_end('enrich_response');
+
+        self::perf_end('move_task_total');
+        self::perf_log('move_task', $task_id);
+
+        return $response;
+    }
+
+    // ── move_task() extracted helpers ─────────────────────────────────
+
+    /**
+     * Resolve the priority_direction and swap_due_dates from a move request.
+     *
+     * @return array{0: string, 1: bool} [priority_direction, swap_due_dates]
+     */
+    private static function resolve_move_actions(WP_REST_Request $request): array
+    {
+        $action = WP_PQ_Sanitizer::key($request, 'action');
         $priority_direction = self::sanitize_priority_direction((string) $request->get_param('priority_direction'));
         $raise_priority = rest_sanitize_boolean($request->get_param('raise_priority'));
         $swap_due_dates = rest_sanitize_boolean($request->get_param('swap_due_dates'));
@@ -720,56 +913,45 @@ class WP_PQ_API
             $priority_direction = 'up';
         }
 
+        return [$priority_direction, $swap_due_dates];
+    }
+
+    private static function validate_move_params(int $task_id, int $target_task_id, string $position): ?WP_REST_Response
+    {
         if ($task_id <= 0 || ($target_task_id > 0 && $task_id === $target_task_id)) {
-            return new WP_REST_Response(['message' => 'A valid task move target is required.'], 422);
+            return self::error_response('A valid task move target is required.');
         }
 
         if (! in_array($position, ['before', 'after'], true)) {
-            return new WP_REST_Response(['message' => 'Invalid move position.'], 422);
+            return self::error_response('Invalid move position.');
         }
 
-        $task = self::get_task_row($task_id);
-        $target_task = $target_task_id > 0 ? self::get_task_row($target_task_id) : null;
+        return null;
+    }
 
-        if (! $task) {
-            return new WP_REST_Response(['message' => 'Task not found.'], 404);
+    private static function validate_move_status(array $task, string $current_status, string $resolved_status, int $user_id): ?WP_REST_Response
+    {
+        if (! in_array($resolved_status, WP_PQ_Workflow::allowed_statuses(), true)) {
+            return self::error_response('Invalid move target status.');
+        }
+        if ($resolved_status === 'done') {
+            return self::error_response('Use Mark Done so completion details can be captured before closing the task.');
+        }
+        if ($resolved_status === 'archived') {
+            return self::error_response('Tasks can only be archived after being marked done.');
+        }
+        if (self::is_billing_locked_reopen($task, $current_status, $resolved_status)) {
+            return self::error_response('This delivered task is still tied to billing. Remove it from the invoice draft first.');
+        }
+        if ($resolved_status !== $current_status && ! WP_PQ_Workflow::can_transition($current_status, $resolved_status, $user_id)) {
+            return self::error_response('That status move is not allowed.');
         }
 
-        if ($target_task_id > 0 && ! $target_task) {
-            return new WP_REST_Response(['message' => 'Move target not found.'], 404);
-        }
+        return null;
+    }
 
-        if (! current_user_can(WP_PQ_Roles::CAP_REORDER_ALL)) {
-            if ((int) $task['submitter_id'] !== $user_id || ($target_task && (int) $target_task['submitter_id'] !== $user_id)) {
-                return new WP_REST_Response(['message' => 'Forbidden.'], 403);
-            }
-        }
-
-        $current_status = WP_PQ_Workflow::normalize_status((string) $task['status']);
-        $resolved_target_status = $target_status !== ''
-            ? WP_PQ_Workflow::normalize_status($target_status)
-            : ($target_task ? WP_PQ_Workflow::normalize_status((string) $target_task['status']) : $current_status);
-
-        if (! in_array($resolved_target_status, WP_PQ_Workflow::allowed_statuses(), true)) {
-            return new WP_REST_Response(['message' => 'Invalid move target status.'], 422);
-        }
-
-        if ($resolved_target_status === 'done') {
-            return new WP_REST_Response(['message' => 'Use Mark Done so completion details can be captured before closing the task.'], 422);
-        }
-
-        if ($resolved_target_status === 'archived') {
-            return new WP_REST_Response(['message' => 'Tasks can only be archived after being marked done.'], 422);
-        }
-
-        if (self::is_billing_locked_reopen($task, $current_status, $resolved_target_status)) {
-            return new WP_REST_Response(['message' => 'This delivered task is still tied to billing. Remove it from the invoice draft first.'], 422);
-        }
-
-        if ($resolved_target_status !== $current_status && ! WP_PQ_Workflow::can_transition($current_status, $resolved_target_status, $user_id)) {
-            return new WP_REST_Response(['message' => 'That status move is not allowed.'], 422);
-        }
-
+    private static function reorder_queue_for_move(object $wpdb, string $tasks_table, int $task_id, int $target_task_id, string $position, int $user_id): ?WP_REST_Response
+    {
         self::perf_start('visible_query');
         $visible_rows = current_user_can(WP_PQ_Roles::CAP_VIEW_ALL)
             ? $wpdb->get_results("SELECT * FROM {$tasks_table} WHERE status NOT IN ('done','archived') ORDER BY queue_position ASC, id DESC", ARRAY_A)
@@ -784,16 +966,15 @@ class WP_PQ_API
 
         $ordered_ids = array_map(static fn($row) => (int) $row['id'], $visible_rows);
         if (! in_array($task_id, $ordered_ids, true) || ($target_task_id > 0 && ! in_array($target_task_id, $ordered_ids, true))) {
-            return new WP_REST_Response(['message' => 'Task move is outside your visible queue.'], 403);
+            return self::error_response('Task move is outside your visible queue.', 403);
         }
 
         $ordered_ids = array_values(array_filter($ordered_ids, static fn($id) => $id !== $task_id));
         if ($target_task_id > 0) {
             $target_index = array_search($target_task_id, $ordered_ids, true);
             if ($target_index === false) {
-                return new WP_REST_Response(['message' => 'Task move target could not be resolved.'], 422);
+                return self::error_response('Task move target could not be resolved.');
             }
-
             $insert_at = $position === 'before' ? $target_index : $target_index + 1;
         } else {
             $insert_at = count($ordered_ids);
@@ -810,187 +991,100 @@ class WP_PQ_API
         self::perf_end('reorder_updates');
         self::$perf_spans['reorder_count'] = count($ordered_ids);
 
-        $priority_changed = false;
-        $schedule_changed = false;
-        $status_changed = false;
-        $meeting_requested = (bool) $request->get_param('needs_meeting');
-        $change_note = trim((string) $request->get_param('note'));
-        $message_body = trim((string) $request->get_param('message_body'));
-        $raw_send_email = $request->get_param('send_update_email');
-        $send_update_email = $raw_send_email === null ? true : self::request_truthy($raw_send_email);
-        $notes = ['board_move'];
+        return null;
+    }
 
-        self::perf_start('status_change');
-        if ($resolved_target_status !== $current_status) {
-            $reason_code = self::transition_reason_code($current_status, $resolved_target_status);
-            $timestamp_updates = self::status_timestamp_updates($resolved_target_status);
-            $status_update = array_merge([
-                'status' => $resolved_target_status,
+    private static function apply_move_status_change(object $wpdb, string $tasks_table, int $task_id, array &$task, string $current_status, string $resolved_status, bool $meeting_requested, array &$notes, bool &$status_changed): void
+    {
+        $reason_code = self::transition_reason_code($current_status, $resolved_status);
+        $timestamp_updates = self::status_timestamp_updates($resolved_status);
+        $status_update = array_merge([
+            'status' => $resolved_status,
+            'updated_at' => current_time('mysql', true),
+        ], $timestamp_updates);
+        if ($reason_code === 'revisions_requested') {
+            $status_update['revision_count'] = max(0, (int) ($task['revision_count'] ?? 0)) + 1;
+        }
+        if ($meeting_requested) {
+            $status_update['needs_meeting'] = 1;
+        }
+        $wpdb->update($tasks_table, $status_update, ['id' => $task_id]);
+        $status_changed = true;
+        $notes[] = 'status:' . $current_status . '->' . $resolved_status;
+        $task['status'] = $resolved_status;
+        if ($meeting_requested) {
+            $task['needs_meeting'] = 1;
+            $notes[] = 'meeting_requested';
+        }
+        foreach ($timestamp_updates as $field => $value) {
+            $task[$field] = $value;
+        }
+    }
+
+    private static function apply_move_priority_change(object $wpdb, string $tasks_table, int $task_id, array &$task, string $direction, array &$notes, bool &$priority_changed): void
+    {
+        $new_priority = self::shift_priority((string) $task['priority'], $direction);
+        if ($new_priority !== (string) $task['priority']) {
+            $wpdb->update($tasks_table, [
+                'priority' => $new_priority,
                 'updated_at' => current_time('mysql', true),
-            ], $timestamp_updates);
-            if ($reason_code === 'revisions_requested') {
-                $status_update['revision_count'] = max(0, (int) ($task['revision_count'] ?? 0)) + 1;
-            }
-            if ($meeting_requested) {
-                $status_update['needs_meeting'] = 1;
-            }
-            $wpdb->update($tasks_table, $status_update, ['id' => $task_id]);
-            $status_changed = true;
-            $notes[] = 'status:' . $current_status . '->' . $resolved_target_status;
-            $task['status'] = $resolved_target_status;
-            if ($meeting_requested) {
-                $task['needs_meeting'] = 1;
-                $notes[] = 'meeting_requested';
-            }
-            foreach ($timestamp_updates as $field => $value) {
-                $task[$field] = $value;
-            }
+            ], ['id' => $task_id]);
+            $notes[] = 'priority:' . $task['priority'] . '->' . $new_priority;
+            $priority_changed = true;
+            $task['priority'] = $new_priority;
         }
+    }
 
-        if ($priority_direction !== 'keep') {
-            $new_priority = self::shift_priority((string) $task['priority'], $priority_direction);
-            if ($new_priority !== (string) $task['priority']) {
-                $wpdb->update($tasks_table, [
-                    'priority' => $new_priority,
-                    'updated_at' => current_time('mysql', true),
-                ], ['id' => $task_id]);
-                $notes[] = 'priority:' . $task['priority'] . '->' . $new_priority;
-                $priority_changed = true;
-                $task['priority'] = $new_priority;
-            }
-        }
-
-        // Lane change (swimlane move).
+    private static function apply_move_lane_change(object $wpdb, string $tasks_table, int $task_id, array &$task, WP_REST_Request $request, array &$notes): void
+    {
         $new_lane_id = $request->get_param('lane_id');
-        if ($new_lane_id !== null) {
-            $new_lane_id = (int) $new_lane_id;
-            $old_lane_id = (int) ($task['lane_id'] ?? 0);
-            if ($new_lane_id !== $old_lane_id) {
-                $wpdb->update($tasks_table, [
-                    'lane_id' => $new_lane_id > 0 ? $new_lane_id : null,
-                    'updated_at' => current_time('mysql', true),
-                ], ['id' => $task_id]);
-                $task['lane_id'] = $new_lane_id > 0 ? $new_lane_id : null;
-                $notes[] = 'lane:' . $old_lane_id . '->' . $new_lane_id;
-            }
+        if ($new_lane_id === null) {
+            return;
         }
 
-        if ($swap_due_dates && $target_task) {
-            $task_dates = [
-                'requested_deadline' => $task['requested_deadline'],
-                'due_at' => $task['due_at'],
-            ];
-            $target_dates = [
-                'requested_deadline' => $target_task['requested_deadline'],
-                'due_at' => $target_task['due_at'],
-            ];
+        $new_lane_id = (int) $new_lane_id;
+        $old_lane_id = (int) ($task['lane_id'] ?? 0);
+        if ($new_lane_id !== $old_lane_id) {
+            $wpdb->update($tasks_table, [
+                'lane_id' => $new_lane_id > 0 ? $new_lane_id : null,
+                'updated_at' => current_time('mysql', true),
+            ], ['id' => $task_id]);
+            $task['lane_id'] = $new_lane_id > 0 ? $new_lane_id : null;
+            $notes[] = 'lane:' . $old_lane_id . '->' . $new_lane_id;
+        }
+    }
 
-            if ($task_dates !== $target_dates) {
-                $wpdb->update($tasks_table, [
-                    'requested_deadline' => $target_dates['requested_deadline'],
-                    'due_at' => $target_dates['due_at'],
-                    'updated_at' => current_time('mysql', true),
-                ], ['id' => $task_id]);
+    private static function apply_move_date_swap(object $wpdb, string $tasks_table, int $task_id, int $target_task_id, array $task, array $target_task, array &$notes, bool &$schedule_changed): void
+    {
+        $task_dates = ['requested_deadline' => $task['requested_deadline'], 'due_at' => $task['due_at']];
+        $target_dates = ['requested_deadline' => $target_task['requested_deadline'], 'due_at' => $target_task['due_at']];
 
-                $wpdb->update($tasks_table, [
-                    'requested_deadline' => $task_dates['requested_deadline'],
-                    'due_at' => $task_dates['due_at'],
-                    'updated_at' => current_time('mysql', true),
-                ], ['id' => $target_task_id]);
-
-                $notes[] = 'date_swap:' . $target_task_id;
-                $schedule_changed = true;
-            }
+        if ($task_dates === $target_dates) {
+            return;
         }
 
-        if ($status_changed) {
-            if ($change_note !== '') {
-                $notes[] = 'note:' . $change_note;
-            }
-            self::insert_status_history(
-                $history_table,
-                $task_id,
-                $current_status,
-                $resolved_target_status,
-                $user_id,
-                implode(';', $notes),
-                $reason_code
-            );
-            self::emit_status_event($task_id, $current_status, $resolved_target_status);
-        } else {
-            if ($change_note !== '') {
-                $notes[] = 'note:' . $change_note;
-            }
-            self::insert_history_note($history_table, $task_id, (string) $task['status'], $user_id, implode(';', $notes));
-        }
-
-        self::perf_start('store_message');
-        if ($message_body !== '') {
-            self::store_task_message($task_id, $user_id, $message_body, $task);
-        }
-        self::perf_end('store_message');
-        self::perf_end('status_change');
-
-        if ($schedule_changed && $target_task_id > 0) {
-            self::insert_history_note($history_table, $target_task_id, (string) $target_task['status'], $user_id, 'date_swap_with:' . $task_id);
-        }
-
-        self::perf_start('emit_events');
-        if ($priority_changed) {
-            self::emit_event($task_id, 'task_reprioritized');
-        }
-
-        if ($schedule_changed) {
-            self::emit_event($task_id, 'task_schedule_changed');
-            if ($target_task_id > 0) {
-                self::emit_event($target_task_id, 'task_schedule_changed');
-            }
-        }
-        self::perf_end('emit_events');
-
-        WP_PQ_Calendar::sync_task_calendar_event((array) self::get_task_row($task_id));
-        if ($schedule_changed && $target_task_id > 0) {
-            WP_PQ_Calendar::sync_task_calendar_event((array) self::get_task_row($target_task_id));
-        }
-
-        if ($status_changed && $send_update_email) {
-            self::send_client_status_update($task_id, $resolved_target_status);
-        }
-
-        self::perf_start('enrich_response');
-        $response = new WP_REST_Response([
-            'ok' => true,
-            'task' => self::get_enriched_task($task_id),
-            'target_task' => $target_task_id > 0 ? self::get_enriched_task($target_task_id) : null,
-        ], 200);
-        self::perf_end('enrich_response');
-
-        self::perf_end('move_task_total');
-        self::perf_log('move_task', $task_id);
-
-        return $response;
+        $now = current_time('mysql', true);
+        $wpdb->update($tasks_table, array_merge($target_dates, ['updated_at' => $now]), ['id' => $task_id]);
+        $wpdb->update($tasks_table, array_merge($task_dates, ['updated_at' => $now]), ['id' => $target_task_id]);
+        $notes[] = 'date_swap:' . $target_task_id;
+        $schedule_changed = true;
     }
 
     public static function update_schedule(WP_REST_Request $request): WP_REST_Response
     {
         global $wpdb;
-        $tasks = $wpdb->prefix . 'pq_tasks';
-        $history = $wpdb->prefix . 'pq_task_status_history';
+        $tasks = self::table(self::TABLE_TASKS);
+        $history = self::table(self::TABLE_HISTORY);
 
         $task_id = (int) $request->get_param('id');
         $when = self::sanitize_datetime($request->get_param('when'));
-        $task = self::get_task_row($task_id);
-
-        if (! $task) {
-            return new WP_REST_Response(['message' => 'Task not found.'], 404);
+        $task = self::require_task_access($task_id);
+        if ($task instanceof WP_REST_Response) {
+            return $task;
         }
 
         if (! $when) {
-            return new WP_REST_Response(['message' => 'A valid date is required.'], 422);
-        }
-
-        if (! self::can_access_task($task, get_current_user_id())) {
-            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+            return self::error_response('A valid date is required.');
         }
 
         [$requested_deadline, $due_at] = self::shift_task_schedule($task, $when);
@@ -1005,47 +1099,39 @@ class WP_PQ_API
         self::emit_event($task_id, 'task_schedule_changed');
         WP_PQ_Calendar::sync_task_calendar_event((array) self::get_task_row($task_id));
 
-        return new WP_REST_Response([
-            'ok' => true,
-            'task' => self::get_enriched_task($task_id),
-        ], 200);
+        return self::task_response($task_id);
     }
 
     public static function update_status(WP_REST_Request $request): WP_REST_Response
     {
         global $wpdb;
-        $tasks = $wpdb->prefix . 'pq_tasks';
-        $history = $wpdb->prefix . 'pq_task_status_history';
+        $tasks = self::table(self::TABLE_TASKS);
+        $history = self::table(self::TABLE_HISTORY);
 
         $task_id = (int) $request->get_param('id');
         $new_status = WP_PQ_Workflow::normalize_status((string) $request->get_param('status'));
-        $task = self::get_task_row($task_id);
-
-        if (! $task) {
-            return new WP_REST_Response(['message' => 'Task not found.'], 404);
+        $task = self::require_task_access($task_id);
+        if ($task instanceof WP_REST_Response) {
+            return $task;
         }
 
         if (! in_array($new_status, WP_PQ_Workflow::allowed_statuses(), true)) {
-            return new WP_REST_Response(['message' => 'Invalid status.'], 422);
+            return self::error_response('Invalid status.');
         }
 
         if ($new_status === 'done') {
-            return new WP_REST_Response(['message' => 'Use Mark Done so completion details can be captured before closing the task.'], 422);
+            return self::error_response('Use Mark Done so completion details can be captured before closing the task.');
         }
 
         $user_id = get_current_user_id();
-        if (! self::can_access_task($task, $user_id)) {
-            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
-        }
-
         $current_status = WP_PQ_Workflow::normalize_status((string) $task['status']);
 
         if (self::is_billing_locked_reopen($task, $current_status, $new_status)) {
-            return new WP_REST_Response(['message' => 'This delivered task is still tied to billing. Remove it from the invoice draft first.'], 422);
+            return self::error_response('This delivered task is still tied to billing. Remove it from the invoice draft first.');
         }
 
         if (! WP_PQ_Workflow::can_transition($current_status, $new_status, $user_id)) {
-            return new WP_REST_Response(['message' => 'Status transition not allowed.'], 422);
+            return self::error_response('Status transition not allowed.');
         }
 
         $reason_code = self::transition_reason_code($current_status, $new_status);
@@ -1089,43 +1175,40 @@ class WP_PQ_API
             self::send_client_status_update($task_id, $new_status);
         }
 
-        return new WP_REST_Response([
-            'ok' => true,
-            'task' => self::get_enriched_task($task_id),
-        ], 200);
+        // Create ledger entry at delivery (not at close).
+        if ($new_status === 'delivered') {
+            self::upsert_work_ledger_entry((array) self::get_task_row($task_id), false);
+        }
+
+        return self::task_response($task_id);
     }
 
     public static function mark_task_done(WP_REST_Request $request): WP_REST_Response
     {
         global $wpdb;
 
-        $tasks_table = $wpdb->prefix . 'pq_tasks';
-        $history_table = $wpdb->prefix . 'pq_task_status_history';
+        $tasks_table = self::table(self::TABLE_TASKS);
+        $history_table = self::table(self::TABLE_HISTORY);
         $task_id = (int) $request->get_param('id');
-        $task = self::get_task_row($task_id);
-
-        if (! $task) {
-            return new WP_REST_Response(['message' => 'Task not found.'], 404);
+        $task = self::require_task_access($task_id);
+        if ($task instanceof WP_REST_Response) {
+            return $task;
         }
 
         $user_id = get_current_user_id();
-        if (! self::can_access_task($task, $user_id)) {
-            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
-        }
-
         $current_status = WP_PQ_Workflow::normalize_status((string) ($task['status'] ?? ''));
         if ($current_status === 'done') {
-            return new WP_REST_Response(['message' => 'This task is already marked done.'], 409);
+            return self::error_response('This task is already marked done.', 409);
         }
 
         if (! WP_PQ_Workflow::can_transition($current_status, 'done', $user_id)) {
-            return new WP_REST_Response(['message' => 'Only delivered tasks can be marked done.'], 422);
+            return self::error_response('Only delivered tasks can be marked done.');
         }
 
         $payload = self::normalize_completion_payload((array) $request->get_json_params());
         $validated = self::validate_completion_payload($task, $payload);
         if (is_wp_error($validated)) {
-            return new WP_REST_Response(['message' => $validated->get_error_message()], (int) ($validated->get_error_data()['status'] ?? 422));
+            return self::error_response($validated->get_error_message(), (int) ($validated->get_error_data()['status'] ?? 422));
         }
 
         $now = current_time('mysql', true);
@@ -1161,7 +1244,7 @@ class WP_PQ_API
             if ($started_transaction) {
                 $wpdb->query('ROLLBACK');
             }
-            return new WP_REST_Response(['message' => 'Could not mark this task done.'], 500);
+            return self::error_response('Could not mark this task done.', 500);
         }
 
         $updated_task = self::get_task_row($task_id);
@@ -1169,7 +1252,7 @@ class WP_PQ_API
             if ($started_transaction) {
                 $wpdb->query('ROLLBACK');
             }
-            return new WP_REST_Response(['message' => 'Task could not be reloaded after completion.'], 500);
+            return self::error_response('Task could not be reloaded after completion.', 500);
         }
 
         $ledger_entry = self::upsert_work_ledger_entry($updated_task);
@@ -1177,7 +1260,7 @@ class WP_PQ_API
             if ($started_transaction) {
                 $wpdb->query('ROLLBACK');
             }
-            return new WP_REST_Response(['message' => $ledger_entry->get_error_message()], (int) ($ledger_entry->get_error_data()['status'] ?? 422));
+            return self::error_response($ledger_entry->get_error_message(), (int) ($ledger_entry->get_error_data()['status'] ?? 422));
         }
 
         self::insert_status_history(
@@ -1201,11 +1284,7 @@ class WP_PQ_API
 
         WP_PQ_Calendar::sync_task_calendar_event((array) $updated_task);
 
-        return new WP_REST_Response([
-            'ok' => true,
-            'task' => self::get_enriched_task($task_id),
-            'ledger_entry' => $ledger_entry,
-        ], 200);
+        return self::task_response($task_id, ['ledger_entry' => $ledger_entry]);
     }
 
     /**
@@ -1262,34 +1341,30 @@ class WP_PQ_API
     public static function approve_batch(WP_REST_Request $request): WP_REST_Response
     {
         global $wpdb;
-        $tasks = $wpdb->prefix . 'pq_tasks';
-        $history = $wpdb->prefix . 'pq_task_status_history';
+        $tasks = self::table(self::TABLE_TASKS);
+        $history = self::table(self::TABLE_HISTORY);
 
         $task_ids = self::sanitize_int_array($request->get_param('task_ids'));
         if (empty($task_ids)) {
-            return new WP_REST_Response(['message' => 'Select at least one task to approve.'], 422);
+            return self::error_response('Select at least one task to approve.');
         }
 
         $user_id = get_current_user_id();
         $updated = [];
 
         foreach ($task_ids as $task_id) {
-            $task = self::get_task_row($task_id);
-            if (! $task) {
-                return new WP_REST_Response(['message' => 'One or more selected tasks could not be loaded.'], 404);
-            }
-
-            if (! self::can_access_task($task, $user_id)) {
-                return new WP_REST_Response(['message' => 'You cannot approve one or more selected tasks.'], 403);
+            $task = self::require_task_access($task_id, $user_id);
+            if ($task instanceof WP_REST_Response) {
+                return self::error_response('One or more selected tasks could not be loaded or accessed.', 403);
             }
 
             $current_status = WP_PQ_Workflow::normalize_status((string) ($task['status'] ?? ''));
             if (! in_array($current_status, ['pending_approval', 'needs_clarification'], true)) {
-                return new WP_REST_Response(['message' => 'Only pending or clarification tasks can be batch approved.'], 422);
+                return self::error_response('Only pending or clarification tasks can be batch approved.');
             }
 
             if (! WP_PQ_Workflow::can_transition($current_status, 'approved', $user_id)) {
-                return new WP_REST_Response(['message' => 'One or more selected tasks cannot be approved.'], 422);
+                return self::error_response('One or more selected tasks cannot be approved.');
             }
 
             $wpdb->update($tasks, [
@@ -1316,8 +1391,8 @@ class WP_PQ_API
     public static function archive_delivered(WP_REST_Request $request): WP_REST_Response
     {
         global $wpdb;
-        $tasks_table = $wpdb->prefix . 'pq_tasks';
-        $history = $wpdb->prefix . 'pq_task_status_history';
+        $tasks_table = self::table(self::TABLE_TASKS);
+        $history = self::table(self::TABLE_HISTORY);
         $user_id = get_current_user_id();
         $now = current_time('mysql', true);
 
@@ -1335,7 +1410,7 @@ class WP_PQ_API
             : $wpdb->get_results($sql, ARRAY_A);
 
         if (empty($rows)) {
-            return new WP_REST_Response(['message' => 'No delivered tasks to archive.'], 422);
+            return self::error_response('No delivered tasks to archive.');
         }
 
         $archived = [];
@@ -1365,12 +1440,11 @@ class WP_PQ_API
         $task = self::get_task_row($task_id);
 
         if (! $task) {
-            return new WP_REST_Response(['message' => 'Task not found.'], 404);
+            return self::error_response('Task not found.', 404);
         }
 
-        $user_id = get_current_user_id();
-        if (! self::can_delete_task($task, $user_id)) {
-            return new WP_REST_Response(['message' => 'You cannot delete this task.'], 403);
+        if (! self::can_delete_task($task, get_current_user_id())) {
+            return self::error_response('You cannot delete this task.', 403);
         }
 
         if (
@@ -1378,7 +1452,7 @@ class WP_PQ_API
             || (int) ($task['work_log_id'] ?? 0) > 0
             || in_array((string) ($task['billing_status'] ?? ''), ['batched', 'statement_sent', 'paid'], true)
         ) {
-            return new WP_REST_Response(['message' => 'This task is already tied to billing records. Remove it from billing first or archive it instead.'], 422);
+            return self::error_response('This task is already tied to billing records. Remove it from billing first or archive it instead.');
         }
 
         self::purge_task($task);
@@ -1393,50 +1467,44 @@ class WP_PQ_API
     {
         global $wpdb;
         $task_id = (int) $request->get_param('id');
-        $task = self::get_task_row($task_id);
-
-        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
-            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        $task = self::require_task_access($task_id);
+        if ($task instanceof WP_REST_Response) {
+            return $task;
         }
 
-        $table = $wpdb->prefix . 'pq_task_messages';
+        $table = self::table(self::TABLE_MESSAGES);
         $rows = $wpdb->get_results(
             $wpdb->prepare("SELECT * FROM {$table} WHERE task_id = %d ORDER BY id ASC", $task_id),
             ARRAY_A
         );
 
-        $rows = self::attach_author_names($rows);
-
-        return new WP_REST_Response(['messages' => $rows], 200);
+        return new WP_REST_Response(['messages' => self::attach_author_names($rows)], 200);
     }
 
     public static function create_message(WP_REST_Request $request): WP_REST_Response
     {
         global $wpdb;
         $task_id = (int) $request->get_param('id');
-        $task = self::get_task_row($task_id);
-
-        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
-            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        $task = self::require_task_access($task_id);
+        if ($task instanceof WP_REST_Response) {
+            return $task;
         }
 
         $body = trim((string) $request->get_param('body'));
         if ($body === '') {
-            return new WP_REST_Response(['message' => 'Message body is required.'], 422);
+            return self::error_response('Message body is required.');
         }
 
         self::store_task_message($task_id, get_current_user_id(), $body, $task);
 
-        $table = $wpdb->prefix . 'pq_task_messages';
+        $table = self::table(self::TABLE_MESSAGES);
         $message = $wpdb->get_row(
             $wpdb->prepare("SELECT * FROM {$table} WHERE task_id = %d ORDER BY id DESC LIMIT 1", $task_id),
             ARRAY_A
         );
 
-        return new WP_REST_Response([
-            'ok' => true,
+        return self::task_response($task_id, [
             'message' => $message ? self::attach_author_names([$message])[0] : null,
-            'task' => self::get_enriched_task($task_id),
         ], 201);
     }
 
@@ -1444,39 +1512,35 @@ class WP_PQ_API
     {
         global $wpdb;
         $task_id = (int) $request->get_param('id');
-        $task = self::get_task_row($task_id);
-
-        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
-            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        $task = self::require_task_access($task_id);
+        if ($task instanceof WP_REST_Response) {
+            return $task;
         }
 
-        $table = $wpdb->prefix . 'pq_task_comments';
+        $table = self::table(self::TABLE_COMMENTS);
         $rows = $wpdb->get_results(
             $wpdb->prepare("SELECT * FROM {$table} WHERE task_id = %d ORDER BY id DESC", $task_id),
             ARRAY_A
         );
 
-        $rows = self::attach_author_names($rows);
-
-        return new WP_REST_Response(['notes' => $rows], 200);
+        return new WP_REST_Response(['notes' => self::attach_author_names($rows)], 200);
     }
 
     public static function create_note(WP_REST_Request $request): WP_REST_Response
     {
         global $wpdb;
         $task_id = (int) $request->get_param('id');
-        $task = self::get_task_row($task_id);
-
-        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
-            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        $task = self::require_task_access($task_id);
+        if ($task instanceof WP_REST_Response) {
+            return $task;
         }
 
         $body = trim((string) $request->get_param('body'));
         if ($body === '') {
-            return new WP_REST_Response(['message' => 'Sticky note text is required.'], 422);
+            return self::error_response('Sticky note text is required.');
         }
 
-        $table = $wpdb->prefix . 'pq_task_comments';
+        $table = self::table(self::TABLE_COMMENTS);
         $wpdb->insert($table, [
             'task_id' => $task_id,
             'author_id' => get_current_user_id(),
@@ -1488,10 +1552,8 @@ class WP_PQ_API
             ARRAY_A
         );
 
-        return new WP_REST_Response([
-            'ok' => true,
+        return self::task_response($task_id, [
             'note' => $note ? self::attach_author_names([$note])[0] : null,
-            'task' => self::get_enriched_task($task_id),
         ], 201);
     }
 
@@ -1502,14 +1564,13 @@ class WP_PQ_API
     {
         global $wpdb;
         $task_id = (int) $request->get_param('id');
-        $task = self::get_task_row($task_id);
-
-        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
-            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        $task = self::require_task_access($task_id);
+        if ($task instanceof WP_REST_Response) {
+            return $task;
         }
 
-        $messages_table = $wpdb->prefix . 'pq_task_messages';
-        $comments_table = $wpdb->prefix . 'pq_task_comments';
+        $messages_table = self::table(self::TABLE_MESSAGES);
+        $comments_table = self::table(self::TABLE_COMMENTS);
 
         // UNION ALL both tables with a type discriminator, sorted chronologically.
         $rows = $wpdb->get_results($wpdb->prepare(
@@ -1529,10 +1590,9 @@ class WP_PQ_API
     public static function get_task_participants(WP_REST_Request $request): WP_REST_Response
     {
         $task_id = (int) $request->get_param('id');
-        $task = self::get_task_row($task_id);
-
-        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
-            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        $task = self::require_task_access($task_id);
+        if ($task instanceof WP_REST_Response) {
+            return $task;
         }
 
         return new WP_REST_Response([
@@ -1544,13 +1604,12 @@ class WP_PQ_API
     {
         global $wpdb;
         $task_id = (int) $request->get_param('id');
-        $task = self::get_task_row($task_id);
-
-        if (! $task || ! self::can_access_task($task, get_current_user_id())) {
-            return new WP_REST_Response(['message' => 'Forbidden.'], 403);
+        $task = self::require_task_access($task_id);
+        if ($task instanceof WP_REST_Response) {
+            return $task;
         }
 
-        $table = $wpdb->prefix . 'pq_task_meetings';
+        $table = self::table(self::TABLE_MEETINGS);
         $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM {$table} WHERE task_id = %d ORDER BY id DESC", $task_id), ARRAY_A);
 
         return new WP_REST_Response(['meetings' => $rows], 200);
@@ -1885,8 +1944,9 @@ class WP_PQ_API
         $rows = $wpdb->get_results($wpdb->prepare("SELECT event_key, is_enabled FROM {$table} WHERE user_id = %d", $user_id), ARRAY_A);
         $map = [];
 
+        $defaults = WP_PQ_Workflow::notification_event_defaults();
         foreach ($events as $event) {
-            $map[$event] = true;
+            $map[$event] = $defaults[$event] ?? false;
         }
         foreach ($extra_prefs as $pref_key => $default_value) {
             $map[$pref_key] = $default_value;
@@ -1922,6 +1982,79 @@ class WP_PQ_API
         }
 
         return new WP_REST_Response(['ok' => true], 200);
+    }
+
+    // ── Branding ────────────────────────────────────────────────────────
+
+    public static function get_branding(): WP_REST_Response
+    {
+        return new WP_REST_Response([
+            'heading' => WP_PQ_Admin::portal_heading(),
+            'tagline' => WP_PQ_Admin::portal_tagline(),
+        ], 200);
+    }
+
+    public static function update_branding(WP_REST_Request $request): WP_REST_Response
+    {
+        $heading = WP_PQ_Sanitizer::text($request, 'heading');
+        $tagline = WP_PQ_Sanitizer::text($request, 'tagline');
+
+        update_option('wp_pq_portal_heading', $heading);
+        update_option('wp_pq_portal_tagline', $tagline);
+
+        return new WP_REST_Response([
+            'ok' => true,
+            'heading' => WP_PQ_Admin::portal_heading(),
+            'tagline' => WP_PQ_Admin::portal_tagline(),
+        ], 200);
+    }
+
+    // ── OpenAI Settings ───────────────────────────────────────────────
+
+    private static function mask_key(string $key): string
+    {
+        return $key !== '' ? str_repeat('*', max(0, strlen($key) - 4)) . substr($key, -4) : '';
+    }
+
+    public static function get_openai_settings(): WP_REST_Response
+    {
+        $openai_key = (string) get_option('wp_pq_openai_api_key', '');
+        $anthropic_key = (string) get_option('wp_pq_anthropic_api_key', '');
+        return new WP_REST_Response([
+            'openai_key_set' => $openai_key !== '',
+            'openai_key_masked' => self::mask_key($openai_key),
+            'anthropic_key_set' => $anthropic_key !== '',
+            'anthropic_key_masked' => self::mask_key($anthropic_key),
+            'model' => (string) get_option('wp_pq_openai_model', 'gpt-4o-mini') ?: 'gpt-4o-mini',
+        ], 200);
+    }
+
+    public static function update_openai_settings(WP_REST_Request $request): WP_REST_Response
+    {
+        $openai_key = WP_PQ_Sanitizer::text($request, 'openai_key');
+        $anthropic_key = WP_PQ_Sanitizer::text($request, 'anthropic_key');
+        $model = WP_PQ_Sanitizer::text($request, 'model');
+
+        if ($openai_key !== '') {
+            update_option('wp_pq_openai_api_key', $openai_key);
+        }
+        if ($anthropic_key !== '') {
+            update_option('wp_pq_anthropic_api_key', $anthropic_key);
+        }
+        if ($model !== '') {
+            update_option('wp_pq_openai_model', $model);
+        }
+
+        $saved_openai = (string) get_option('wp_pq_openai_api_key', '');
+        $saved_anthropic = (string) get_option('wp_pq_anthropic_api_key', '');
+        return new WP_REST_Response([
+            'ok' => true,
+            'openai_key_set' => $saved_openai !== '',
+            'openai_key_masked' => self::mask_key($saved_openai),
+            'anthropic_key_set' => $saved_anthropic !== '',
+            'anthropic_key_masked' => self::mask_key($saved_anthropic),
+            'model' => (string) get_option('wp_pq_openai_model', 'gpt-4o-mini') ?: 'gpt-4o-mini',
+        ], 200);
     }
 
     public static function get_notifications(): WP_REST_Response
@@ -2061,14 +2194,13 @@ class WP_PQ_API
         $task_ids = self::sanitize_int_array($request->get_param('task_ids'));
         $result = self::create_statement_batch(
             $task_ids,
-            sanitize_textarea_field((string) $request->get_param('notes')),
-            sanitize_text_field((string) $request->get_param('statement_month')),
+            WP_PQ_Sanitizer::textarea($request, 'notes'),
+            WP_PQ_Sanitizer::text($request, 'statement_month'),
             get_current_user_id()
         );
 
         if (is_wp_error($result)) {
-            $status = (int) ($result->get_error_data('status') ?: 400);
-            return new WP_REST_Response(['message' => $result->get_error_message()], $status);
+            return self::error_response($result->get_error_message(), (int) ($result->get_error_data('status') ?: 400));
         }
 
         return new WP_REST_Response([
@@ -2385,10 +2517,10 @@ class WP_PQ_API
 
         $tasks_table = $wpdb->prefix . 'pq_tasks';
         $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
-        $ledger_table = $wpdb->prefix . 'pq_work_ledger_entries';
         $where = [
             $wpdb->prepare("t.client_id = %d", $client_id),
-            $wpdb->prepare("DATE(COALESCE(t.updated_at, t.created_at)) BETWEEN %s AND %s", $range_start, $range_end),
+            $wpdb->prepare("COALESCE(t.updated_at, t.created_at) >= %s", $range_start . ' 00:00:00'),
+            $wpdb->prepare("COALESCE(t.updated_at, t.created_at) <= %s", $range_end . ' 23:59:59'),
         ];
 
         $status_sql = implode("','", array_map('esc_sql', $statuses));
@@ -2401,21 +2533,19 @@ class WP_PQ_API
         $billable_filter = array_values(array_unique(array_filter((array) ($args['billable'] ?? []))));
         if (! empty($billable_filter) && count($billable_filter) === 1) {
             if (in_array('billable', $billable_filter, true)) {
-                $where[] = '(le.billable = 1 OR le.billable IS NULL)';
+                $where[] = 't.is_billable = 1';
             } elseif (in_array('non_billable', $billable_filter, true)) {
-                $where[] = 'le.billable = 0';
+                $where[] = 't.is_billable = 0';
             }
         }
 
         return $wpdb->get_results(
             "SELECT t.id, t.title, t.description, t.status, t.priority,
-                    t.billing_status, t.billing_mode,
+                    t.billing_status, t.billing_mode, t.is_billable,
                     COALESCE(t.updated_at, t.created_at) AS updated_at,
-                    b.bucket_name,
-                    le.hours, le.rate, le.amount, le.billable, le.invoice_status
+                    b.bucket_name
              FROM {$tasks_table} t
              LEFT JOIN {$buckets_table} b ON b.id = t.billing_bucket_id
-             LEFT JOIN {$ledger_table} le ON le.task_id = t.id AND le.is_closed = 1
              WHERE " . implode(' AND ', $where) . "
              ORDER BY t.status ASC, COALESCE(t.updated_at, t.created_at) DESC, t.id DESC",
             ARRAY_A
@@ -2453,7 +2583,8 @@ class WP_PQ_API
         $tasks_table = $wpdb->prefix . 'pq_tasks';
         $where = [
             $wpdb->prepare("t.client_id = %d", $client_id),
-            $wpdb->prepare("DATE(COALESCE(t.updated_at, t.created_at)) BETWEEN %s AND %s", $range_start, $range_end),
+            $wpdb->prepare("COALESCE(t.updated_at, t.created_at) >= %s", $range_start . ' 00:00:00'),
+            $wpdb->prepare("COALESCE(t.updated_at, t.created_at) <= %s", $range_end . ' 23:59:59'),
         ];
 
         $status_sql = implode("','", array_map('esc_sql', $statuses));
@@ -3510,9 +3641,9 @@ class WP_PQ_API
                 return new WP_Error('pq_entry_already_drafted', 'A selected work entry is already linked to an active invoice draft.', ['status' => 422]);
             }
 
-            $invoice_status = (string) ($row['invoice_status'] ?? 'unbilled');
-            if ($invoice_status !== 'unbilled') {
-                return new WP_Error('pq_invalid_invoice_status', 'Only unbilled completed work can be added to a new invoice draft.', ['status' => 422]);
+            $invoice_status = (string) ($row['invoice_status'] ?? 'pending_review');
+            if ($invoice_status !== 'billable') {
+                return new WP_Error('pq_invalid_invoice_status', 'Only billable completed work can be added to a new invoice draft.', ['status' => 422]);
             }
         }
 
@@ -3810,7 +3941,7 @@ class WP_PQ_API
 
         $wpdb->query($wpdb->prepare(
             "UPDATE {$wpdb->prefix}pq_work_ledger_entries
-             SET invoice_status = CASE WHEN billable = 1 THEN 'unbilled' ELSE 'written_off' END,
+             SET invoice_status = CASE WHEN billable = 1 THEN 'billable' ELSE 'no_charge' END,
                  invoice_draft_id = NULL,
                  updated_at = %s
              WHERE invoice_draft_id = %d",
@@ -3865,7 +3996,7 @@ class WP_PQ_API
 
         if ($ledger_entry && ($removed_statement_id <= 0 || (int) ($ledger_entry['invoice_draft_id'] ?? 0) === $removed_statement_id)) {
             $wpdb->update($ledger_table, [
-                'invoice_status' => (int) ($ledger_entry['billable'] ?? 1) === 1 ? 'unbilled' : 'written_off',
+                'invoice_status' => (int) ($ledger_entry['billable'] ?? 1) === 1 ? 'billable' : 'no_charge',
                 'invoice_draft_id' => null,
                 'updated_at' => current_time('mysql', true),
             ], ['id' => (int) $ledger_entry['id']]);
@@ -4015,7 +4146,7 @@ class WP_PQ_API
         return $row ?: null;
     }
 
-    private static function ledger_payload_from_task(array $task): array
+    private static function ledger_payload_from_task(array $task, bool $is_closing = true): array
     {
         $completion_date = (string) ($task['done_at'] ?? '');
         if ($completion_date === '') {
@@ -4047,8 +4178,8 @@ class WP_PQ_API
             'billable' => (int) ($task['is_billable'] ?? 1) === 1 ? 1 : 0,
             'billing_mode' => (string) ($task['billing_mode'] ?? '') !== '' ? (string) $task['billing_mode'] : (((int) ($task['is_billable'] ?? 1) === 1) ? 'fixed_fee' : 'non_billable'),
             'billing_category' => (string) ($task['billing_category'] ?? '') !== '' ? (string) $task['billing_category'] : 'general',
-            'is_closed' => 1,
-            'invoice_status' => self::ledger_invoice_status_from_task($task),
+            'is_closed' => $is_closing ? 1 : 0,
+            'invoice_status' => self::ledger_invoice_status_from_task($task, $is_closing),
             'statement_month' => substr($completion_date, 0, 7),
             'invoice_draft_id' => (int) ($task['statement_id'] ?? 0) > 0 ? (int) $task['statement_id'] : null,
             'hours' => self::sanitize_decimal_value($task['hours'] ?? null, 2),
@@ -4057,10 +4188,15 @@ class WP_PQ_API
         ];
     }
 
-    private static function ledger_invoice_status_from_task(array $task): string
+    private static function ledger_invoice_status_from_task(array $task, bool $is_closing = true): string
     {
+        if (! $is_closing) {
+            // Delivery-time creation: always starts as pending_review.
+            return 'pending_review';
+        }
+
         if ((int) ($task['is_billable'] ?? 1) !== 1) {
-            return 'written_off';
+            return 'no_charge';
         }
 
         $billing_status = (string) ($task['billing_status'] ?? 'unbilled');
@@ -4073,18 +4209,18 @@ class WP_PQ_API
         }
 
         if ($billing_status === 'not_billable') {
-            return 'written_off';
+            return 'no_charge';
         }
 
-        return 'unbilled';
+        return 'billable';
     }
 
-    private static function upsert_work_ledger_entry(array $task)
+    private static function upsert_work_ledger_entry(array $task, bool $is_closing = true)
     {
         global $wpdb;
 
         $table = $wpdb->prefix . 'pq_work_ledger_entries';
-        $payload = self::ledger_payload_from_task($task);
+        $payload = self::ledger_payload_from_task($task, $is_closing);
         $existing = self::get_work_ledger_entry_by_task_id((int) ($task['id'] ?? 0));
         $now = current_time('mysql', true);
 
@@ -4092,6 +4228,14 @@ class WP_PQ_API
             $existing_status = (string) ($existing['invoice_status'] ?? '');
             if (in_array($existing_status, ['invoiced', 'paid'], true)) {
                 return new WP_Error('pq_locked_ledger_entry', 'This task already has invoiced ledger data and needs manual reconciliation before it can be finalized again.', ['status' => 409]);
+            }
+
+            // Preserve any billing decision already made
+            // (e.g. user changed pending_review → billable in the Billing Queue).
+            // This applies both at close and at re-delivery so reopening
+            // a task doesn't erase a billing decision.
+            if (in_array($existing_status, ['billable', 'no_charge'], true)) {
+                $payload['invoice_status'] = $existing_status;
             }
 
             $updated = $wpdb->update($table, array_merge($payload, [

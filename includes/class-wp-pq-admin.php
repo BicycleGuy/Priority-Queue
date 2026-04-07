@@ -78,12 +78,24 @@ class WP_PQ_Admin
 
     public static function register_settings(): void
     {
-        register_setting('wp_pq_settings_group', 'wp_pq_google_client_id', ['sanitize_callback' => 'sanitize_text_field']);
-        register_setting('wp_pq_settings_group', 'wp_pq_google_client_secret', ['sanitize_callback' => 'sanitize_text_field']);
-        register_setting('wp_pq_settings_group', 'wp_pq_google_redirect_uri', ['sanitize_callback' => 'esc_url_raw']);
-        register_setting('wp_pq_settings_group', 'wp_pq_google_scopes', ['sanitize_callback' => 'sanitize_text_field']);
-        register_setting('wp_pq_settings_group', 'wp_pq_openai_api_key', ['sanitize_callback' => 'sanitize_text_field']);
-        register_setting('wp_pq_settings_group', 'wp_pq_openai_model', ['sanitize_callback' => 'sanitize_text_field']);
+        register_setting('wp_pq_google_settings', 'wp_pq_google_client_id', ['sanitize_callback' => 'sanitize_text_field']);
+        register_setting('wp_pq_google_settings', 'wp_pq_google_client_secret', ['sanitize_callback' => 'sanitize_text_field']);
+        register_setting('wp_pq_google_settings', 'wp_pq_google_redirect_uri', ['sanitize_callback' => 'esc_url_raw']);
+        register_setting('wp_pq_google_settings', 'wp_pq_google_scopes', ['sanitize_callback' => 'sanitize_text_field']);
+        register_setting('wp_pq_openai_settings', 'wp_pq_openai_api_key', ['sanitize_callback' => 'sanitize_text_field']);
+        register_setting('wp_pq_openai_settings', 'wp_pq_openai_model', ['sanitize_callback' => 'sanitize_text_field']);
+        register_setting('wp_pq_settings_group', 'wp_pq_portal_heading', ['sanitize_callback' => 'sanitize_text_field']);
+        register_setting('wp_pq_settings_group', 'wp_pq_portal_tagline', ['sanitize_callback' => 'sanitize_text_field']);
+    }
+
+    public static function portal_heading(): string
+    {
+        return (string) get_option('wp_pq_portal_heading', '') ?: 'Switchboard';
+    }
+
+    public static function portal_tagline(): string
+    {
+        return (string) get_option('wp_pq_portal_tagline', '') ?: 'Requests, approvals, and scheduling in one calm workspace.';
     }
 
     public static function plugin_action_links(array $links): array
@@ -203,19 +215,12 @@ class WP_PQ_Admin
         echo '<table class="form-table"><tbody>';
         echo '<tr><th><label for="google_client_id">Google Client ID</label></th>';
         echo '<td><input type="text" id="google_client_id" name="google_client_id" class="regular-text" '
-            . 'value="' . esc_attr((string) get_option('wp_pq_google_client_id', '')) . '" required></td></tr>';
+            . 'value="' . esc_attr((string) get_option('wp_pq_google_client_id', '')) . '"></td></tr>';
         echo '<tr><th><label for="google_client_secret">Google Client Secret</label></th>';
         echo '<td><input type="text" id="google_client_secret" name="google_client_secret" class="regular-text" '
-            . 'value="' . esc_attr((string) get_option('wp_pq_google_client_secret', '')) . '" required></td></tr>';
+            . 'value="' . esc_attr((string) get_option('wp_pq_google_client_secret', '')) . '"></td></tr>';
         echo '</tbody></table>';
-
-        echo '<h2>Step 2: OpenAI (Optional)</h2>';
-        echo '<p>An API key lets Switchboard parse pasted task lists and documents into draft tasks using AI.</p>';
-        echo '<table class="form-table"><tbody>';
-        echo '<tr><th><label for="openai_key">OpenAI API Key</label></th>';
-        echo '<td><input type="password" id="openai_key" name="openai_key" class="regular-text" '
-            . 'value="' . esc_attr((string) get_option('wp_pq_openai_api_key', '')) . '" autocomplete="off"></td></tr>';
-        echo '</tbody></table>';
+        echo '<p class="description">You can skip this step and configure Google later in Settings.</p>';
 
         echo '<p class="submit"><button type="submit" class="button button-primary button-hero">Complete Setup</button></p>';
         echo '</form>';
@@ -272,6 +277,7 @@ class WP_PQ_Admin
         echo self::admin_section_nav('settings');
 
         echo '<div class="wp-pq-grid wp-pq-settings-grid">';
+
         echo '  <section class="wp-pq-panel wp-pq-settings-panel">';
         echo '    <h2>Notifications</h2>';
         echo '    <p class="wp-pq-panel-note">Choose which workflow emails you want. In-app alerts stay on.</p>';
@@ -283,7 +289,7 @@ class WP_PQ_Admin
         echo '    <h2>Google Calendar &amp; Meet</h2>';
         echo '    <p class="wp-pq-panel-note">Enter your Google OAuth app details, then connect Google Calendar to enable meeting scheduling and calendar sync.</p>';
         echo '    <form method="post" action="options.php">';
-        settings_fields('wp_pq_settings_group');
+        settings_fields('wp_pq_google_settings');
         echo '      <label>Google Client ID <input type="text" name="wp_pq_google_client_id" value="' . esc_attr((string) get_option('wp_pq_google_client_id', '')) . '"></label>';
         echo '      <label>Google Client Secret <input type="text" name="wp_pq_google_client_secret" value="' . esc_attr((string) get_option('wp_pq_google_client_secret', '')) . '"></label>';
         echo '      <label>Authorized Redirect URI <input type="text" name="wp_pq_google_redirect_uri" value="' . esc_attr($redirect_uri) . '"></label>';
@@ -307,23 +313,6 @@ class WP_PQ_Admin
         echo '    </div>';
         echo '  </section>';
 
-        echo '  <section class="wp-pq-panel wp-pq-settings-panel">';
-        echo '    <h2>OpenAI Document Ingester</h2>';
-        echo '    <p class="wp-pq-panel-note">Add your OpenAI API key and model so Switchboard can turn pasted lists, CSVs, and PDFs into draft tasks for review before import.</p>';
-        echo '    <form method="post" action="options.php">';
-        settings_fields('wp_pq_settings_group');
-        echo '      <label>OpenAI API key <input type="password" name="wp_pq_openai_api_key" value="' . esc_attr((string) get_option('wp_pq_openai_api_key', '')) . '" autocomplete="off"></label>';
-        echo '      <label>Model <input type="text" name="wp_pq_openai_model" value="' . esc_attr((string) get_option('wp_pq_openai_model', 'gpt-4o-mini')) . '" placeholder="gpt-4o-mini"></label>';
-        echo '      <div class="wp-pq-create-actions">';
-        echo '        <button class="button button-primary" type="submit">Save OpenAI Settings</button>';
-        echo '        <a class="button" href="' . esc_url(admin_url('admin.php?page=wp-pq-ai-import')) . '">Open AI Import</a>';
-        echo '      </div>';
-        echo '    </form>';
-        echo '    <div class="wp-pq-admin-callout">';
-        echo '      <p><strong>Importer flow:</strong> Upload or paste a list, review the parsed tasks, then import them into the live queue.</p>';
-        echo '      <p><strong>Recommended default:</strong> <code>gpt-4o-mini</code> for file-friendly parsing. You can override it if you prefer another supported OpenAI model.</p>';
-        echo '    </div>';
-        echo '  </section>';
         echo '</div>';
         echo '</div>';
     }
@@ -1143,7 +1132,7 @@ class WP_PQ_Admin
         return [
             'wp-pq-queue' => 'queue',
             'wp-pq-client-directory' => 'clients',
-            'wp-pq-rollups' => 'billing-rollup',
+            'wp-pq-rollups' => 'billing-queue',
             'wp-pq-work-logs' => 'work-statements',
             'wp-pq-statements' => 'invoice-drafts',
             'wp-pq-ai-import' => 'ai-import',
@@ -1246,6 +1235,13 @@ class WP_PQ_Admin
                 'email' => ($primary_contact && is_email($primary_contact->user_email)) ? (string) $primary_contact->user_email : '',
                 'label' => (string) ($row['name'] ?? '') . ($primary_contact ? ' <' . $primary_contact->user_email . '>' : ''),
                 'primary_contact_user_id' => (int) ($row['primary_contact_user_id'] ?? 0),
+                'tax_id' => (string) ($row['tax_id'] ?? ''),
+                'address_line1' => (string) ($row['address_line1'] ?? ''),
+                'address_line2' => (string) ($row['address_line2'] ?? ''),
+                'city' => (string) ($row['city'] ?? ''),
+                'state' => (string) ($row['state'] ?? ''),
+                'zip' => (string) ($row['zip'] ?? ''),
+                'country' => (string) ($row['country'] ?? ''),
             ];
         }
 
@@ -1813,7 +1809,7 @@ class WP_PQ_Admin
                  WHERE client_id IN ({$ids_in})
                    AND is_closed = 1
                    AND billable = 1
-                   AND invoice_status = 'unbilled'
+                   AND invoice_status IN ('pending_review', 'billable')
                  GROUP BY client_id",
                 ARRAY_A
             );
@@ -1873,23 +1869,54 @@ class WP_PQ_Admin
             $statements_by_client[(int) ($row['client_id'] ?? 0)][] = $row;
         }
 
+        // Batch-load contact info for all clients.
+        $contacts_by_client = WP_PQ_DB::get_contact_info_bulk('client', $client_ids);
+
+        // Batch-load contact info for all members across clients.
+        $all_member_ids = [];
+        foreach ($members_by_client as $mems) {
+            foreach ($mems as $m) {
+                if (! empty($m['membership_id'])) {
+                    $all_member_ids[] = (int) $m['membership_id'];
+                }
+            }
+        }
+        $contacts_by_member = WP_PQ_DB::get_contact_info_bulk('member', $all_member_ids);
+
         $rows = [];
         foreach ($clients as $client) {
             $client_id = (int) $client['id'];
             $client_work_logs = $work_logs_by_client[$client_id] ?? [];
             $client_statements = $statements_by_client[$client_id] ?? [];
+
+            // Attach contacts to each member row.
+            $client_members = $members_by_client[$client_id] ?? [];
+            foreach ($client_members as &$mem) {
+                $mid = (int) ($mem['membership_id'] ?? 0);
+                $mem['contacts'] = $contacts_by_member[$mid] ?? [];
+            }
+            unset($mem);
+
             $rows[] = [
                 'id' => $client_id,
                 'name' => (string) ($client['name'] ?? ''),
                 'email' => (string) ($client['email'] ?? ''),
                 'label' => (string) $client['label'],
                 'primary_contact_user_id' => (int) ($client['primary_contact_user_id'] ?? 0),
+                'tax_id' => (string) ($client['tax_id'] ?? ''),
+                'address_line1' => (string) ($client['address_line1'] ?? ''),
+                'address_line2' => (string) ($client['address_line2'] ?? ''),
+                'city' => (string) ($client['city'] ?? ''),
+                'state' => (string) ($client['state'] ?? ''),
+                'zip' => (string) ($client['zip'] ?? ''),
+                'country' => (string) ($client['country'] ?? ''),
+                'contacts' => $contacts_by_client[$client_id] ?? [],
                 'delivered_count' => (int) ($task_counts[$client_id]['delivered_count'] ?? 0),
                 'unbilled_count' => (int) ($task_counts[$client_id]['unbilled_count'] ?? 0),
                 'work_log_count' => count($client_work_logs),
                 'statement_count' => count($client_statements),
                 'buckets' => $buckets_by_client[$client_id] ?? [],
-                'members' => $members_by_client[$client_id] ?? [],
+                'members' => $client_members,
                 'recent_work_logs' => array_slice($client_work_logs, 0, 3),
                 'recent_statements' => array_slice($client_statements, 0, 3),
             ];
@@ -1927,7 +1954,7 @@ class WP_PQ_Admin
         return $cache;
     }
 
-    public static function get_rollup_groups(string $start_date, string $end_date, array $buckets_by_client): array
+    public static function get_rollup_groups(string $start_date, string $end_date, array $buckets_by_client, string $invoice_status = ''): array
     {
         global $wpdb;
 
@@ -1935,6 +1962,14 @@ class WP_PQ_Admin
         $tasks_table = $wpdb->prefix . 'pq_tasks';
         $users_table = $wpdb->users;
         $buckets_table = $wpdb->prefix . 'pq_billing_buckets';
+
+        $where = ['DATE(l.completion_date) BETWEEN %s AND %s'];
+        $params = [$start_date, $end_date];
+        if ($invoice_status !== '' && in_array($invoice_status, ['pending_review', 'billable', 'no_charge', 'invoiced', 'paid'], true)) {
+            $where[] = 'l.invoice_status = %s';
+            $params[] = $invoice_status;
+        }
+
         $rows = $wpdb->get_results($wpdb->prepare(
             "SELECT
                 l.id AS ledger_entry_id,
@@ -1965,11 +2000,9 @@ class WP_PQ_Admin
              LEFT JOIN {$users_table} owner ON owner.ID = l.owner_id
              LEFT JOIN {$users_table} client_user ON client_user.ID = COALESCE(t.client_user_id, c.primary_contact_user_id)
              LEFT JOIN {$buckets_table} b ON b.id = l.billing_bucket_id
-             WHERE DATE(l.completion_date) BETWEEN %s AND %s
-               AND l.is_closed = 1
+             WHERE " . implode(' AND ', $where) . "
              ORDER BY client_user.display_name ASC, b.bucket_name ASC, l.completion_date DESC, l.id DESC",
-            $start_date,
-            $end_date
+            $params
         ), ARRAY_A);
 
         $groups = [];
@@ -1994,10 +2027,32 @@ class WP_PQ_Admin
             }
 
             $groups[$group_key]['entries'][] = $row;
-            if ((string) ($row['invoice_status'] ?? 'unbilled') === 'unbilled' && (int) ($row['billable'] ?? 1) === 1) {
+            if ((string) ($row['invoice_status'] ?? 'pending_review') === 'billable' && (int) ($row['billable'] ?? 1) === 1) {
                 $groups[$group_key]['invoice_ready_count']++;
             }
         }
+
+        // Compute summary fields per group.
+        foreach ($groups as &$group) {
+            $entry_count = count($group['entries']);
+            $billable_count = 0;
+            $no_charge_count = 0;
+            $total_amount = 0.0;
+            foreach ($group['entries'] as $entry) {
+                $inv_status = (string) ($entry['invoice_status'] ?? 'pending_review');
+                if ($inv_status === 'no_charge') {
+                    $no_charge_count++;
+                } elseif ((int) ($entry['billable'] ?? 1) === 1) {
+                    $billable_count++;
+                    $total_amount += (float) ($entry['amount'] ?? 0);
+                }
+            }
+            $group['entry_count'] = $entry_count;
+            $group['billable_count'] = $billable_count;
+            $group['no_charge_count'] = $no_charge_count;
+            $group['total_amount'] = round($total_amount, 2);
+        }
+        unset($group);
 
         return array_values($groups);
     }
@@ -2148,7 +2203,7 @@ class WP_PQ_Admin
              LEFT JOIN {$wpdb->prefix}pq_billing_buckets b ON b.id = l.billing_bucket_id
              WHERE l.billable = 1
                AND l.is_closed = 1
-               AND l.invoice_status = 'unbilled'
+               AND l.invoice_status = 'billable'
                AND l.statement_month = %s
              ORDER BY l.completion_date DESC, l.id DESC",
             $period
@@ -2645,6 +2700,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 $rows[(int) $client_id][] = [
                     'id' => $user_id,
                     'user_id' => $user_id,
+                    'membership_id' => (int) ($membership['id'] ?? 0),
                     'name' => (string) $user->display_name,
                     'email' => (string) $user->user_email,
                     'role' => (string) ($membership['role'] ?? 'client_contributor'),
@@ -2851,16 +2907,18 @@ document.addEventListener('DOMContentLoaded', function () {
     private static function ledger_invoice_status_label(string $status): string
     {
         switch (sanitize_key($status)) {
+            case 'pending_review':
+                return 'Pending Review';
+            case 'billable':
+                return 'Billable';
+            case 'no_charge':
+                return 'No Charge';
             case 'invoiced':
                 return 'In invoice draft';
             case 'paid':
                 return 'Paid';
-            case 'written_off':
-                return 'No Charge';
-            case 'unbilled':
-                return 'Eligible';
             default:
-                return self::humanize_label($status !== '' ? $status : 'unbilled');
+                return self::humanize_label($status !== '' ? $status : 'pending_review');
         }
     }
 
