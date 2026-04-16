@@ -208,6 +208,7 @@
     state.aiContext.billing_bucket_id = Number(params.get('billing_bucket_id') || state.aiContext.billing_bucket_id || 0);
     const data = await api('manager/ai-import');
     state.aiPreview = data.preview || null;
+    if (data.team_members) state.aiTeamMembers = data.team_members;
 
     el.managerToolbar.innerHTML = `
       <form id="wp-pq-ai-import-form" class="wp-pq-manager-toolbar-grid" enctype="multipart/form-data">
@@ -216,6 +217,7 @@
             <option value="0">Choose client</option>
             ${clientOptions(state.aiPreview?.client_id || state.aiContext.client_id || 0, false)}
           </select>
+          <button class="button wp-pq-inline-link" type="button" data-action="open-create-client-modal">+ New Client</button>
         </label>
         <label>Job
           <select name="billing_bucket_id" id="wp-pq-ai-job">
@@ -226,7 +228,52 @@
         <label class="wp-pq-span-2">Or upload a source file <input type="file" name="source_file"></label>
         <button class="button button-primary wp-pq-span-2" type="submit">Parse with AI</button>
       </form>
+      <dialog id="wp-pq-create-client-dialog" class="wp-pq-modal-dialog">
+        <form id="wp-pq-manager-create-client" class="wp-pq-modal-body" method="dialog">
+          <h3>New Client</h3>
+          <label>Name <input type="text" name="client_name" required></label>
+          <label>Email <input type="email" name="client_email" required></label>
+          <label>First job <input type="text" name="initial_bucket_name" placeholder="Main, Retainer, Launch"></label>
+          <details class="wp-pq-modal-details"><summary>Address &amp; billing (optional)</summary>
+            <label>Tax / VAT ID <input type="text" name="tax_id"></label>
+            <label>Address <input type="text" name="address_line1" placeholder="Street address"></label>
+            <label>Address 2 <input type="text" name="address_line2" placeholder="Suite, unit, etc."></label>
+            <div class="wp-pq-modal-row">
+              <label>City <input type="text" name="city"></label>
+              <label>State <input type="text" name="state"></label>
+            </div>
+            <div class="wp-pq-modal-row">
+              <label>Zip <input type="text" name="zip"></label>
+              <label>Country <input type="text" name="country"></label>
+            </div>
+          </details>
+          <div class="wp-pq-modal-actions"><button class="button button-primary" type="submit">Create Client</button><button class="button" type="button" data-action="close-dialog">Cancel</button></div>
+        </form>
+      </dialog>
     `;
+
+    function ownerOptions(selectedId) {
+      var members = state.aiTeamMembers || [];
+      var sel = Number(selectedId || 0);
+      return '<option value="0">Unassigned</option>' +
+        members.map(function (m) {
+          return '<option value="' + m.id + '"' + (sel === Number(m.id) ? ' selected' : '') + '>' + esc(m.label) + '</option>';
+        }).join('');
+    }
+
+    function priorityOptions(selected) {
+      var opts = ['low', 'normal', 'high', 'urgent'];
+      return opts.map(function (p) {
+        return '<option value="' + p + '"' + (p === selected ? ' selected' : '') + '>' + p.charAt(0).toUpperCase() + p.slice(1) + '</option>';
+      }).join('');
+    }
+
+    function billingOptions(val) {
+      var s = val === null ? 'auto' : val ? 'billable' : 'not_billable';
+      return '<option value="auto"' + (s === 'auto' ? ' selected' : '') + '>Auto</option>' +
+        '<option value="billable"' + (s === 'billable' ? ' selected' : '') + '>Billable</option>' +
+        '<option value="not_billable"' + (s === 'not_billable' ? ' selected' : '') + '>Not billable</option>';
+    }
 
     function renderPreview() {
       if (!state.aiPreview) {
@@ -234,6 +281,7 @@
         return;
       }
       const preview = state.aiPreview;
+      const tasks = (preview.tasks || []).filter(function (t) { return !t._removed; });
       el.managerContent.innerHTML = `
         <section class="wp-pq-panel wp-pq-manager-card">
           <div class="wp-pq-section-heading">
@@ -250,24 +298,58 @@
           ${(preview.blocking_errors || []).length ? `<div class="wp-pq-manager-warning">${(preview.blocking_errors || []).map((message) => `<p>${esc(message)}</p>`).join('')}</div>` : ''}
           ${(preview.warning_messages || []).length ? `<div class="wp-pq-manager-notice">${(preview.warning_messages || []).map((message) => `<p>${esc(message)}</p>`).join('')}</div>` : ''}
           <label class="inline"><input type="checkbox" id="wp-pq-ai-confirm-jobs"${preview.requires_job_confirmation ? '' : ' hidden'}> Confirm new job creation for this import</label>
-          <table class="wp-pq-admin-table wp-pq-manager-table">
-            <thead><tr><th>Title</th><th>Job</th><th>Priority</th><th>Owner</th><th>Deadline</th><th>Billing</th><th>Status Hint</th></tr></thead>
+          <table class="wp-pq-admin-table wp-pq-manager-table wp-pq-ai-preview-table">
+            <thead><tr><th>Title</th><th>Job</th><th>Priority</th><th>Owner</th><th>Billing</th><th></th></tr></thead>
             <tbody>
-              ${(preview.tasks || []).map((task) => `
-                <tr>
-                  <td><strong>${esc(task.title || '')}</strong><div class="wp-pq-panel-note">${esc(task.description || '')}</div></td>
-                  <td>${esc(task.job_label || '')}</td>
-                  <td>${esc(task.priority || '')}</td>
-                  <td>${esc(task.owner_label || '')}</td>
-                  <td>${esc(task.deadline_label || '')}</td>
-                  <td>${esc(task.is_billable === null ? 'auto' : task.is_billable ? 'billable' : 'not billable')}</td>
-                  <td>${esc(task.status_hint || '')}</td>
-                </tr>
-              `).join('')}
+              ${tasks.map(function (task, i) {
+                var idx = (preview.tasks || []).indexOf(task);
+                return '<tr data-task-index="' + idx + '">' +
+                  '<td><input type="text" class="wp-pq-ai-edit" data-field="title" value="' + esc(task.title || '') + '">' +
+                  '<div class="wp-pq-panel-note">' + esc(task.description || '') + '</div></td>' +
+                  '<td>' + esc(task.job_label || '') + '</td>' +
+                  '<td><select class="wp-pq-ai-edit" data-field="priority">' + priorityOptions(task.priority || 'normal') + '</select></td>' +
+                  '<td><select class="wp-pq-ai-edit" data-field="resolved_owner_id">' + ownerOptions(task.resolved_owner_id) + '</select></td>' +
+                  '<td><select class="wp-pq-ai-edit" data-field="is_billable">' + billingOptions(task.is_billable) + '</select></td>' +
+                  '<td><button class="button wp-pq-secondary-action wp-pq-ai-remove-task" type="button" data-task-index="' + idx + '">&times;</button></td>' +
+                  '</tr>';
+              }).join('')}
             </tbody>
           </table>
         </section>
       `;
+
+      // Wire inline edits
+      el.managerContent.querySelectorAll('.wp-pq-ai-edit').forEach(function (input) {
+        input.addEventListener('change', function () {
+          var row = input.closest('tr');
+          var idx = Number(row.dataset.taskIndex);
+          var field = input.dataset.field;
+          var task = (preview.tasks || [])[idx];
+          if (!task) return;
+          task._edited = true;
+          if (field === 'is_billable') {
+            task.is_billable = input.value === 'auto' ? null : input.value === 'billable';
+          } else if (field === 'resolved_owner_id') {
+            task.resolved_owner_id = Number(input.value) || 0;
+            task.action_owner_hint = '';
+            task._edited = true;
+          } else {
+            task[field] = input.value;
+          }
+        });
+      });
+
+      // Wire remove buttons
+      el.managerContent.querySelectorAll('.wp-pq-ai-remove-task').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var idx = Number(btn.dataset.taskIndex);
+          var task = (preview.tasks || [])[idx];
+          if (!task) return;
+          task._removed = true;
+          task._edited = true;
+          renderPreview();
+        });
+      });
     }
 
     renderPreview();

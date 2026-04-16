@@ -1770,13 +1770,13 @@ class WP_PQ_API
         }
         $rows = $wpdb->get_results(
             empty($params)
-            ? "SELECT b.id, b.client_id, b.client_user_id, b.bucket_name, b.is_default, c.name AS client_name
+            ? "SELECT b.id, b.client_id, b.client_user_id, b.bucket_name, b.is_default, b.default_billing_mode, b.default_rate, b.default_fee, b.sow_amount, c.name AS client_name
              FROM {$buckets_table} b
              LEFT JOIN {$clients_table} c ON c.id = b.client_id
              {$where}
              ORDER BY c.name ASC, b.is_default DESC, b.bucket_name ASC"
             : $wpdb->prepare(
-                "SELECT b.id, b.client_id, b.client_user_id, b.bucket_name, b.is_default, c.name AS client_name
+                "SELECT b.id, b.client_id, b.client_user_id, b.bucket_name, b.is_default, b.default_billing_mode, b.default_rate, b.default_fee, b.sow_amount, c.name AS client_name
                  FROM {$buckets_table} b
                  LEFT JOIN {$clients_table} c ON c.id = b.client_id
                  {$where}
@@ -1799,6 +1799,10 @@ class WP_PQ_API
                 'bucket_name' => $bucket_name,
                 'is_default' => ((int) ($row['is_default'] ?? 0) === 1),
                 'client_name' => (string) ($row['client_name'] ?? ''),
+                'default_billing_mode' => (string) ($row['default_billing_mode'] ?? ''),
+                'default_rate' => (string) ($row['default_rate'] ?? ''),
+                'default_fee' => (string) ($row['default_fee'] ?? ''),
+                'sow_amount' => (string) ($row['sow_amount'] ?? ''),
             ];
         }, $rows);
     }
@@ -3233,12 +3237,20 @@ class WP_PQ_API
 
         $bucket_ids = array_values(array_unique(array_filter(array_map(static fn($row) => (int) ($row['billing_bucket_id'] ?? 0), $rows))));
         $bucket_names = [];
+        $bucket_billing_defaults = [];
         if (! empty($bucket_ids)) {
             $bucket_ids_in = implode(',', $bucket_ids);
-            $bucket_rows = $wpdb->get_results("SELECT id, bucket_name, is_default FROM {$wpdb->prefix}pq_billing_buckets WHERE id IN ({$bucket_ids_in})", ARRAY_A);
+            $bucket_rows = $wpdb->get_results("SELECT id, bucket_name, is_default, default_billing_mode, default_rate, default_fee, sow_amount FROM {$wpdb->prefix}pq_billing_buckets WHERE id IN ({$bucket_ids_in})", ARRAY_A);
             foreach ($bucket_rows as $bucket_row) {
+                $bid = (int) $bucket_row['id'];
                 $bucket_name = trim((string) ($bucket_row['bucket_name'] ?? ''));
-                $bucket_names[(int) $bucket_row['id']] = $bucket_name !== '' ? $bucket_name : (((int) ($bucket_row['is_default'] ?? 0) === 1) ? 'Main' : 'Job Bucket');
+                $bucket_names[$bid] = $bucket_name !== '' ? $bucket_name : (((int) ($bucket_row['is_default'] ?? 0) === 1) ? 'Main' : 'Job Bucket');
+                $bucket_billing_defaults[$bid] = [
+                    'default_billing_mode' => (string) ($bucket_row['default_billing_mode'] ?? ''),
+                    'default_rate' => (string) ($bucket_row['default_rate'] ?? ''),
+                    'default_fee' => (string) ($bucket_row['default_fee'] ?? ''),
+                    'sow_amount' => (string) ($bucket_row['sow_amount'] ?? ''),
+                ];
             }
         }
 
@@ -3248,10 +3260,15 @@ class WP_PQ_API
 
         foreach ($rows as &$row) {
             $task_id = (int) $row['id'];
+            $bid = (int) ($row['billing_bucket_id'] ?? 0);
             $row['note_count'] = $note_counts[$task_id] ?? 0;
             $row['latest_note_preview'] = $latest_notes[$task_id] ?? '';
             $row['statement_code'] = $statement_codes[(int) ($row['statement_id'] ?? 0)] ?? '';
-            $row['bucket_name'] = $bucket_names[(int) ($row['billing_bucket_id'] ?? 0)] ?? 'Main';
+            $row['bucket_name'] = $bucket_names[$bid] ?? 'Main';
+            $row['job_default_billing_mode'] = ($bucket_billing_defaults[$bid] ?? [])['default_billing_mode'] ?? '';
+            $row['job_default_rate'] = ($bucket_billing_defaults[$bid] ?? [])['default_rate'] ?? '';
+            $row['job_default_fee'] = ($bucket_billing_defaults[$bid] ?? [])['default_fee'] ?? '';
+            $row['job_sow_amount'] = ($bucket_billing_defaults[$bid] ?? [])['sow_amount'] ?? '';
             $row['lane_label'] = $lane_labels[(int) ($row['lane_id'] ?? 0)] ?? '';
         }
 

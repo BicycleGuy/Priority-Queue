@@ -73,7 +73,7 @@ class WP_PQ_Admin
             return;
         }
 
-        wp_enqueue_style('wp-pq-admin', WP_PQ_PLUGIN_URL . 'assets/css/admin-queue.css', [], WP_PQ_VERSION);
+        wp_enqueue_style('wp-pq-base', WP_PQ_PLUGIN_URL . 'assets/css/admin-base.css', [], WP_PQ_VERSION);
     }
 
     public static function register_settings(): void
@@ -2492,7 +2492,7 @@ document.addEventListener('DOMContentLoaded', function () {
 </script>";
     }
 
-    public static function create_bucket_for_client(int $client_id, string $bucket_name): int
+    public static function create_bucket_for_client(int $client_id, string $bucket_name, string $default_billing_mode = '', string $default_rate = ''): int
     {
         global $wpdb;
 
@@ -2519,6 +2519,10 @@ document.addEventListener('DOMContentLoaded', function () {
         ));
         $client_user_id = WP_PQ_DB::get_primary_contact_user_id($client_id);
 
+        $allowed_modes = ['hourly', 'fixed_fee', 'pass_through_expense', 'non_billable', 'scope_of_work'];
+        $billing_mode = in_array($default_billing_mode, $allowed_modes, true) ? $default_billing_mode : null;
+        $rate = $default_rate !== '' ? round((float) $default_rate, 2) : null;
+
         $wpdb->insert($buckets_table, [
             'client_id' => $client_id,
             'client_user_id' => $client_user_id,
@@ -2526,6 +2530,8 @@ document.addEventListener('DOMContentLoaded', function () {
             'bucket_slug' => $slug,
             'description' => '',
             'is_default' => $has_default > 0 ? 0 : 1,
+            'default_billing_mode' => $billing_mode,
+            'default_rate' => $rate,
             'created_by' => get_current_user_id() ?: 1,
             'created_at' => current_time('mysql', true),
         ]);

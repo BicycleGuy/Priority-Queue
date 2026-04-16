@@ -683,7 +683,10 @@ class WP_PQ_Portal
 
     public static function register_assets(): void
     {
-        wp_register_style('wp-pq-admin', WP_PQ_PLUGIN_URL . 'assets/css/admin-queue.css', [], WP_PQ_VERSION);
+        wp_register_style('wp-pq-base', WP_PQ_PLUGIN_URL . 'assets/css/admin-base.css', [], WP_PQ_VERSION);
+        wp_register_style('wp-pq-portal', WP_PQ_PLUGIN_URL . 'assets/css/admin-portal.css', ['wp-pq-base'], WP_PQ_VERSION);
+        wp_register_style('wp-pq-manager', WP_PQ_PLUGIN_URL . 'assets/css/admin-manager.css', ['wp-pq-base'], WP_PQ_VERSION);
+        wp_register_style('wp-pq-billing', WP_PQ_PLUGIN_URL . 'assets/css/admin-billing.css', ['wp-pq-base'], WP_PQ_VERSION);
         wp_register_style('wp-pq-fullcalendar', 'https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.css', [], '6.1.19');
         // Uppy removed — file exchange handled externally via link field.
         wp_register_script('sortable-js', 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js', [], '1.15.6', true);
@@ -711,7 +714,10 @@ class WP_PQ_Portal
 
     public static function render_shortcode(): string
     {
-        wp_enqueue_style('wp-pq-admin');
+        wp_enqueue_style('wp-pq-base');
+        wp_enqueue_style('wp-pq-portal');
+        wp_enqueue_style('wp-pq-manager');
+        wp_enqueue_style('wp-pq-billing');
         wp_enqueue_style('wp-pq-fullcalendar');
 
         if (! is_user_logged_in()) {
@@ -865,8 +871,11 @@ class WP_PQ_Portal
             echo '          <summary><svg class="wp-pq-summary-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Administration</summary>';
             echo '          <div id="wp-pq-manager-nav" class="wp-pq-filter-nav wp-pq-manager-nav">';
             echo '            <button class="button" type="button" data-pq-section="clients"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span>Clients and Jobs</span></span></button>';
-            echo '            <button class="button" type="button" data-pq-section="billing-queue"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span><span>Billing Queue</span></span></button>';
-            echo '            <button class="button" type="button" data-pq-section="work-statements"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg></span><span>Work Statements</span></span></button>';
+            echo '            <details class="wp-pq-admin-group"><summary><svg class="wp-pq-summary-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>Billing</summary><div class="wp-pq-filter-nav">';
+            echo '              <button class="button" type="button" data-pq-section="billing-setup"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span><span>Billing Setup</span></span></button>';
+            echo '              <button class="button" type="button" data-pq-section="billing-queue"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg></span><span>Billing Queue</span></span></button>';
+            echo '              <button class="button" type="button" data-pq-section="work-statements"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg></span><span>Work Statements</span></span></button>';
+            echo '            </div></details>';
             echo '            <button class="button" type="button" data-pq-section="ai-import"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.8h6l-4.9 3.6 1.9 5.8-5-3.6-5 3.6 1.9-5.8-4.9-3.6h6z"/></svg></span><span>AI Import</span></span></button>';
             echo '            <button class="button" type="button" data-pq-section="files"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span><span>Files &amp; Links</span></span></button>';
             echo '            <button class="button" type="button" data-pq-section="invites"><span class="wp-pq-row-main"><span class="wp-pq-row-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg></span><span>Invites</span></span></button>';
@@ -1212,6 +1221,7 @@ class WP_PQ_Portal
         echo '            <option value="fixed_fee">Fixed fee</option>';
         echo '            <option value="hourly">Hourly</option>';
         echo '            <option value="pass_through_expense">Pass-through expense</option>';
+        echo '            <option value="scope_of_work">Scope of work</option>';
         echo '            <option value="non_billable">Non-billable</option>';
         echo '          </select>';
         echo '        </label>';

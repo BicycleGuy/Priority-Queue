@@ -855,4 +855,42 @@ class WP_PQ_Migrations
 
         update_option('wp_pq_billing_status_redesign_applied', 1, true);
     }
+
+    public static function migrate_job_billing_defaults(): void
+    {
+        global $wpdb;
+
+        if (get_option('wp_pq_job_billing_defaults_applied')) {
+            return;
+        }
+
+        $table = $wpdb->prefix . 'pq_billing_buckets';
+
+        $col = $wpdb->get_var("SHOW COLUMNS FROM {$table} LIKE 'default_billing_mode'");
+        if (! $col) {
+            $wpdb->query("ALTER TABLE {$table} ADD COLUMN default_billing_mode VARCHAR(40) NULL AFTER is_default");
+            $wpdb->query("ALTER TABLE {$table} ADD COLUMN default_rate DECIMAL(10,2) NULL AFTER default_billing_mode");
+        }
+
+        update_option('wp_pq_job_billing_defaults_applied', 1, true);
+    }
+
+    public static function migrate_job_billing_fee_sow(): void
+    {
+        global $wpdb;
+
+        if (get_option('wp_pq_job_billing_fee_sow_applied')) {
+            return;
+        }
+
+        $table = $wpdb->prefix . 'pq_billing_buckets';
+
+        $col = $wpdb->get_var("SHOW COLUMNS FROM {$table} LIKE 'default_fee'");
+        if (! $col) {
+            $wpdb->query("ALTER TABLE {$table} ADD COLUMN default_fee DECIMAL(12,2) NULL AFTER default_rate");
+            $wpdb->query("ALTER TABLE {$table} ADD COLUMN sow_amount DECIMAL(12,2) NULL AFTER default_fee");
+        }
+
+        update_option('wp_pq_job_billing_fee_sow_applied', 1, true);
+    }
 }

@@ -1,0 +1,741 @@
+/* admin-base.css — Shared foundation (variables, typography, forms, toasts, modals) */
+
+.wp-pq-wrap {
+  --pq-bg: #faf9f7;
+  --pq-surface: #ffffff;
+  --pq-ink: #1a1a1a;
+  --pq-muted: #78716c;
+  --pq-border: #e7e5e4;
+  --pq-soft: #f5f5f4;
+  --pq-soft-2: #eeeceb;
+  --pq-input-bg: #f4f5f7;
+  --pq-accent: #991b1b;
+  --pq-accent-dark: #7f1d1d;
+  --pq-accent-soft: rgba(153, 27, 27, 0.08);
+  --pq-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 6px 16px rgba(0, 0, 0, 0.03);
+  --pq-shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.05), 0 16px 40px rgba(0, 0, 0, 0.04);
+  --pq-radius: 12px;
+  --pq-radius-lg: 16px;
+  --pq-sidebar-bg: #ffffff;
+  --pq-sidebar-ink: #1a1a1a;
+  --pq-sidebar-muted: #a8a29e;
+  --pq-sidebar-hover: #f5f5f4;
+  --pq-sidebar-active: #fef2f2;
+  --pq-sidebar-active-ink: #991b1b;
+  --pq-sidebar-border: #e7e5e4;
+  --pq-modal-backdrop: rgba(28, 25, 23, 0.46);
+  --pq-gradient-fade: rgba(255, 255, 255, 0);
+  max-width: 1540px;
+  margin: 18px auto 44px;
+  padding: 10px 14px;
+}
+
+/* ── Theme toggle ───────────────────────────────────── */
+
+/* ── Dark mode ──────────────────────────────────────── */
+.wp-pq-wrap[data-theme="dark"] {
+  --pq-bg: #1c1917;
+  --pq-surface: #292524;
+  --pq-ink: #f5f5f4;
+  --pq-muted: #a8a29e;
+  --pq-border: #44403c;
+  --pq-soft: #292524;
+  --pq-soft-2: #33302e;
+  --pq-input-bg: #33302e;
+  --pq-accent: #f87171;
+  --pq-accent-dark: #ef4444;
+  --pq-accent-soft: rgba(248, 113, 113, 0.1);
+  --pq-shadow: 0 1px 3px rgba(0, 0, 0, 0.2), 0 6px 16px rgba(0, 0, 0, 0.15);
+  --pq-shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.25), 0 16px 40px rgba(0, 0, 0, 0.2);
+  --pq-sidebar-bg: #1c1917;
+  --pq-sidebar-ink: #f5f5f4;
+  --pq-sidebar-muted: #78716c;
+  --pq-sidebar-hover: #292524;
+  --pq-sidebar-active: rgba(248, 113, 113, 0.1);
+  --pq-sidebar-active-ink: #f87171;
+  --pq-sidebar-border: #44403c;
+  --pq-modal-backdrop: rgba(0, 0, 0, 0.65);
+  --pq-gradient-fade: rgba(41, 37, 36, 0);
+  color-scheme: dark;
+}
+
+.wp-pq-wrap h1,
+.wp-pq-wrap h2,
+.wp-pq-wrap h3,
+.wp-pq-wrap h4,
+.wp-pq-wrap p,
+.wp-pq-wrap li,
+.wp-pq-wrap label {
+  color: var(--pq-ink);
+}
+
+.wp-pq-wrap h2 {
+  margin: 0;
+  font-size: clamp(1.65rem, 2.8vw, 2.6rem);
+  line-height: 1.02;
+}
+
+.wp-pq-wrap > p {
+  margin-top: 0;
+  color: var(--pq-muted);
+  font-size: 1.12rem;
+}
+
+body .wp-pq-wrap .button,
+body .wp-pq-wrap .button.button-primary {
+  border: 0;
+  border-radius: 6px;
+  background: var(--pq-accent);
+  color: #fff;
+  min-height: 34px;
+  padding: 6px 12px;
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 1.15;
+  box-shadow: none !important;
+}
+
+body .wp-pq-wrap .button:hover,
+body .wp-pq-wrap .button.button-primary:hover {
+  background: var(--pq-accent-dark);
+  color: #fff;
+}
+
+body .wp-pq-wrap .button:not(.button-primary):not(.is-active) {
+  background: var(--pq-ink);
+}
+
+/* Reset dark background for buttons inside containers that define their own styles */
+body .wp-pq-binder .button:not(.button-primary):not(.is-active),
+body .wp-pq-view-toggle .button:not(.button-primary):not(.is-active),
+body .wp-pq-drawer-actions .button:not(.button-primary):not(.is-active),
+body .wp-pq-workspace-tabs .button:not(.button-primary):not(.is-active),
+body .wp-pq-section-heading .button:not(.button-primary):not(.is-active),
+body .wp-pq-modal .button:not(.button-primary):not(.is-active),
+body .wp-pq-compose-panel .button:not(.button-primary):not(.is-active) {
+  background: transparent;
+  color: var(--pq-ink);
+}
+
+body .wp-pq-wrap .button.is-active {
+  box-shadow: none !important;
+  filter: brightness(1.05);
+}
+
+.wp-pq-invite-actions {
+  white-space: nowrap;
+}
+.wp-pq-invite-actions .button {
+  display: inline-block;
+  min-height: 0;
+  padding: 3px 10px;
+  font-size: 12px;
+  border-radius: 4px;
+  margin: 2px 2px;
+}
+
+.wp-pq-wrap input[type='text'],
+.wp-pq-wrap input[type='number'],
+.wp-pq-wrap input[type='datetime-local'],
+.wp-pq-wrap input[type='file'],
+.wp-pq-wrap textarea,
+.wp-pq-wrap select {
+  box-sizing: border-box;
+  display: block;
+  margin-top: 6px;
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--pq-border);
+  border-radius: 10px;
+  padding: 9px 12px;
+  background: var(--pq-surface);
+}
+
+.wp-pq-wrap textarea {
+  min-height: 96px;
+}
+
+.wp-pq-wrap label.inline {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.wp-pq-wrap label {
+  display: block;
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.wp-pq-guest-card,
+.wp-pq-panel {
+  background: var(--pq-surface);
+  border: 1px solid var(--pq-border);
+  border-radius: var(--pq-radius);
+  box-shadow: var(--pq-shadow);
+}
+
+.wp-pq-guest-card {
+  max-width: 480px;
+  padding: 24px;
+}
+
+.wp-pq-panel {
+  min-width: 0;
+  padding: 16px 18px;
+}
+
+.wp-pq-panel h2,
+.wp-pq-panel h3,
+.wp-pq-panel h4 {
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+
+.wp-pq-settings-page > p {
+  max-width: 900px;
+}
+
+.wp-pq-settings-grid {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+.wp-pq-settings-panel {
+  padding: 28px 32px;
+}
+
+.wp-pq-settings-panel h2 {
+  font-size: clamp(1.7rem, 2.4vw, 2.7rem);
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  margin-bottom: 12px;
+}
+
+.wp-pq-settings-panel .wp-pq-panel-note {
+  max-width: 32rem;
+  font-size: 1rem;
+  margin-bottom: 18px;
+}
+
+.wp-pq-admin-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 18px;
+}
+
+.wp-pq-admin-nav .button {
+  text-decoration: none;
+}
+
+
+.wp-pq-panel-note,
+.wp-pq-wrap .desc {
+  color: var(--pq-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.wp-pq-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(280px, 360px) minmax(360px, 1fr) minmax(360px, 1fr);
+  align-items: start;
+}
+
+.wp-pq-billing-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  align-items: start;
+  margin-top: 18px;
+}
+
+
+.wp-pq-period-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+}
+
+.wp-pq-period-form label {
+  margin-bottom: 0;
+  min-width: 220px;
+}
+
+.wp-pq-admin-table th,
+.wp-pq-admin-table td {
+  vertical-align: top;
+}
+
+.wp-pq-bucket-form,
+.wp-pq-inline-form,
+.wp-pq-inline-action-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+}
+
+.wp-pq-inline-form select {
+  min-width: 180px;
+}
+
+.wp-pq-inline-action-form {
+  margin-top: 12px;
+}
+
+.wp-pq-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px 14px;
+  margin-bottom: 12px;
+}
+
+.wp-pq-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+}
+
+.wp-pq-form-grid label.span-2 {
+  grid-column: span 2;
+}
+
+.wp-pq-form-grid input {
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 13px;
+  width: 100%;
+}
+
+.wp-pq-form-grid input:focus {
+  outline: none;
+  border-color: #8b2d2d;
+}
+
+.wp-pq-admin-stack {
+  display: grid;
+  gap: 14px;
+}
+
+.wp-pq-client-filter-form {
+  align-items: end;
+}
+
+.wp-pq-client-filter-form .wp-pq-inline-action-form {
+  margin-top: 0;
+}
+
+.wp-pq-bucket-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.wp-pq-bucket-group {
+  border-top: 1px solid var(--pq-border);
+  padding: 12px 0;
+}
+
+.wp-pq-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.wp-pq-ai-form {
+  display: grid;
+  gap: 12px;
+}
+
+.wp-pq-ai-preview {
+  margin-top: 18px;
+}
+
+.wp-pq-ai-context-form,
+.wp-pq-admin-subpanel {
+  display: grid;
+  gap: 12px;
+}
+
+.wp-pq-admin-modal-backdrop {
+  background: rgba(0, 0, 0, 0.18);
+  inset: 0;
+  position: fixed;
+  z-index: 9998;
+}
+
+.wp-pq-admin-modal {
+  inset: 0;
+  padding: 24px;
+  position: fixed;
+  z-index: 9999;
+}
+
+.wp-pq-admin-modal[hidden],
+.wp-pq-admin-modal-backdrop[hidden] {
+  display: none;
+}
+
+.wp-pq-admin-modal .wp-pq-modal-card {
+  margin: 0 auto;
+  max-width: 560px;
+}
+
+body .wp-pq-wrap .wp-pq-secondary-action {
+  background: var(--pq-ink);
+  border: 0;
+}
+
+.wp-pq-workspace-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.wp-pq-workspace-tabs .button {
+  min-width: 0;
+}
+
+.wp-pq-workspace-panel[hidden],
+[hidden] {
+  display: none !important;
+}
+
+.wp-pq-subpanel {
+  border: 1px solid var(--pq-border);
+  border-radius: 16px;
+  background: var(--pq-soft);
+  padding: 14px;
+}
+
+.wp-pq-inline-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--pq-soft-2);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.wp-pq-kicker {
+  margin: 0 0 6px;
+  color: var(--pq-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.wp-pq-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.wp-pq-span-2 {
+  grid-column: 1 / -1;
+}
+
+/* --- Modal dialogs --- */
+.wp-pq-modal-dialog {
+  border: 0;
+  border-radius: var(--pq-radius-lg);
+  padding: 0;
+  background: var(--pq-surface);
+  box-shadow: var(--pq-shadow-lg);
+  max-width: 420px;
+  width: 90vw;
+}
+
+.wp-pq-modal-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.wp-pq-modal-body {
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+}
+
+.wp-pq-modal-body h3 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.wp-pq-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding-top: 6px;
+}
+
+.wp-pq-modal-details {
+  margin: 4px 0 0;
+}
+
+.wp-pq-modal-details summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--pq-muted, #999);
+}
+
+.wp-pq-modal-details summary:hover {
+  color: var(--pq-ink, #333);
+}
+
+.wp-pq-modal-details[open] > summary {
+  margin-bottom: 8px;
+}
+
+.wp-pq-modal-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 12px;
+}
+
+.wp-pq-inline-link {
+  background: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  min-height: 0 !important;
+  font-size: 12px !important;
+  font-weight: 600;
+  color: var(--pq-accent, #6366f1) !important;
+  cursor: pointer;
+  margin-top: 2px;
+}
+
+.wp-pq-inline-link:hover {
+  text-decoration: underline;
+}
+
+.wp-pq-danger-action {
+  color: #b91c1c !important;
+  border-color: #b91c1c !important;
+}
+
+.wp-pq-danger-action:hover {
+  background: #b91c1c !important;
+  color: #fff !important;
+}
+
+.wp-pq-manager-detail-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.wp-pq-manager-detail-copy p {
+  margin: 0;
+}
+
+.wp-pq-manager-warning,
+.wp-pq-manager-notice {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 16px;
+}
+
+.wp-pq-manager-warning {
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  color: #7f1d1d;
+}
+
+.wp-pq-manager-notice {
+  background: var(--pq-soft);
+  border: 1px solid var(--pq-border);
+}
+
+.wp-pq-toast-stack {
+  position: fixed;
+  right: 20px;
+  top: 56px;
+  z-index: 100001;
+  display: grid;
+  gap: 8px;
+  width: min(360px, calc(100vw - 40px));
+  pointer-events: none;
+}
+
+.wp-pq-toast {
+  pointer-events: auto;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: var(--pq-ink);
+  color: #fff;
+  box-shadow: var(--pq-shadow);
+  font-size: 13px;
+  line-height: 1.4;
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.wp-pq-toast.success {
+  background: #15803d;
+}
+
+.wp-pq-toast.error {
+  background: var(--pq-accent);
+}
+
+.wp-pq-toast.info {
+  background: var(--pq-ink);
+}
+
+.wp-pq-toast.warning {
+  background: #1c1917;
+  border-left: 4px solid #d97706;
+}
+
+.wp-pq-toast-dismiss {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11px;
+  opacity: 0.85;
+  cursor: pointer;
+}
+
+.wp-pq-toast-dismiss input[type="checkbox"] {
+  margin: 0;
+  accent-color: #fff;
+}
+
+.wp-pq-toast.is-leaving {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+/* Dark mode: ensure button text is legible */
+.wp-pq-wrap[data-theme="dark"] .button:not(.button-primary) {
+  color: var(--pq-ink);
+}
+
+.wp-pq-wrap[data-theme="dark"] .button.button-primary {
+  color: #1c1917;
+  background: var(--pq-accent);
+  border-color: var(--pq-accent);
+}
+
+.wp-pq-wrap[data-theme="dark"] .wp-pq-toast {
+  background: #44403c;
+}
+
+.wp-pq-alert-stack {
+  position: fixed;
+  right: 24px;
+  top: 24px;
+  z-index: 100001;
+  display: grid;
+  gap: 10px;
+  width: min(360px, calc(100vw - 32px));
+}
+
+.wp-pq-alert-card {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--pq-border);
+  border-radius: 18px;
+  background: var(--pq-surface);
+  box-shadow: var(--pq-shadow-lg);
+}
+
+.wp-pq-alert-copy {
+  display: grid;
+  gap: 4px;
+  padding-right: 24px;
+}
+
+.wp-pq-alert-copy strong {
+  color: var(--pq-ink);
+}
+
+.wp-pq-alert-copy small,
+.wp-pq-alert-copy p {
+  color: var(--pq-muted);
+}
+
+.wp-pq-alert-copy p {
+  margin: 0;
+}
+
+.wp-pq-alert-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wp-pq-alert-dismiss {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  border: 0;
+  background: transparent;
+  color: var(--pq-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.wp-pq-alert-dismiss:hover,
+.wp-pq-alert-dismiss:focus-visible {
+  color: var(--pq-ink);
+}
+
+.wp-pq-empty-state {
+  margin: 0;
+  padding: 14px;
+  border: 1px dashed var(--pq-border);
+  border-radius: var(--pq-radius);
+  color: var(--pq-muted);
+  font-size: 13px;
+  text-align: center;
+  background: var(--pq-soft);
+}
+
+/* Tooltips rendered via JS into #wp-pq-tooltip (fixed position, escapes overflow) */
+#wp-pq-tooltip {
+  position: fixed;
+  min-width: 120px;
+  max-width: 220px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--pq-ink);
+  color: var(--pq-surface);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: normal;
+  word-break: break-word;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 120ms ease, transform 120ms ease;
+  z-index: 10000;
+}
+
+#wp-pq-tooltip.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}

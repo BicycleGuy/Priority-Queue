@@ -40,6 +40,8 @@ final class WP_PQ_Plugin
         WP_PQ_Migrations::migrate_google_tokens_to_user();
         WP_PQ_Migrations::migrate_invite_tracking_columns();
         WP_PQ_Migrations::migrate_billing_status_redesign();
+        WP_PQ_Migrations::migrate_job_billing_defaults();
+        WP_PQ_Migrations::migrate_job_billing_fee_sow();
         WP_PQ_Housekeeping::init();
         WP_PQ_Admin::init();
         WP_PQ_API::init();

@@ -107,11 +107,16 @@
 
       var defaultLabel = bucket.is_default ? 'Default' : '';
       var memberLabel = memberCount + ' member' + (memberCount !== 1 ? 's' : '');
+      var modeLabels = { hourly: 'Hourly', fixed_fee: 'Fixed fee', pass_through_expense: 'Pass-through', non_billable: 'Non-billable' };
+      var billingLabel = modeLabels[bucket.default_billing_mode] || '';
+      var rateLabel = bucket.default_rate && Number(bucket.default_rate) > 0 ? '$' + Number(bucket.default_rate).toFixed(2) + '/hr' : '';
+      var billingMeta = [billingLabel, rateLabel].filter(Boolean).join(' @ ');
+      var metaParts = [defaultLabel, memberLabel, billingMeta].filter(Boolean).join(' \u00b7 ');
 
       return '<div class="wp-pq-job-row wp-pq-manager-subcard">' +
         '<div class="wp-pq-job-summary">' +
           '<strong>' + esc(bucket.bucket_name || 'Job') + '</strong>' +
-          '<small>' + defaultLabel + (defaultLabel && memberLabel ? ' \u00b7 ' : '') + memberLabel + '</small>' +
+          '<small>' + metaParts + '</small>' +
         '</div>' +
         '<div class="wp-pq-job-actions">' +
           '<button class="button wp-pq-secondary-action" type="button" data-action="show-move-job" data-job-id="' + bucket.id + '">Move</button>' +
@@ -123,7 +128,10 @@
     }).join('');
     var jobsTab = '<div class="wp-pq-client-tab-body" data-tab="jobs"' + (clientTab !== 'jobs' ? ' hidden' : '') + '>' +
       '<form class="wp-pq-inline-action-form" data-action="create-job" data-client-id="' + selectedClient.id + '">' +
-        '<label><input type="text" name="bucket_name" placeholder="New job name" required></label><button class="button" type="submit">Add Job</button></form>' +
+        '<label><input type="text" name="bucket_name" placeholder="New job name" required></label>' +
+        '<label><select name="default_billing_mode"><option value="">Billing mode</option><option value="fixed_fee">Fixed fee</option><option value="hourly">Hourly</option><option value="pass_through_expense">Pass-through</option><option value="non_billable">Non-billable</option></select></label>' +
+        '<label><input type="number" name="default_rate" placeholder="Rate" step="0.01" min="0" style="width:80px"></label>' +
+        '<button class="button" type="submit">Add Job</button></form>' +
       '<div class="wp-pq-bucket-list">' + (jobRows || '<p class="wp-pq-empty-state">No jobs yet.</p>') + '</div></div>';
 
     // Tab: Access

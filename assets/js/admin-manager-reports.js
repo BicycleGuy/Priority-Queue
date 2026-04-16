@@ -155,6 +155,35 @@
       var rowsHtml = (group.entries || []).map(function (entry) {
         var status = String(entry.invoice_status || 'pending_review');
         var isLocked = status === 'invoiced' || status === 'paid';
+        var mode = String(entry.billing_mode || 'fixed_fee');
+        var modeLabels = { hourly: 'Hourly', fixed_fee: 'Fixed fee', pass_through_expense: 'Pass-through', scope_of_work: 'Scope of work', non_billable: 'Non-billable' };
+        var amountStr = Number(entry.amount || 0) > 0 ? '$' + Number(entry.amount).toFixed(2) : '';
+        var hoursStr = Number(entry.hours || 0) > 0 ? entry.hours + 'h' : '';
+        var billingMeta = [modeLabels[mode] || mode, hoursStr, amountStr].filter(Boolean).join(' · ');
+
+        var adjustHasHours = mode === 'fixed_fee' && Number(entry.hours || 0) > 0;
+        var dn = ' style="display:none"';
+
+        var adjustRow = '<tr class="wp-pq-adjust-row" data-adjust-for="' + entry.ledger_entry_id + '" style="display:none">' +
+          '<td colspan="7"><form class="wp-pq-adjust-form" data-action="adjust-ledger" data-ledger-id="' + entry.ledger_entry_id + '">' +
+          '<div class="wp-pq-adjust-grid">' +
+          '<label>Mode <select name="billing_mode">' +
+          '<option value="fixed_fee"' + (mode === 'fixed_fee' ? ' selected' : '') + '>Fixed fee</option>' +
+          '<option value="hourly"' + (mode === 'hourly' ? ' selected' : '') + '>Hourly</option>' +
+          '<option value="pass_through_expense"' + (mode === 'pass_through_expense' ? ' selected' : '') + '>Pass-through</option>' +
+          '<option value="scope_of_work"' + (mode === 'scope_of_work' ? ' selected' : '') + '>Scope of work</option>' +
+          '<option value="non_billable"' + (mode === 'non_billable' ? ' selected' : '') + '>Non-billable</option>' +
+          '</select></label>' +
+          '<label class="wp-pq-af-hours"' + (mode !== 'hourly' && !adjustHasHours ? dn : '') + '>Hours <input type="number" name="hours" step="0.25" min="0" value="' + (entry.hours || '') + '"></label>' +
+          '<label class="wp-pq-af-rate"' + (mode !== 'hourly' ? dn : '') + '>Rate <input type="number" name="rate" step="0.01" min="0" value="' + (entry.rate || '') + '"></label>' +
+          '<label class="wp-pq-af-amount"' + (mode === 'non_billable' ? dn : '') + '>Amount <input type="number" name="amount" step="0.01" value="' + (entry.amount || '') + '"></label>' +
+          '<label class="wp-pq-af-record-hours"' + (mode !== 'fixed_fee' ? dn : '') + '><input type="checkbox" class="wp-pq-adjust-record-hours-cb"' + (adjustHasHours ? ' checked' : '') + '> Also record hours</label>' +
+          '</div>' +
+          '<div class="wp-pq-adjust-actions">' +
+          '<button class="button button-primary" type="submit">Save</button>' +
+          '<button class="button" type="button" data-action="cancel-adjust" data-ledger-id="' + entry.ledger_entry_id + '">Cancel</button>' +
+          '</div></form></td></tr>';
+
         return '<tr' + (status === 'no_charge' ? ' class="wp-pq-rollup-no-charge"' : '') + '>' +
           '<td><input type="checkbox" class="wp-pq-rollup-check" data-ledger-entry-id="' + entry.ledger_entry_id + '"' +
           (isLocked ? ' disabled' : '') + '></td>' +
@@ -162,7 +191,8 @@
           '<td><strong>' + esc(entry.title_snapshot || '') + '</strong>' +
           '<div class="wp-pq-panel-note">' + esc(entry.work_summary || '') + '</div></td>' +
           '<td>' + esc(entry.owner_name || 'Unassigned') + '</td>' +
-          '<td>' + rollupStatusSelect(entry) + '</td>' +
+          '<td>' + rollupStatusSelect(entry) +
+          '<div class="wp-pq-panel-note">' + billingMeta + '</div></td>' +
           '<td><select class="wp-pq-rollup-job-select" data-action="assign-rollup-job"' +
           ' data-ledger-entry-id="' + entry.ledger_entry_id + '"' +
           ' data-task-id="' + (entry.task_id || 0) + '"' +
@@ -173,7 +203,8 @@
               esc(bucket.bucket_name || 'Job') + '</option>';
           }).join('') +
           '</select></td>' +
-          '</tr>';
+          '<td><button class="button wp-pq-secondary-action" type="button" data-action="toggle-adjust" data-ledger-id="' + entry.ledger_entry_id + '">Adjust</button></td>' +
+          '</tr>' + adjustRow;
       }).join('');
 
       return '<section class="wp-pq-panel wp-pq-manager-card">' +
@@ -184,7 +215,7 @@
         '<table class="wp-pq-admin-table wp-pq-manager-table">' +
         '<thead><tr>' +
         '<th><input type="checkbox" class="wp-pq-rollup-check-all"></th>' +
-        '<th>Date</th><th>Title</th><th>Owner</th><th>Billing</th><th>Job</th>' +
+        '<th>Date</th><th>Title</th><th>Owner</th><th>Billing</th><th>Job</th><th></th>' +
         '</tr></thead>' +
         '<tbody>' + rowsHtml + '</tbody>' +
         '</table></section>';
@@ -320,6 +351,9 @@
       });
     }
 
+    // ── Adjust-row wiring (direct on each form, fresh every render) ──
+    wireAdjustForms();
+
     function getCheckedEntryIds() {
       var ids = [];
       el.managerContent.querySelectorAll('.wp-pq-rollup-check:checked').forEach(function (cb) {
@@ -335,6 +369,114 @@
       var count = document.getElementById('wp-pq-rollup-bulk-count');
       if (bar) bar.hidden = ids.length === 0;
       if (count) count.textContent = ids.length + ' selected';
+    }
+
+    function show(el) { if (el) el.style.display = ''; }
+    function hide(el) { if (el) el.style.display = 'none'; }
+
+    function updateAdjustFields(form) {
+      if (!form) return;
+      var mode = form.querySelector('[name="billing_mode"]').value;
+      var hoursLabel = form.querySelector('.wp-pq-af-hours');
+      var rateLabel = form.querySelector('.wp-pq-af-rate');
+      var amountLabel = form.querySelector('.wp-pq-af-amount');
+      var recordHoursLabel = form.querySelector('.wp-pq-af-record-hours');
+
+      if (mode === 'hourly') {
+        show(hoursLabel); show(rateLabel); show(amountLabel); hide(recordHoursLabel);
+      } else if (mode === 'fixed_fee') {
+        hide(rateLabel); show(amountLabel); show(recordHoursLabel);
+        var cb = recordHoursLabel ? recordHoursLabel.querySelector('.wp-pq-adjust-record-hours-cb') : null;
+        if (cb && cb.checked) { show(hoursLabel); } else { hide(hoursLabel); }
+      } else if (mode === 'pass_through_expense' || mode === 'scope_of_work') {
+        hide(hoursLabel); hide(rateLabel); show(amountLabel); hide(recordHoursLabel);
+      } else {
+        hide(hoursLabel); hide(rateLabel); hide(amountLabel); hide(recordHoursLabel);
+      }
+    }
+
+    function wireAdjustForms() {
+      el.managerContent.querySelectorAll('.wp-pq-adjust-form').forEach(function (form) {
+        var modeSelect = form.querySelector('[name="billing_mode"]');
+        var recordCb = form.querySelector('.wp-pq-adjust-record-hours-cb');
+        var hoursInput = form.querySelector('[name="hours"]');
+        var rateInput = form.querySelector('[name="rate"]');
+
+        // Mode change → show/hide fields
+        modeSelect.addEventListener('change', function () { updateAdjustFields(form); });
+
+        // "Also record hours" checkbox
+        if (recordCb) {
+          recordCb.addEventListener('change', function () {
+            var hoursLabel = form.querySelector('.wp-pq-af-hours');
+            if (recordCb.checked) { show(hoursLabel); } else { hide(hoursLabel); }
+          });
+        }
+
+        // Hourly auto-calc
+        function autoCalc() {
+          if (modeSelect.value !== 'hourly') return;
+          var h = Number(hoursInput.value || 0);
+          var r = Number(rateInput.value || 0);
+          if (h > 0 && r > 0) {
+            form.querySelector('[name="amount"]').value = (h * r).toFixed(2);
+          }
+        }
+        if (hoursInput) hoursInput.addEventListener('input', autoCalc);
+        if (rateInput) rateInput.addEventListener('input', autoCalc);
+
+        // Submit
+        form.addEventListener('submit', async function (e) {
+          e.preventDefault();
+          var entryId = form.dataset.ledgerId;
+          if (!entryId) return;
+          var mode = modeSelect.value;
+          var payload = {};
+          if (mode) payload.billing_mode = mode;
+
+          if (mode === 'hourly') {
+            if (hoursInput.value !== '') payload.hours = Number(hoursInput.value);
+            if (rateInput.value !== '') payload.rate = Number(rateInput.value);
+            var a = form.querySelector('[name="amount"]').value;
+            if (a !== '') payload.amount = Number(a);
+          } else if (mode === 'fixed_fee') {
+            var a = form.querySelector('[name="amount"]').value;
+            if (a !== '') payload.amount = Number(a);
+            if (recordCb && recordCb.checked && hoursInput.value !== '') {
+              payload.hours = Number(hoursInput.value);
+            } else {
+              payload.hours = 0;
+            }
+          } else if (mode === 'pass_through_expense' || mode === 'scope_of_work') {
+            var a = form.querySelector('[name="amount"]').value;
+            if (a !== '') payload.amount = Number(a);
+          }
+
+          try {
+            await submitJson('manager/ledger/' + entryId, 'POST', payload);
+            await renderBillingQueue();
+          } catch (err) {
+            alert('Adjust failed: ' + err.message);
+          }
+        });
+      });
+
+      // Toggle / Cancel — delegated on container (click targets are fresh each render)
+      el.managerContent.querySelectorAll('[data-action="toggle-adjust"]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var row = el.managerContent.querySelector('.wp-pq-adjust-row[data-adjust-for="' + btn.dataset.ledgerId + '"]');
+          if (!row) return;
+          var visible = row.style.display !== 'none';
+          row.style.display = visible ? 'none' : '';
+          if (!visible) updateAdjustFields(row.querySelector('.wp-pq-adjust-form'));
+        });
+      });
+      el.managerContent.querySelectorAll('[data-action="cancel-adjust"]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var row = el.managerContent.querySelector('.wp-pq-adjust-row[data-adjust-for="' + btn.dataset.ledgerId + '"]');
+          if (row) row.style.display = 'none';
+        });
+      });
     }
   }
 
@@ -731,6 +873,124 @@
     }
   }
 
+  // ── Billing Setup ─────────────────────────────────────────────────
+
+  var modeLabels = { hourly: 'Hourly', fixed_fee: 'Fixed fee', pass_through_expense: 'Pass-through', non_billable: 'Non-billable' };
+  var modeOptions = '<option value="">Not set</option>' +
+    '<option value="fixed_fee">Fixed fee</option>' +
+    '<option value="hourly">Hourly</option>' +
+    '<option value="pass_through_expense">Pass-through</option>' +
+    '<option value="scope_of_work">Scope of work</option>' +
+    '<option value="non_billable">Non-billable</option>';
+
+  async function renderBillingSetup() {
+    renderManagerFrame('billing-setup');
+    el.managerToolbar.innerHTML = '';
+    el.managerContent.innerHTML = '<div class="wp-pq-empty-state">Loading billing setup\u2026</div>';
+    await ensureClients();
+    var clients = currentClients();
+    if (!clients.length) {
+      el.managerContent.innerHTML = '<div class="wp-pq-empty-state">No clients found.</div>';
+      return;
+    }
+
+    var treeItems = clients.map(function (client) {
+      var buckets = client.buckets || [];
+      if (!buckets.length) return '';
+
+      var jobNodes = buckets.map(function (bucket) {
+        var mode = bucket.default_billing_mode || '';
+        var rate = bucket.default_rate && Number(bucket.default_rate) > 0 ? Number(bucket.default_rate).toFixed(2) : '';
+        var fee = bucket.default_fee && Number(bucket.default_fee) > 0 ? Number(bucket.default_fee).toFixed(2) : '';
+        var modeOpts = modeOptions.replace('value="' + mode + '"', 'value="' + mode + '" selected');
+        var dn = ' style="display:none"';
+
+        return '<li>' +
+          '<div class="wp-pq-tree-node wp-pq-tree-node-job wp-pq-billing-setup-job" data-bucket-id="' + bucket.id + '">' +
+          '<div class="wp-pq-billing-setup-name">' + esc(bucket.bucket_name || 'Job') +
+          (Number(bucket.is_default) ? ' <span class="wp-pq-tree-badge">default</span>' : '') +
+          '</div>' +
+          '<div class="wp-pq-billing-setup-fields">' +
+          '<label>Mode <select name="billing_mode" class="wp-pq-billing-setup-mode">' + modeOpts + '</select></label>' +
+          '<label class="wp-pq-billing-setup-rate"' + (mode !== 'hourly' ? dn : '') + '>Rate <input type="number" name="rate" step="0.01" min="0" value="' + rate + '" placeholder="0.00"></label>' +
+          '<label class="wp-pq-billing-setup-fee"' + (mode !== 'fixed_fee' ? dn : '') + '>Fee <input type="number" name="default_fee" step="0.01" min="0" value="' + fee + '" placeholder="0.00"></label>' +
+          '<span class="wp-pq-billing-setup-saved" style="display:none">Saved</span>' +
+          '</div>' +
+          '</div></li>';
+      }).join('');
+
+      var initials = (client.company_name || client.display_name || '?').charAt(0).toUpperCase();
+
+      return '<li>' +
+        '<div class="wp-pq-tree-node wp-pq-tree-node-client">' +
+        '<span class="wp-pq-tree-collapse-indicator">&#9660;</span>' +
+        '<div class="wp-pq-tree-client-icon" style="background:#64748b">' + esc(initials) + '</div>' +
+        '<div><div class="wp-pq-tree-node-name">' + esc(client.company_name || client.display_name || 'Client') + '</div>' +
+        '<div class="wp-pq-tree-node-meta">' + buckets.length + ' job' + (buckets.length !== 1 ? 's' : '') + '</div></div>' +
+        '</div>' +
+        '<ul>' + jobNodes + '</ul>' +
+        '</li>';
+    }).filter(Boolean).join('');
+
+    el.managerContent.innerHTML =
+      '<section class="wp-pq-panel wp-pq-manager-card">' +
+      '<div class="wp-pq-section-heading"><div>' +
+      '<h3>Billing Setup</h3>' +
+      '<p class="wp-pq-panel-note">Set the default billing mode and rate for each job. These defaults pre-fill the completion modal when tasks are delivered.</p>' +
+      '</div></div>' +
+      '<div class="wp-pq-tree-layout">' +
+      '<ul class="wp-pq-tree">' + treeItems + '</ul>' +
+      '</div></section>';
+
+    // Wire mode selects → show/hide contextual fields, auto-save
+    el.managerContent.querySelectorAll('.wp-pq-billing-setup-job').forEach(function (node) {
+      var bucketId = node.dataset.bucketId;
+      var modeSelect = node.querySelector('[name="billing_mode"]');
+      var rateInput = node.querySelector('[name="rate"]');
+      var feeInput = node.querySelector('[name="default_fee"]');
+      var rateLabel = node.querySelector('.wp-pq-billing-setup-rate');
+      var feeLabel = node.querySelector('.wp-pq-billing-setup-fee');
+      var savedEl = node.querySelector('.wp-pq-billing-setup-saved');
+
+      function syncFields() {
+        var m = modeSelect.value;
+        if (rateLabel) rateLabel.style.display = m === 'hourly' ? '' : 'none';
+        if (feeLabel) feeLabel.style.display = m === 'fixed_fee' ? '' : 'none';
+      }
+
+      async function save() {
+        var payload = {
+          default_billing_mode: modeSelect.value || '',
+          default_rate: rateInput && rateInput.value !== '' ? Number(rateInput.value) : '',
+          default_fee: feeInput && feeInput.value !== '' ? Number(feeInput.value) : '',
+        };
+        try {
+          await submitJson('manager/jobs/' + bucketId, 'POST', payload);
+          if (savedEl) {
+            savedEl.style.display = '';
+            setTimeout(function () { savedEl.style.display = 'none'; }, 1500);
+          }
+        } catch (err) {
+          alert('Save failed: ' + err.message);
+        }
+      }
+
+      modeSelect.addEventListener('change', function () { syncFields(); save(); });
+      if (rateInput) rateInput.addEventListener('change', save);
+      if (feeInput) feeInput.addEventListener('change', save);
+    });
+
+    // Collapse/expand client nodes
+    el.managerContent.querySelectorAll('.wp-pq-tree-node-client').forEach(function (node) {
+      node.addEventListener('click', function (e) {
+        if (e.target.closest('select') || e.target.closest('input')) return;
+        var li = node.closest('li');
+        if (li) li.classList.toggle('is-collapsed');
+      });
+    });
+  }
+
+  m.render['billing-setup'] = renderBillingSetup;
   m.render['billing-queue'] = renderBillingQueue;
   m.render['work-statements'] = renderWorkStatements;
   m.render['invoice-drafts'] = renderInvoiceDrafts;

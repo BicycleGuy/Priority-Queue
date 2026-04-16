@@ -447,6 +447,12 @@
         requireCategory: true,
         requireHours: false,
       },
+      scope_of_work: {
+        note: 'Scope-of-work tasks are billed against a pre-agreed engagement amount. Enter the amount being applied to this delivery.',
+        show: ['amount'],
+        requireCategory: true,
+        requireHours: false,
+      },
       non_billable: {
         note: 'Non-billable work still needs a summary for the ledger, but it will stay out of invoice prep.',
         show: ['non_billable_reason'],
@@ -500,13 +506,16 @@
     completionForm.reset();
 
     const defaultMode = String(task.billing_mode || '').trim()
+      || String(task.job_default_billing_mode || '').trim()
       || ((Number(task.is_billable) === 0 || String(task.billing_status || '') === 'not_billable' || task.action_owner_is_client) ? 'non_billable' : 'fixed_fee');
     if (completionBillingModeEl) completionBillingModeEl.value = defaultMode;
     if (completionBillingCategoryEl) completionBillingCategoryEl.value = String(task.billing_category || task.bucket_name || '');
     if (completionWorkSummaryEl) completionWorkSummaryEl.value = String(task.work_summary || task.description || task.title || '');
     if (completionHoursEl) completionHoursEl.value = String(task.hours || '');
-    if (completionRateEl) completionRateEl.value = String(task.rate || '');
-    if (completionAmountEl) completionAmountEl.value = String(task.amount || '');
+    if (completionRateEl) completionRateEl.value = String(task.rate || task.job_default_rate || '');
+    var prefillAmount = task.amount || '';
+    if (!prefillAmount && defaultMode === 'fixed_fee' && task.job_default_fee) prefillAmount = task.job_default_fee;
+    if (completionAmountEl) completionAmountEl.value = String(prefillAmount);
     if (completionExpenseReferenceEl) completionExpenseReferenceEl.value = String(task.expense_reference || '');
     if (completionNonBillableReasonEl) completionNonBillableReasonEl.value = String(task.non_billable_reason || '');
     if (completionSummaryEl) {

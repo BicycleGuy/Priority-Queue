@@ -41,6 +41,10 @@
       title: 'Clients and Jobs',
       note: 'Create client accounts, manage members, and control job access without leaving the portal.',
     },
+    'billing-setup': {
+      title: 'Billing Setup',
+      note: 'Configure billing mode and rate for each client and job.',
+    },
     'billing-queue': {
       title: 'Billing Queue',
       note: 'Review delivered work, make billing decisions, and track payment status.',
@@ -94,11 +98,24 @@
   }
 
   function toast(message, isError) {
-    if (window.wp?.data?.dispatch) {
-      window.wp.data.dispatch('core/notices').createNotice(isError ? 'error' : 'success', message, { isDismissible: true });
+    // Use the portal's auto-dismissing toast stack
+    if (window.wpPqPortalUI?.alert) {
+      window.wpPqPortalUI.alert(message, isError ? 'error' : 'success');
       return;
     }
-    window.alert(message);
+    // Fallback: create a simple self-dismissing toast
+    var stack = document.getElementById('wp-pq-toast-stack');
+    if (!stack) {
+      stack = document.createElement('div');
+      stack.id = 'wp-pq-toast-stack';
+      stack.className = 'wp-pq-toast-stack';
+      document.body.appendChild(stack);
+    }
+    var el = document.createElement('div');
+    el.className = 'wp-pq-toast ' + (isError ? 'error' : 'success');
+    el.textContent = message;
+    stack.appendChild(el);
+    setTimeout(function () { el.remove(); }, 3200);
   }
 
   function sectionUrl(section) {
@@ -480,7 +497,8 @@
       if (form.id === 'wp-pq-manager-create-client') {
         await submitJson('manager/clients', 'POST', Object.fromEntries(new FormData(form).entries()));
         state.clients = null;
-        await _pqMgr.render.clients();
+        var renderer = _pqMgr.render[state.section] || _pqMgr.render.clients;
+        await renderer();
         toast('Client created.', false);
         return;
       }
@@ -543,6 +561,7 @@
           body: formData,
         });
         state.aiPreview = response.preview || null;
+        if (response.team_members) state.aiTeamMembers = response.team_members;
         await _pqMgr.render['ai-import']();
         const taskCount = (response.preview?.tasks || []).length;
         toast((response.message || 'Parsed.') + (taskCount > 0 ? ' Review below, then click Import Tasks.' : ''), false);
@@ -591,8 +610,8 @@
     }
   });
 
-  // Tree collapse/expand and backdrop click (non-button elements)
-  managerContent?.addEventListener('click', (event) => {
+  // Tree collapse/expand, backdrop click, and tree-action links (non-button elements)
+  managerContent?.addEventListener('click', async (event) => {
     // Tree toggle: collapse indicator or group header
     const toggle = event.target.closest('[data-action="tree-toggle"]');
     if (toggle) {
@@ -608,6 +627,18 @@
       if (drawer) drawer.classList.remove('is-open');
       if (backdrop) backdrop.classList.remove('is-open');
       return;
+    }
+    // "+ Add job" / "+ Invite member" tree links (non-button data-action elements)
+    const actionEl = event.target.closest('[data-action]');
+    if (actionEl && actionEl.dataset.clientId) {
+      const action = actionEl.dataset.action;
+      if (action === 'open-add-job-for-client' || action === 'open-invite-for-client') {
+        state.selectedClientId = Number(actionEl.dataset.clientId);
+        state.clientTab = 'overview';
+        state.drawerOpen = true;
+        await _pqMgr.render.clients();
+        return;
+      }
     }
   });
 
@@ -857,7 +888,13 @@
         return;
       }
       if (form.dataset.action === 'create-job') {
-        await submitJson('manager/jobs', 'POST', { client_id: Number(form.dataset.clientId || 0), bucket_name: new FormData(form).get('bucket_name') });
+        const fd = new FormData(form);
+        const payload = { client_id: Number(form.dataset.clientId || 0), bucket_name: fd.get('bucket_name') };
+        const mode = fd.get('default_billing_mode');
+        const rate = fd.get('default_rate');
+        if (mode) payload.default_billing_mode = mode;
+        if (rate) payload.default_rate = rate;
+        await submitJson('manager/jobs', 'POST', payload);
         state.clients = null;
         await _pqMgr.render.clients();
         toast('Job saved.', false);
@@ -959,6 +996,7 @@
         replaceSectionUrl('ai-import', { client_id: clientId, billing_bucket_id: jobId });
         const response = await submitJson('manager/ai-import/revalidate', 'POST', { client_id: clientId, billing_bucket_id: jobId });
         state.aiPreview = response.preview || null;
+        if (response.team_members) state.aiTeamMembers = response.team_members;
         await _pqMgr.render['ai-import']();
         toast(response.message || 'Preview context updated.', false);
         return;
@@ -968,7 +1006,10 @@
         const jobId = Number(document.getElementById('wp-pq-ai-job')?.value || state.aiPreview?.billing_bucket_id || 0);
         const confirmNewJobs = !!document.getElementById('wp-pq-ai-confirm-jobs')?.checked;
         state.aiContext = { client_id: clientId, billing_bucket_id: jobId };
-        const response = await submitJson('manager/ai-import/import', 'POST', { client_id: clientId, billing_bucket_id: jobId, confirm_new_jobs: confirmNewJobs });
+        const taskOverrides = (state.aiPreview?.tasks || []).map(function (t) { return t._edited ? t : null; });
+        const payload = { client_id: clientId, billing_bucket_id: jobId, confirm_new_jobs: confirmNewJobs };
+        if (taskOverrides.some(Boolean)) payload.task_overrides = taskOverrides;
+        const response = await submitJson('manager/ai-import/import', 'POST', payload);
         state.aiPreview = null;
         await _pqMgr.render['ai-import']();
         toast(response.message || 'Tasks imported.', false);

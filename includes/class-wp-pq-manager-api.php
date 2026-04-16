@@ -116,9 +116,16 @@ class WP_PQ_Manager_API
         ]);
 
         register_rest_route('pq/v1', '/manager/jobs/(?P<id>\d+)', [
-            'methods' => WP_REST_Server::DELETABLE,
-            'callback' => [self::class, 'delete_job'],
-            'permission_callback' => [self::class, 'can_manage'],
+            [
+                'methods' => WP_REST_Server::EDITABLE,
+                'callback' => [self::class, 'update_job'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
+            [
+                'methods' => WP_REST_Server::DELETABLE,
+                'callback' => [self::class, 'delete_job'],
+                'permission_callback' => [self::class, 'can_manage'],
+            ],
         ]);
 
         register_rest_route('pq/v1', '/manager/jobs/(?P<id>\d+)/force-delete', [
@@ -142,6 +149,12 @@ class WP_PQ_Manager_API
         register_rest_route('pq/v1', '/manager/jobs/(?P<id>\d+)/members/(?P<user_id>\d+)', [
             'methods' => WP_REST_Server::DELETABLE,
             'callback' => [self::class, 'unassign_job_member'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
+
+        register_rest_route('pq/v1', '/manager/ledger/(?P<id>\d+)', [
+            'methods' => WP_REST_Server::EDITABLE,
+            'callback' => [self::class, 'adjust_ledger_entry'],
             'permission_callback' => [self::class, 'can_manage'],
         ]);
 
@@ -607,10 +620,12 @@ class WP_PQ_Manager_API
     {
         $client_id = WP_PQ_Sanitizer::int($request, 'client_id');
         $bucket_name = WP_PQ_Sanitizer::text($request, 'bucket_name');
+        $default_billing_mode = sanitize_key((string) $request->get_param('default_billing_mode'));
+        $default_rate = (string) $request->get_param('default_rate');
         if ($client_id <= 0 || $bucket_name === '') {
             return self::error_response('Choose a client and job name.');
         }
-        $bucket_id = WP_PQ_Admin::create_bucket_for_client($client_id, $bucket_name);
+        $bucket_id = WP_PQ_Admin::create_bucket_for_client($client_id, $bucket_name, $default_billing_mode, $default_rate);
         if ($bucket_id <= 0) {
             return self::error_response('Job could not be saved.', 500);
         }
@@ -620,6 +635,54 @@ class WP_PQ_Manager_API
             'bucket_id' => $bucket_id,
             'message' => 'Job saved.',
         ], 201);
+    }
+
+    public static function update_job(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+
+        $bucket_id = (int) $request['id'];
+        if ($bucket_id <= 0) {
+            return self::error_response('Invalid job.');
+        }
+
+        $table = $wpdb->prefix . 'pq_billing_buckets';
+        $existing = $wpdb->get_row($wpdb->prepare("SELECT id FROM {$table} WHERE id = %d", $bucket_id));
+        if (! $existing) {
+            return self::error_response('Job not found.', 404);
+        }
+
+        $allowed_modes = ['hourly', 'fixed_fee', 'pass_through_expense', 'non_billable', 'scope_of_work', ''];
+        $mode = sanitize_key((string) $request->get_param('default_billing_mode'));
+        $rate = (string) $request->get_param('default_rate');
+
+        $update = [];
+        if (in_array($mode, $allowed_modes, true)) {
+            $update['default_billing_mode'] = $mode !== '' ? $mode : null;
+        }
+        if ($rate !== '') {
+            $update['default_rate'] = round((float) $rate, 2);
+        } elseif ($request->has_param('default_rate')) {
+            $update['default_rate'] = null;
+        }
+
+        // Default fee (fixed_fee mode)
+        if ($request->has_param('default_fee')) {
+            $fee = (string) $request->get_param('default_fee');
+            $update['default_fee'] = $fee !== '' ? round((float) $fee, 2) : null;
+        }
+
+        // SOW amount (scope_of_work mode)
+        if ($request->has_param('sow_amount')) {
+            $sow = (string) $request->get_param('sow_amount');
+            $update['sow_amount'] = $sow !== '' ? round((float) $sow, 2) : null;
+        }
+
+        if (! empty($update)) {
+            $wpdb->update($table, $update, ['id' => $bucket_id]);
+        }
+
+        return new WP_REST_Response(['ok' => true, 'message' => 'Job updated.'], 200);
     }
 
     public static function delete_job(WP_REST_Request $request): WP_REST_Response
@@ -833,6 +896,53 @@ class WP_PQ_Manager_API
             'groups' => $groups,
             'clients' => WP_PQ_Admin::get_billing_clients(WP_PQ_Admin::get_directory_users()),
         ], 200);
+    }
+
+    public static function adjust_ledger_entry(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+
+        $entry_id = (int) $request['id'];
+        $table = self::table(self::TABLE_LEDGER_ENTRIES);
+        $entry = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id = %d", $entry_id), ARRAY_A);
+
+        if (! $entry) {
+            return self::error_response('Ledger entry not found.', 404);
+        }
+
+        $allowed_modes = ['hourly', 'fixed_fee', 'pass_through_expense', 'non_billable', 'scope_of_work'];
+        $update = [];
+
+        $billing_mode = sanitize_key((string) $request->get_param('billing_mode'));
+        if ($billing_mode !== '' && in_array($billing_mode, $allowed_modes, true)) {
+            $update['billing_mode'] = $billing_mode;
+            $update['billable'] = ($billing_mode !== 'non_billable') ? 1 : 0;
+        }
+
+        if ($request->has_param('hours')) {
+            $update['hours'] = max(0, round((float) $request->get_param('hours'), 2));
+        }
+        if ($request->has_param('rate')) {
+            $update['rate'] = max(0, round((float) $request->get_param('rate'), 2));
+        }
+        if ($request->has_param('amount')) {
+            $update['amount'] = round((float) $request->get_param('amount'), 2);
+        }
+        if ($request->has_param('billing_category')) {
+            $update['billing_category'] = sanitize_text_field((string) $request->get_param('billing_category'));
+        }
+        if ($request->has_param('work_summary')) {
+            $update['work_summary'] = sanitize_textarea_field((string) $request->get_param('work_summary'));
+        }
+
+        if (empty($update)) {
+            return self::error_response('Nothing to update.');
+        }
+
+        $update['updated_at'] = current_time('mysql', true);
+        $wpdb->update($table, $update, ['id' => $entry_id]);
+
+        return new WP_REST_Response(['ok' => true, 'message' => 'Ledger entry adjusted.'], 200);
     }
 
     public static function assign_rollup_job(WP_REST_Request $request): WP_REST_Response
@@ -1284,6 +1394,7 @@ class WP_PQ_Manager_API
     {
         return new WP_REST_Response([
             'preview' => WP_PQ_Admin::get_ai_import_preview(),
+            'team_members' => WP_PQ_Admin::get_member_candidate_users(),
         ], 200);
     }
 
@@ -1341,6 +1452,7 @@ class WP_PQ_Manager_API
             'ok' => true,
             'message' => sprintf('Parsed %d task%s.', count((array) ($preview['tasks'] ?? [])), count((array) ($preview['tasks'] ?? [])) === 1 ? '' : 's'),
             'preview' => $preview,
+            'team_members' => WP_PQ_Admin::get_member_candidate_users(),
         ], 200);
     }
 
@@ -1370,6 +1482,7 @@ class WP_PQ_Manager_API
             'ok' => true,
             'message' => 'Preview context updated.',
             'preview' => $rebuilt,
+            'team_members' => WP_PQ_Admin::get_member_candidate_users(),
         ], 200);
     }
 
@@ -1399,7 +1512,37 @@ class WP_PQ_Manager_API
         $errors = [];
         global $wpdb;
 
+        // Apply per-task overrides from the preview UI (owner, title, billable, etc.).
+        $overrides_json = $request->get_param('task_overrides');
+        $overrides = is_string($overrides_json) ? json_decode($overrides_json, true) : (is_array($overrides_json) ? $overrides_json : []);
+        if (is_array($overrides) && ! empty($overrides)) {
+            foreach ($overrides as $i => $ov) {
+                if (! is_array($ov) || ! isset($preview['tasks'][$i])) {
+                    continue;
+                }
+                if (! empty($ov['_removed']) || ! empty($ov['removed'])) {
+                    $preview['tasks'][$i]['_removed'] = true;
+                    continue;
+                }
+                foreach (['title', 'priority', 'action_owner_hint', 'status_hint'] as $field) {
+                    if (array_key_exists($field, $ov)) {
+                        $preview['tasks'][$i][$field] = $ov[$field];
+                    }
+                }
+                if (array_key_exists('resolved_owner_id', $ov)) {
+                    $preview['tasks'][$i]['resolved_owner_id'] = (int) $ov['resolved_owner_id'];
+                }
+                if (array_key_exists('is_billable', $ov)) {
+                    $val = $ov['is_billable'];
+                    $preview['tasks'][$i]['is_billable'] = ($val === null || $val === '' || $val === 'null') ? null : (bool) $val;
+                }
+            }
+        }
+
         foreach ((array) $preview['tasks'] as $task) {
+            if (! empty($task['_removed'])) {
+                continue;
+            }
             $task_bucket_id = self::resolve_preview_bucket_id($task, $client_id, $bucket_id);
             $action_owner_id = (int) ($task['resolved_owner_id'] ?? 0);
             $task_request = new WP_REST_Request('POST', '/pq/v1/tasks');
