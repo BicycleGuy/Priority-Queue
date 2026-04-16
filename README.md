@@ -1,117 +1,87 @@
-# Priority Queue
+# Switchboard
 
-WordPress plugin for a client-facing task portal with approvals, board workflow, messaging, files, meeting scheduling, and billing rollups.
+Client work management: intake, approvals, kanban execution, billing, and a client portal.
 
-## What It Does
+Currently shipping as a WordPress plugin (Priority-Queue). **In transition** to a standalone Node + React + Postgres application — see [REFACTOR_PLAN.md](REFACTOR_PLAN.md).
+
+---
+
+## Status
+
+- **Live plugin version:** `0.55.4` (`wp-priority-queue-plugin.php`)
+- **Live URL:** https://readspear.com/priority-portal/
+- **Stack today:** WordPress 6.0+ / PHP 8.1+ / MySQL / vanilla JS portal
+- **Next stack:** Node + React + Postgres (multi-tenant, standalone)
+- **Status:** No paying clients yet. Refactor begins now to avoid carrying WP debt forward.
+
+## What it does
 
 - Board and calendar views for task management
-- Role-aware access for:
-  - `pq_client`
-  - `pq_worker`
-  - `pq_manager`
-- Approval workflow with explicit status transitions
-- Separate requester, client, and action owner task context
-- Task messaging with `@mentions`
-- Sticky notes for pinned task context
-- File attachments with retention/version rules
+- Approval workflow with explicit status transitions: `Pending Approval` → `Needs Clarification` → `Approved` → `In Progress` → `Needs Review` → `Delivered`
+- Role-based access: client / worker / manager / administrator
+- Task messaging with `@mentions`, sticky notes, file attachments
 - Google Calendar / Google Meet integration
-- In-app alerts and email notifications
-- Client/job bucket model for billing organization
-- Billing rollups, work logs, and statements
+- Email notifications and in-app alerts
+- Client → job → task hierarchy
+- Billing modes per task or job: `hourly`, `fixed_fee`, `pass_through_expense`, `scope_of_work`, `non_billable`
+- Billing queue, work statements, invoice drafts
+- AI Import: paste plain-language task lists, parse via OpenAI/Anthropic, edit preview, import to queue
 
-## Current Workflow
+## Repository layout (current WP plugin)
 
-- `Pending Approval`
-- `Needs Clarification`
-- `Approved`
-- `In Progress`
-- `Revisions Needed`
-- `Needs Review`
-- `Delivered`
-
-Billing is intentionally separate from workflow status.
-
-## Shortcode
-
-Use this shortcode on the portal page:
-
-```text
-[pq_client_portal]
+```
+wp-priority-queue-plugin.php       Plugin bootstrap, WP_PQ_VERSION constant
+includes/
+  class-wp-pq-plugin.php           Runtime boot
+  class-wp-pq-installer.php        Activation, table creation
+  class-wp-pq-db.php               Schema (dbDelta), helpers
+  class-wp-pq-migrations.php       One-time data migrations
+  class-wp-pq-roles.php            Capabilities, roles
+  class-wp-pq-workflow.php         Status transitions, allowed moves
+  class-wp-pq-sanitizer.php        Input sanitization helpers
+  class-wp-pq-api.php              Portal REST API + task business logic
+  class-wp-pq-manager-api.php      Manager-only REST API
+  class-wp-pq-portal.php           Shortcode markup, asset registration
+  class-wp-pq-admin.php            Admin pages, client/billing helpers
+  class-wp-pq-mail.php             Email sending
+  class-wp-pq-files.php            Upload handling
+  class-wp-pq-calendar.php         Google Calendar sync
+  class-wp-pq-google-auth.php      OAuth relay
+  class-wp-pq-drive.php            Google Drive (mostly removed)
+  class-wp-pq-housekeeping.php     Cron jobs
+  class-wp-pq-ai-importer.php      OpenAI/Anthropic parse calls
+assets/
+  js/                              Vanilla JS modules (admin-queue, admin-manager-*, modals)
+  css/                             admin-base, admin-portal, admin-manager, admin-billing
+docs/
+  multitenant-v1/                  Earlier exploration of Node + Postgres target — basis for refactor
+  archive/wp-era/                  Historical specs and punch lists from the WP plugin era
 ```
 
-## Main Plugin Areas
+## Documentation
 
-- Plugin bootstrap:
-  - `wp-priority-queue-plugin.php`
-- Runtime boot:
-  - `includes/class-wp-pq-plugin.php`
-- REST API and business logic:
-  - `includes/class-wp-pq-api.php`
-- Admin screens:
-  - `includes/class-wp-pq-admin.php`
-- Portal markup:
-  - `includes/class-wp-pq-portal.php`
-- DB schema and migrations:
-  - `includes/class-wp-pq-db.php`
-- Workflow rules:
-  - `includes/class-wp-pq-workflow.php`
-- Frontend controller:
-  - `assets/js/admin-queue.js`
-- Frontend styling:
-  - `assets/css/admin-queue.css`
+- **[REFACTOR_PLAN.md](REFACTOR_PLAN.md)** — the master plan for moving off WordPress
+- **[HANDOFF.md](HANDOFF.md)** — current state and next steps for thread continuity
+- `docs/multitenant-v1/` — schema sketch, API contract, architecture notes that seed the new app
+- `docs/archive/wp-era/` — historical specs (board redesign, ledger refactor, OAuth, conversation, invites, release tracking, punchlist)
 
-## Key Features
+## Deployment (current WP version)
 
-### Tasks and Workflow
+```bash
+SSHPASS='...' sshpass -e rsync -avz --exclude='.git' --exclude='.claude' --exclude='.DS_Store' \
+  /Users/readspear/Downloads/Priority-Queue/ \
+  codex@104.236.224.6:/home/1353152.cloudwaysapps.com/qyrgzbqeju/public_html/wp-content/plugins/wp-priority-queue-plugin/ \
+  -e 'ssh -o StrictHostKeyChecking=no'
+```
 
-- Drag-and-drop board
-- Status transitions with modal guidance where needed
-- Priority and date adjustments during meaningful moves
-- Action-owner assignment and reassignment notifications
-- Client and job filtering for manager view
+Bump `WP_PQ_VERSION` in `wp-priority-queue-plugin.php` before deploy for CSS/JS cache busting. Pushing to GitHub does NOT deploy.
 
-### Collaboration
+## Plugin options
 
-- Task-scoped messages
-- `@mentions` for direct notification
-- Sticky notes for non-conversational reference material
-- Meeting-request overlay with separate meeting tab
+- `wp_pq_max_upload_mb`, `wp_pq_retention_days`, `wp_pq_retention_reminder_day`, `wp_pq_file_version_limit`
+- `wp_pq_google_client_id`, `wp_pq_google_client_secret`, `wp_pq_google_redirect_uri`
+- `wp_pq_openai_api_key`, `wp_pq_anthropic_api_key`, `wp_pq_openai_model`
 
-### Meetings and Calendar
+## License
 
-- Google OAuth connection flow
-- Google Calendar sync for task scheduling
-- Google Meet scheduling from task context
-
-### Files
-
-- Task file uploads
-- Version retention:
-  - keep last 3 versions
-  - retain for 365 days
-  - reminder around day 300
-
-### Billing
-
-- Client directory
-- Client-specific job buckets
-- Billing rollup by date range
-- Work logs
-- Statements
-- Print/PDF-friendly statement output
-
-## Plugin Options
-
-- `wp_pq_max_upload_mb`
-- `wp_pq_retention_days`
-- `wp_pq_retention_reminder_day`
-- `wp_pq_file_version_limit`
-- `wp_pq_google_client_id`
-- `wp_pq_google_client_secret`
-- `wp_pq_google_redirect_uri`
-
-## Notes
-
-- The live product is the WordPress plugin in this repository.
-- The surrounding archive/workspace may contain unrelated legacy projects; this repo is intended to track the plugin only.
-- SMTP and mail delivery are environment-dependent.
+MIT. Copyright 2026 BicycleGuy.
